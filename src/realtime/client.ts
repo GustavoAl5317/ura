@@ -84,6 +84,8 @@ export class RealtimeClient extends EventEmitter {
       ? {
           type: 'realtime',
           instructions,
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
           turn_detection: {
             type: 'server_vad',
             threshold: config.vad.threshold,
@@ -177,9 +179,12 @@ export class RealtimeClient extends EventEmitter {
 
     switch (event.type) {
       case 'response.audio.delta':
-      case 'response.output_audio.delta':
-        this.emit('audio', Buffer.from(event.delta, 'base64'));
+      case 'response.output_audio.delta': {
+        const buf = Buffer.from(event.delta, 'base64');
+        logger.debug(`[${this.callId}] audio chunk bytes=${buf.length}`);
+        this.emit('audio', buf);
         break;
+      }
 
       case 'response.text.delta':
       case 'response.output_audio_transcript.delta':
