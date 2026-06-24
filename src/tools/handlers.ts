@@ -5,6 +5,27 @@ import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { RealtimeClient } from '../realtime/client';
+import type { SgpPlano } from '../integrations/sgp';
+
+// Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
+const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
+
+function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
+  const { ids, precoMin, precoMax, max } = config.plans;
+  // 1. Whitelist explícita por .env tem prioridade — preserva a ordem informada
+  if (ids.length) {
+    const byId = new Map(planos.map((p) => [p.id, p]));
+    return ids.map((id) => byId.get(id)).filter((p): p is SgpPlano => !!p);
+  }
+  // 2. Heurística: descarta lixo, fora da faixa de preço, ordena por preço
+  return planos
+    .filter((p) => {
+      const preco = parseFloat(p.preco);
+      return Number.isFinite(preco) && preco >= precoMin && preco <= precoMax && !PLANO_LIXO.test(p.descricao);
+    })
+    .sort((a, b) => parseFloat(a.preco) - parseFloat(b.preco))
+    .slice(0, max);
+}
 
 export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
@@ -358,7 +379,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('consultar_planos', async () => {
-    const planos = await sgp.planos();
+    const todos = await sgp.planos();
+    const planos = filtrarPlanosComerciais(todos);
+    logger.info(`[${ctx.callId}] Planos: ${todos.length} no SGP, ${planos.length} comerciais`);
     return {
       planos: planos.map((p) => ({
         id: p.id,

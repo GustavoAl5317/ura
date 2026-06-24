@@ -108,6 +108,16 @@ export const config = {
     agentName: opt('AGENT_NAME', 'Ana'),
   },
 
+  plans: {
+    // Whitelist de IDs dos planos comerciais (prioridade máxima). Ex: "66,67,68,69,70"
+    ids: opt('PLANOS_COMERCIAIS_IDS', '')
+      .split(',').map((s) => s.trim()).filter(Boolean).map(Number),
+    // Heurística (quando não há whitelist): faixa de preço válida e limite
+    precoMin: optFloat('PLANOS_PRECO_MIN', 0.01),
+    precoMax: optFloat('PLANOS_PRECO_MAX', 200),
+    max: optInt('PLANOS_MAX', 6),
+  },
+
   features: {
     chamado: optBool('FEATURE_CHAMADO', true),
     chamadoOcorrenciaTipo: optInt('CHAMADO_OCORRENCIA_TIPO', 5),
