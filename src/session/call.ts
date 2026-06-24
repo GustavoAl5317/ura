@@ -191,12 +191,12 @@ export class CallSession {
     });
 
     this.rt.on('speechStop', () => {
-      // Aguarda 600ms antes de responder — permite pausas breves entre dígitos de CPF/CEP
+      // Aguarda antes de responder — permite pausas entre dígitos de CPF/CEP
       if (useNativeAudio) {
         speechStopTimer = setTimeout(() => {
           speechStopTimer = null;
           this.rt.createResponse();
-        }, 600);
+        }, config.vad.speechStopDelayMs);
       }
     });
 

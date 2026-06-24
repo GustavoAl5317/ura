@@ -64,6 +64,7 @@ export const config = {
     eagerness: opt('TURN_DETECTION_EAGERNESS', 'medium') as 'low' | 'medium' | 'high',
     threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.65),
     silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 700),
+    speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 1500),
     deferAudioWhileUserSpeaks: optBool('DEFER_ASSISTANT_AUDIO_WHILE_USER_SPEAKS', true),
     interruptResponse: optBool('REALTIME_INTERRUPT_RESPONSE', true),
   },
