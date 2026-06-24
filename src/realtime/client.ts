@@ -227,6 +227,7 @@ export class RealtimeClient extends EventEmitter {
           const result = await handler(args);
           this.clearToolTimer(call_id);
           this.emit('toolDone');
+          logger.info(`[${this.callId}] Tool ${name} resultado`, result);
           this.sendFunctionResult(call_id, result);
         } catch (err: any) {
           this.clearToolTimer(call_id);
