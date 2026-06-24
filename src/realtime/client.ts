@@ -77,6 +77,7 @@ export class RealtimeClient extends EventEmitter {
           };
 
     const sessionCfg: RealtimeSessionConfig = {
+      type: 'realtime',
       modalities,
       instructions,
       voice: config.openai.voice,

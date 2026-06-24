@@ -16,6 +16,7 @@ export interface TurnDetectionConfig {
 }
 
 export interface RealtimeSessionConfig {
+  type?: string;
   modalities: ('text' | 'audio')[];
   instructions: string;
   voice?: string;
