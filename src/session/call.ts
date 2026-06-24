@@ -119,11 +119,9 @@ export class CallSession {
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('audio', (pcm24k: Buffer) => {
-      // Áudio direto do OpenAI (apenas quando TTS_PROVIDER=openai)
-      if (config.tts.provider === 'openai') {
-        const pcm8k = downsample24to8(pcm24k);
-        this.sendToAsterisk(pcm8k);
-      }
+      // Áudio direto do OpenAI — TTS=openai ou modelos gpt-realtime-* que geram áudio nativamente
+      const pcm8k = downsample24to8(pcm24k);
+      this.sendToAsterisk(pcm8k);
     });
 
     this.rt.on('textDelta', (delta: string) => {

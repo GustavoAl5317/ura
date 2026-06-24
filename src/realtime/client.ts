@@ -171,15 +171,21 @@ export class RealtimeClient extends EventEmitter {
 
     switch (event.type) {
       case 'response.audio.delta':
+      case 'response.output_audio.delta':
         this.emit('audio', Buffer.from(event.delta, 'base64'));
         break;
 
       case 'response.text.delta':
+      case 'response.output_audio_transcript.delta':
         this.emit('textDelta', event.delta);
         break;
 
       case 'response.text.done':
         this.emit('textDone', event.text);
+        break;
+
+      case 'response.output_audio_transcript.done':
+        this.emit('textDone', event.transcript);
         break;
 
       case 'input_audio_buffer.speech_started':

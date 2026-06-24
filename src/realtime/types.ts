@@ -39,10 +39,16 @@ export type RealtimeEvent =
   | { type: 'input_audio_buffer.speech_stopped' }
   | { type: 'response.created'; response: { id: string } }
   | { type: 'response.done'; response: { id: string; status: string } }
+  // gpt-4o-realtime-preview events
   | { type: 'response.audio.delta'; response_id: string; item_id: string; delta: string }
   | { type: 'response.audio.done'; response_id: string; item_id: string }
   | { type: 'response.text.delta'; response_id: string; item_id: string; delta: string }
   | { type: 'response.text.done'; response_id: string; item_id: string; text: string }
+  // gpt-realtime-* events (new schema)
+  | { type: 'response.output_audio.delta'; delta: string }
+  | { type: 'response.output_audio.done' }
+  | { type: 'response.output_audio_transcript.delta'; delta: string }
+  | { type: 'response.output_audio_transcript.done'; transcript: string }
   | {
       type: 'response.function_call_arguments.done';
       response_id: string;
