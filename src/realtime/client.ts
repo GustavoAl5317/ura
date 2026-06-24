@@ -84,9 +84,6 @@ export class RealtimeClient extends EventEmitter {
       ? {
           type: 'realtime',
           instructions,
-          voice: config.openai.voice,
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
           turn_detection: turnDetection,
           tools: toolDefs,
           tool_choice: 'auto',
