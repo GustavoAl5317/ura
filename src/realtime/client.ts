@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { config } from '../config';
 import { logger } from '../logger';
-import type { RealtimeEvent, ToolDefinition, RealtimeSessionConfig } from './types';
+import type { RealtimeEvent, ToolDefinition, RealtimeSessionConfig, TurnDetectionConfig } from './types';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -61,30 +61,44 @@ export class RealtimeClient extends EventEmitter {
     const useAudio = config.tts.provider === 'openai';
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
 
-    // gpt-realtime-* models use a newer API schema — different from gpt-4o-realtime-preview
+    // gpt-realtime-* usa o schema GA — voice/format/turn_detection/transcription
+    // ficam ANINHADOS em audio.input/audio.output (não no topo como no beta)
     const isNewSchema = model.startsWith('gpt-realtime');
 
-    const turnDetection: RealtimeSessionConfig['turn_detection'] = isNewSchema
-      ? { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: true }
-      : config.vad.type === 'semantic_vad'
+    // turn_detection nativo: semantic_vad espera o cliente terminar de falar
+    // (ideal para coletar CPF/CEP dígito a dígito sem interromper)
+    const newTurnDetection: TurnDetectionConfig =
+      config.vad.type === 'semantic_vad'
         ? {
             type: 'semantic_vad',
             eagerness: config.vad.eagerness,
             create_response: true,
-            interrupt_response: config.vad.interruptResponse,
+            interrupt_response: true,
           }
         : {
             type: 'server_vad',
             threshold: config.vad.threshold,
             silence_duration_ms: config.vad.silenceMs,
             create_response: true,
-            interrupt_response: config.vad.interruptResponse,
+            interrupt_response: true,
           };
 
     const sessionCfg: RealtimeSessionConfig = isNewSchema
       ? {
           type: 'realtime',
+          output_modalities: ['audio'],
           instructions,
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              turn_detection: newTurnDetection,
+              transcription: { model: 'whisper-1' },
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice: config.openai.voice,
+            },
+          },
           tools: toolDefs,
           tool_choice: 'auto',
         }
@@ -96,7 +110,9 @@ export class RealtimeClient extends EventEmitter {
           input_audio_format: 'pcm16',
           output_audio_format: 'pcm16',
           input_audio_transcription: { model: 'whisper-1' },
-          turn_detection: turnDetection,
+          turn_detection: config.vad.type === 'semantic_vad'
+            ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: true, interrupt_response: config.vad.interruptResponse }
+            : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: true, interrupt_response: config.vad.interruptResponse },
           tools: toolDefs,
           tool_choice: 'auto',
           temperature: config.openai.temperature,
@@ -269,21 +285,6 @@ export class RealtimeClient extends EventEmitter {
       case 'input_audio_buffer.transcript':
         if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
         break;
-
-      case 'conversation.item.created': {
-        // gpt-realtime-* envia o texto do usuário aqui
-        const item = (event as any).item;
-        if (item?.role === 'user') {
-          const content = Array.isArray(item.content) ? item.content : [];
-          const text = content
-            .map((c: any) => c.transcript ?? c.text ?? '')
-            .filter(Boolean)
-            .join(' ')
-            .trim();
-          if (text) this.emit('userSpeech', text);
-        }
-        break;
-      }
 
       case 'error':
         logger.error(`[${this.callId}] Realtime error`, event.error);

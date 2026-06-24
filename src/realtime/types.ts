@@ -15,8 +15,27 @@ export interface TurnDetectionConfig {
   interrupt_response?: boolean;
 }
 
+export interface AudioFormat {
+  type: string;   // 'audio/pcm', 'audio/pcmu', 'audio/pcma'
+  rate?: number;
+}
+
 export interface RealtimeSessionConfig {
   type?: string;
+  // ─── GA schema (gpt-realtime) — tudo aninhado em audio ───
+  output_modalities?: ('text' | 'audio')[];
+  audio?: {
+    input?: {
+      format?: AudioFormat;
+      turn_detection?: TurnDetectionConfig | null;
+      transcription?: { model: string } | null;
+    };
+    output?: {
+      format?: AudioFormat;
+      voice?: string;
+    };
+  };
+  // ─── Beta schema (gpt-4o-realtime-preview) — campos no topo ───
   modalities?: ('text' | 'audio')[];
   instructions: string;
   voice?: string;

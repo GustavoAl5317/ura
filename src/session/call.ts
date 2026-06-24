@@ -9,7 +9,6 @@ import { buildSystemPrompt } from '../prompts/system';
 import { TOOL_DEFINITIONS } from '../tools/definitions';
 import { sgp } from '../integrations/sgp';
 import { ami } from '../integrations/ami';
-import { transcribeWhisper } from '../audio/whisper';
 import { getCallerNumber } from '../http/sidecar';
 import { config } from '../config';
 import { logger } from '../logger';
@@ -42,9 +41,6 @@ export class CallSession {
   // Jitter buffer para pacing de áudio OpenAI (evita dump acima do real-time)
   private audioQueue: Buffer[] = [];
   private audioTimer: ReturnType<typeof setInterval> | null = null;
-  // Buffer de áudio do cliente para transcrição Whisper (log only)
-  private clientAudioBuf: Buffer[] = [];
-  private collectingClientAudio = false;
 
   constructor(socket: net.Socket) {
     this.socket = socket;
@@ -122,7 +118,6 @@ export class CallSession {
   }
 
   private onAudio(pcm8k: Buffer): void {
-    if (this.collectingClientAudio) this.clientAudioBuf.push(pcm8k);
     const pcm24k = upsample8to24(pcm8k);
     this.rt.sendAudio(pcm24k);
   }
@@ -185,34 +180,16 @@ export class CallSession {
       logger.info(`[${callId}] 👤 Cliente: ${text}`);
     });
 
-    let speechStopTimer: ReturnType<typeof setTimeout> | null = null;
-
     this.rt.on('speechStart', () => {
-      // Cancela timer pendente se o cliente voltou a falar
-      if (speechStopTimer) { clearTimeout(speechStopTimer); speechStopTimer = null; }
+      // Cliente começou a falar — interrompe o áudio em fila (barge-in)
       this.audioQueue = [];
       this.fillerCancel.cancelled = true;
       this.resetSilenceTimer();
-      // Inicia coleta de áudio do cliente para transcrição
-      this.clientAudioBuf = [];
-      this.collectingClientAudio = true;
     });
 
-    this.rt.on('speechStop', () => {
-      // Para coleta e transcreve em background (log only)
-      this.collectingClientAudio = false;
-      const pcm = Buffer.concat(this.clientAudioBuf);
-      this.clientAudioBuf = [];
-      void transcribeWhisper(callId, pcm);
-
-      // Aguarda antes de responder — permite pausas entre dígitos de CPF/CEP
-      if (useNativeAudio) {
-        speechStopTimer = setTimeout(() => {
-          speechStopTimer = null;
-          this.rt.createResponse();
-        }, config.vad.speechStopDelayMs);
-      }
-    });
+    // speechStop: NÃO chamamos createResponse manualmente.
+    // O turn_detection nativo (semantic_vad + create_response:true) decide
+    // quando o cliente terminou e gera a resposta sozinho.
 
     this.rt.on('textDone', () => {
       this.resetSilenceTimer();
