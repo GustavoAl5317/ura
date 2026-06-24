@@ -17,7 +17,7 @@ export interface TurnDetectionConfig {
 
 export interface RealtimeSessionConfig {
   type?: string;
-  modalities: ('text' | 'audio')[];
+  modalities?: ('text' | 'audio')[];
   instructions: string;
   voice?: string;
   input_audio_format?: 'pcm16' | 'g711_ulaw' | 'g711_alaw';

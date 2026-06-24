@@ -60,8 +60,12 @@ export class RealtimeClient extends EventEmitter {
     const useAudio = config.tts.provider === 'openai';
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
 
-    const turnDetection: RealtimeSessionConfig['turn_detection'] =
-      config.vad.type === 'semantic_vad'
+    // gpt-realtime-* models use a newer API schema — different from gpt-4o-realtime-preview
+    const isNewSchema = model.startsWith('gpt-realtime');
+
+    const turnDetection: RealtimeSessionConfig['turn_detection'] = isNewSchema
+      ? { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: true }
+      : config.vad.type === 'semantic_vad'
         ? {
             type: 'semantic_vad',
             eagerness: config.vad.eagerness,
@@ -76,20 +80,32 @@ export class RealtimeClient extends EventEmitter {
             interrupt_response: config.vad.interruptResponse,
           };
 
-    const sessionCfg: RealtimeSessionConfig = {
-      type: 'realtime',
-      modalities,
-      instructions,
-      voice: config.openai.voice,
-      input_audio_format: 'pcm16',
-      output_audio_format: 'pcm16',
-      input_audio_transcription: { model: 'whisper-1' },
-      turn_detection: turnDetection,
-      tools: toolDefs,
-      tool_choice: 'auto',
-      temperature: config.openai.temperature,
-      max_response_output_tokens: config.openai.maxTokens,
-    };
+    const sessionCfg: RealtimeSessionConfig = isNewSchema
+      ? {
+          type: 'realtime',
+          instructions,
+          voice: config.openai.voice,
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          turn_detection: turnDetection,
+          tools: toolDefs,
+          tool_choice: 'auto',
+          temperature: config.openai.temperature,
+        }
+      : {
+          type: 'realtime',
+          modalities,
+          instructions,
+          voice: config.openai.voice,
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          input_audio_transcription: { model: 'whisper-1' },
+          turn_detection: turnDetection,
+          tools: toolDefs,
+          tool_choice: 'auto',
+          temperature: config.openai.temperature,
+          max_response_output_tokens: config.openai.maxTokens,
+        };
 
     this.send({ type: 'session.update', session: sessionCfg });
   }
