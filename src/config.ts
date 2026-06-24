@@ -109,8 +109,9 @@ export const config = {
   },
 
   plans: {
-    // Whitelist de IDs dos planos comerciais (prioridade máxima). Ex: "66,67,68,69,70"
-    ids: opt('PLANOS_COMERCIAIS_IDS', '')
+    // Whitelist de IDs dos planos comerciais (prioridade máxima).
+    // Padrão = catálogo atual Aquitelecom: 400MB(79), 500MB(81), 700MB(82), 1GB(83)
+    ids: opt('PLANOS_COMERCIAIS_IDS', '79,81,82,83')
       .split(',').map((s) => s.trim()).filter(Boolean).map(Number),
     // Heurística (quando não há whitelist): faixa de preço válida e limite
     precoMin: optFloat('PLANOS_PRECO_MIN', 0.01),
