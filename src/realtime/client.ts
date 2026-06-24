@@ -87,7 +87,6 @@ export class RealtimeClient extends EventEmitter {
           instructions,
           tools: toolDefs,
           tool_choice: 'auto',
-          input_audio_transcription: { model: 'whisper-1' },
         }
       : {
           type: 'realtime',
