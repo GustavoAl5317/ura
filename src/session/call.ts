@@ -118,9 +118,10 @@ export class CallSession {
   // ─── OpenAI Realtime events ───────────────────────────────────────────────
 
   private setupRealtimeEvents(callId: string): void {
-    this.rt.on('audio', (pcm24k: Buffer) => {
-      // Áudio direto do OpenAI — TTS=openai ou modelos gpt-realtime-* que geram áudio nativamente
-      const pcm8k = downsample24to8(pcm24k);
+    this.rt.on('audio', (pcmRaw: Buffer) => {
+      // gpt-realtime-* gera áudio a 8kHz diretamente (telefonia); gpt-4o-realtime-preview usa 24kHz
+      const isNewModel = config.openai.realtimeModel.startsWith('gpt-realtime');
+      const pcm8k = isNewModel ? pcmRaw : downsample24to8(pcmRaw);
       this.sendToAsterisk(pcm8k);
     });
 
