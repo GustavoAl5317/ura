@@ -84,8 +84,6 @@ export class RealtimeClient extends EventEmitter {
       ? {
           type: 'realtime',
           instructions,
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
           turn_detection: {
             type: 'server_vad',
             threshold: config.vad.threshold,
