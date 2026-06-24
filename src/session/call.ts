@@ -1,7 +1,7 @@
 import net from 'net';
 import { RealtimeClient } from '../realtime/client';
 import { AudioSocketProtocol, AUDIOSOCKET_TYPE } from '../audiosocket/protocol';
-import { upsample8to24, downsample24to8 } from '../audio/resampler';
+import { upsample8to24, downsample24to8, downsample16to8 } from '../audio/resampler';
 import { synthesize } from '../tts/elevenlabs';
 import { registerTools } from '../tools/handlers';
 import { createContext } from './context';
@@ -111,16 +111,18 @@ export class CallSession {
 
   private onAudio(pcm8k: Buffer): void {
     if (this.interrupted) return;
-    const pcm24k = upsample8to24(pcm8k);
-    this.rt.sendAudio(pcm24k);
+    // gpt-realtime-* aceita 8kHz diretamente; gpt-4o-realtime-preview precisa de 24kHz
+    const isNewModel = config.openai.realtimeModel.startsWith('gpt-realtime');
+    const audio = isNewModel ? pcm8k : upsample8to24(pcm8k);
+    this.rt.sendAudio(audio);
   }
 
   // ─── OpenAI Realtime events ───────────────────────────────────────────────
 
   private setupRealtimeEvents(callId: string): void {
-    this.rt.on('audio', (pcm24k: Buffer) => {
-      // OpenAI Realtime sempre envia 24kHz PCM16; downsample para 8kHz do Asterisk
-      const pcm8k = downsample24to8(pcm24k);
+    this.rt.on('audio', (pcmRaw: Buffer) => {
+      // gpt-realtime-* parece gerar 16kHz; gpt-4o-realtime-preview usa 24kHz
+      const pcm8k = useNativeAudio ? downsample16to8(pcmRaw) : downsample24to8(pcmRaw);
       this.sendToAsterisk(pcm8k);
     });
 

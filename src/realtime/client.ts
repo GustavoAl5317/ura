@@ -84,6 +84,12 @@ export class RealtimeClient extends EventEmitter {
       ? {
           type: 'realtime',
           instructions,
+          turn_detection: {
+            type: 'server_vad',
+            threshold: config.vad.threshold,
+            silence_duration_ms: config.vad.silenceMs,
+            create_response: true,
+          },
           tools: toolDefs,
           tool_choice: 'auto',
         }
