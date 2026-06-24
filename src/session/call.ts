@@ -142,6 +142,7 @@ export class CallSession {
     const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
 
     this.rt.on('textDone', (text: string) => {
+      if (text.trim()) logger.info(`[${callId}] 🤖 Ana: ${text.trim()}`);
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
@@ -176,10 +177,13 @@ export class CallSession {
     });
 
     this.rt.on('speechStart', () => {
-      // Limpa o buffer de áudio do modelo (interrompe a fala atual)
       this.audioQueue = [];
       this.fillerCancel.cancelled = true;
       this.resetSilenceTimer();
+    });
+
+    this.rt.on('userSpeech', (text: string) => {
+      logger.info(`[${callId}] 👤 Cliente: ${text}`);
     });
 
     this.rt.on('speechStop', () => {

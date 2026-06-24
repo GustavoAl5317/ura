@@ -49,6 +49,9 @@ export type RealtimeEvent =
   | { type: 'response.output_audio.done' }
   | { type: 'response.output_audio_transcript.delta'; delta: string }
   | { type: 'response.output_audio_transcript.done'; transcript: string }
+  // Transcrição do usuário
+  | { type: 'conversation.item.input_audio_transcription.completed'; transcript: string }
+  | { type: 'input_audio_buffer.transcript'; transcript: string }
   | {
       type: 'response.function_call_arguments.done';
       response_id: string;

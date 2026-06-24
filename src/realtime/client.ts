@@ -238,6 +238,11 @@ export class RealtimeClient extends EventEmitter {
         this.emit('sessionReady');
         break;
 
+      case 'conversation.item.input_audio_transcription.completed':
+      case 'input_audio_buffer.transcript':
+        if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
+        break;
+
       case 'error':
         logger.error(`[${this.callId}] Realtime error`, event.error);
         break;
