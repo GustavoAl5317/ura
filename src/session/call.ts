@@ -105,8 +105,12 @@ export class CallSession {
       await this.rt.connect(uuid, instructions, TOOL_DEFINITIONS);
       logger.info(`[${uuid}] Sessão pronta`);
       this.startAudioTimer();
-      this.rt.createResponse();
       this.resetSilenceTimer();
+      // Aguarda session.updated antes de gerar resposta (garante instruções aplicadas)
+      this.rt.once('sessionReady', () => {
+        logger.info(`[${uuid}] Sessão configurada — iniciando saudação`);
+        this.rt.createResponse();
+      });
     } catch (err: any) {
       logger.error(`[${uuid}] Falha ao conectar Realtime`, { err: err.message });
       this.teardown();
