@@ -149,6 +149,16 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
+  private waitResponseDone(): Promise<void> {
+    if (!this.responseActive) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = () => resolve();
+      this.once('responseDone', done);
+      // Fallback: se response.done não vier em 3s, continua mesmo assim
+      setTimeout(() => { this.removeListener('responseDone', done); resolve(); }, 3_000);
+    });
+  }
+
   close(): void {
     this.ws?.close();
     this.ws = null;
@@ -228,11 +238,15 @@ export class RealtimeClient extends EventEmitter {
           this.clearToolTimer(call_id);
           this.emit('toolDone');
           logger.info(`[${this.callId}] Tool ${name} resultado`, result);
+          // Aguarda response.done antes de enviar o resultado da tool,
+          // caso o modelo ainda não tenha encerrado a resposta anterior
+          await this.waitResponseDone();
           this.sendFunctionResult(call_id, result);
         } catch (err: any) {
           this.clearToolTimer(call_id);
           this.emit('toolDone');
           logger.error(`[${this.callId}] Erro na tool ${name}`, { err: err.message });
+          await this.waitResponseDone();
           this.sendFunctionResult(call_id, { error: err.message });
         }
         break;
