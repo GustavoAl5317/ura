@@ -84,10 +84,8 @@ export class RealtimeClient extends EventEmitter {
       ? {
           type: 'realtime',
           instructions,
-          turn_detection: turnDetection,
           tools: toolDefs,
           tool_choice: 'auto',
-          temperature: config.openai.temperature,
         }
       : {
           type: 'realtime',
