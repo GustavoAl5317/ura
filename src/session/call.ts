@@ -176,19 +176,28 @@ export class CallSession {
       this.fillerCancel.cancelled = true;
     });
 
+    this.rt.on('userSpeech', (text: string) => {
+      logger.info(`[${callId}] 👤 Cliente: ${text}`);
+    });
+
+    let speechStopTimer: ReturnType<typeof setTimeout> | null = null;
+
     this.rt.on('speechStart', () => {
+      // Cancela timer pendente se o cliente voltou a falar
+      if (speechStopTimer) { clearTimeout(speechStopTimer); speechStopTimer = null; }
       this.audioQueue = [];
       this.fillerCancel.cancelled = true;
       this.resetSilenceTimer();
     });
 
-    this.rt.on('userSpeech', (text: string) => {
-      logger.info(`[${callId}] 👤 Cliente: ${text}`);
-    });
-
     this.rt.on('speechStop', () => {
-      // gpt-realtime-* não tem turn_detection; disparamos response.create manualmente
-      if (useNativeAudio) this.rt.createResponse();
+      // Aguarda 600ms antes de responder — permite pausas breves entre dígitos de CPF/CEP
+      if (useNativeAudio) {
+        speechStopTimer = setTimeout(() => {
+          speechStopTimer = null;
+          this.rt.createResponse();
+        }, 600);
+      }
     });
 
     this.rt.on('textDone', () => {
