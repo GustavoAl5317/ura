@@ -101,6 +101,7 @@ export class CallSession {
     try {
       await this.rt.connect(uuid, instructions, TOOL_DEFINITIONS);
       logger.info(`[${uuid}] Sessão pronta`);
+      this.rt.createResponse();
       this.resetSilenceTimer();
     } catch (err: any) {
       logger.error(`[${uuid}] Falha ao conectar Realtime`, { err: err.message });

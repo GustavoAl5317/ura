@@ -142,6 +142,10 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
+  createResponse(): void {
+    this.send({ type: 'response.create' });
+  }
+
   close(): void {
     this.ws?.close();
     this.ws = null;
