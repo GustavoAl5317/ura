@@ -38,6 +38,9 @@ export class CallSession {
   private hangupTimer: ReturnType<typeof setTimeout> | null = null;
   private tearing = false;
   private fillerCancel = { cancelled: false };
+  // Jitter buffer para pacing de áudio OpenAI (evita dump acima do real-time)
+  private audioQueue: Buffer[] = [];
+  private audioTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(socket: net.Socket) {
     this.socket = socket;
@@ -101,6 +104,7 @@ export class CallSession {
     try {
       await this.rt.connect(uuid, instructions, TOOL_DEFINITIONS);
       logger.info(`[${uuid}] Sessão pronta`);
+      this.startAudioTimer();
       this.rt.createResponse();
       this.resetSilenceTimer();
     } catch (err: any) {
@@ -119,9 +123,12 @@ export class CallSession {
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('audio', (pcm24k: Buffer) => {
-      // Todos os modelos OpenAI Realtime geram 24kHz PCM16
       const pcm8k = downsample24to8(pcm24k);
-      this.sendToAsterisk(pcm8k);
+      // Enfileira chunks — o timer envia 1 chunk (20ms) a cada 20ms no ritmo correto
+      for (let i = 0; i < pcm8k.length; i += CHUNK) {
+        const slice = pcm8k.subarray(i, i + CHUNK);
+        if (slice.length === CHUNK) this.audioQueue.push(Buffer.from(slice));
+      }
     });
 
     this.rt.on('textDelta', (delta: string) => {
@@ -199,6 +206,19 @@ export class CallSession {
     } catch (err: any) {
       logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message });
     }
+  }
+
+  private startAudioTimer(): void {
+    if (this.audioTimer) return;
+    this.audioTimer = setInterval(() => {
+      const chunk = this.audioQueue.shift();
+      if (chunk) this.sendToAsterisk(chunk);
+    }, 20);
+  }
+
+  private stopAudioTimer(): void {
+    if (this.audioTimer) { clearInterval(this.audioTimer); this.audioTimer = null; }
+    this.audioQueue = [];
   }
 
   private async sendPaced(pcm8k: Buffer): Promise<void> {
@@ -302,6 +322,7 @@ export class CallSession {
   private teardown(): void {
     if (this.tearing) return;
     this.tearing = true;
+    this.stopAudioTimer();
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     logger.info(`[${this.ctx.callId}] Chamada encerrada`);
