@@ -129,8 +129,11 @@ export class CallSession {
       this.textBuf += delta;
     });
 
+    // gpt-realtime-* gera áudio nativo; não usar ElevenLabs em paralelo
+    const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
+
     this.rt.on('textDone', (text: string) => {
-      if (config.tts.provider === 'elevenlabs' && text.trim()) {
+      if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
       this.textBuf = '';
@@ -152,7 +155,7 @@ export class CallSession {
 
       // Frase verbal adicional via IA
       const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)];
-      if (config.tts.provider === 'elevenlabs') {
+      if (config.tts.provider === 'elevenlabs' && !useNativeAudio) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(filler));
       } else {
         this.rt.injectSystemNote(`[SISTEMA: consulta em andamento, diga brevemente ao cliente: "${filler}"]`);
