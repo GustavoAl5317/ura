@@ -242,7 +242,6 @@ export class RealtimeClient extends EventEmitter {
         break;
       }
 
-      case 'session.created':
       case 'session.updated':
         this.emit('sessionReady');
         break;
