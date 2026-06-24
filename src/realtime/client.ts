@@ -13,6 +13,7 @@ export class RealtimeClient extends EventEmitter {
   private tools = new Map<string, ToolHandler>();
   private callId = '';
   private toolTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private responseActive = false;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -143,6 +144,8 @@ export class RealtimeClient extends EventEmitter {
   }
 
   createResponse(): void {
+    if (this.responseActive) return;
+    this.responseActive = true;
     this.send({ type: 'response.create' });
   }
 
@@ -236,6 +239,15 @@ export class RealtimeClient extends EventEmitter {
 
       case 'session.updated':
         this.emit('sessionReady');
+        break;
+
+      case 'response.created':
+        this.responseActive = true;
+        break;
+
+      case 'response.done':
+        this.responseActive = false;
+        this.emit('responseDone');
         break;
 
       case 'conversation.item.input_audio_transcription.completed':
