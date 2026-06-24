@@ -11,12 +11,25 @@ import { logger } from '../logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface CaixaViabilidade {
+  tipoCodigo: string;
+  distanciaMetros: number;
+  portasDisponiveis: number;
+  portasSplitterDisponiveis: number;
+  fid?: number;
+}
+
 export interface Viabilidade {
   temCobertura: boolean;
   totalDisponiveis?: number;
   caixasProximas?: number;
   distanciaMinMetros?: number;
   portasSplitterDisponiveis?: number;
+  // CTO mais próxima que cobre o endereço E tem porta disponível.
+  // Se a mais próxima estiver lotada, é a próxima mais próxima com porta livre.
+  caixaSelecionada?: CaixaViabilidade;
+  // Todas as CTOs que cobrem o endereço (dentro do raio), ordenadas da mais próxima para a mais distante.
+  caixasCobrindo?: CaixaViabilidade[];
 }
 
 interface GeositeToken {
@@ -115,6 +128,41 @@ export class GeositeClient {
 
   // ─── Viabilidade ───────────────────────────────────────────────────────────
 
+  // Processa as caixas retornadas pela API: todas as caixas vêm dentro do raio
+  // configurado, portanto todas "cobrem" o endereço. Ordena da mais próxima para a
+  // mais distante e seleciona a primeira que tem porta disponível — se a mais
+  // próxima estiver lotada, cai para a próxima mais próxima que cobre, e assim por diante.
+  private processarCaixas(data: unknown): Viabilidade {
+    const caixas = Array.isArray(data) ? (data as GeositeCaixa[]) : [];
+    if (!caixas.length) {
+      return { temCobertura: false, caixasProximas: 0 };
+    }
+
+    const cobrindo: CaixaViabilidade[] = [...caixas]
+      .sort((a, b) => a.distancia - b.distancia)
+      .map((c) => ({
+        tipoCodigo: c.tipoCodigo,
+        distanciaMetros: c.distancia,
+        portasDisponiveis: c.qtdTotalDisponivel,
+        portasSplitterDisponiveis: c.qtdPortasSplitterDisp ?? 0,
+        fid: c.fid,
+      }));
+
+    // Mais próxima que cobre E tem porta livre; se a mais próxima estiver lotada,
+    // segue para a próxima mais próxima que cobre.
+    const selecionada = cobrindo.find((c) => c.portasDisponiveis > 0);
+
+    return {
+      temCobertura: !!selecionada,
+      caixasProximas: cobrindo.length,
+      totalDisponiveis: cobrindo.reduce((s, c) => s + c.portasDisponiveis, 0),
+      distanciaMinMetros: selecionada?.distanciaMetros ?? cobrindo[0]?.distanciaMetros,
+      portasSplitterDisponiveis: cobrindo.reduce((s, c) => s + c.portasSplitterDisponiveis, 0),
+      caixaSelecionada: selecionada,
+      caixasCobrindo: cobrindo,
+    };
+  }
+
   // Verifica cobertura FTTH por endereço (string livre, ex: "Rua X, 123, Bairro, Cidade")
   async viabilidadePorEndereco(endereco: string): Promise<Viabilidade> {
     if (!config.geosite.enabled) return { temCobertura: false };
@@ -128,22 +176,7 @@ export class GeositeClient {
         },
       });
 
-      const caixas = Array.isArray(res.data) ? res.data : [];
-      const comPortas = caixas.filter((c) => c.qtdTotalDisponivel > 0);
-      const temCobertura = comPortas.length > 0;
-      const distanciaMin = caixas.length
-        ? Math.min(...caixas.map((c) => c.distancia))
-        : undefined;
-      const totalPortas = comPortas.reduce((s, c) => s + c.qtdTotalDisponivel, 0);
-      const splitterDisp = comPortas.reduce((s, c) => s + (c.qtdPortasSplitterDisp ?? 0), 0);
-
-      return {
-        temCobertura,
-        totalDisponiveis: totalPortas,
-        caixasProximas: caixas.length,
-        distanciaMinMetros: distanciaMin,
-        portasSplitterDisponiveis: splitterDisp,
-      };
+      return this.processarCaixas(res.data);
     } catch (err: any) {
       logger.error('GeoSite viabilidade endereço erro', { err: err.message });
       return { temCobertura: false };
@@ -169,21 +202,7 @@ export class GeositeClient {
         },
       });
 
-      const caixas = Array.isArray(res.data) ? res.data : [];
-      const comPortas = caixas.filter((c) => c.qtdTotalDisponivel > 0);
-
-      return {
-        temCobertura: comPortas.length > 0,
-        totalDisponiveis: comPortas.reduce((s, c) => s + c.qtdTotalDisponivel, 0),
-        caixasProximas: caixas.length,
-        distanciaMinMetros: caixas.length
-          ? Math.min(...caixas.map((c) => c.distancia))
-          : undefined,
-        portasSplitterDisponiveis: comPortas.reduce(
-          (s, c) => s + (c.qtdPortasSplitterDisp ?? 0),
-          0,
-        ),
-      };
+      return this.processarCaixas(res.data);
     } catch (err: any) {
       logger.error('GeoSite viabilidade coordenadas erro', { err: err.message });
       return { temCobertura: false };

@@ -294,42 +294,85 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Viabilidade e Planos ───────────────────────────────────────────────────
 
   client.registerTool('verificar_viabilidade', async (args) => {
-    const temCobertura = await sgp.viabilidade({
-      cep: args.cep as string | undefined,
-      logradouro: args.logradouro as string | undefined,
-      numero_inicial: args.numero as string | undefined,
-      numero_final: args.numero as string | undefined,
-      bairro: args.bairro as string | undefined,
-      cidade: args.cidade as string | undefined,
-    });
+    const logradouro = args.logradouro ? String(args.logradouro).trim() : '';
+    const numero = args.numero ? String(args.numero).trim() : '';
+    const bairro = args.bairro ? String(args.bairro).trim() : '';
+    const cidade = args.cidade ? String(args.cidade).trim() : '';
+    const cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
 
-    if (temCobertura) return { tem_cobertura: true, fonte: 'sgp' };
+    // Viabilidade depende do endereço EXATO (a CTO mais próxima varia rua a rua).
+    // Exige CEP válido OU endereço com rua + número + bairro. Nunca consulta só por bairro/cidade.
+    const cepValido = cepDigitos.length === 8;
+    const enderecoCompleto = !!logradouro && !!numero && !!bairro;
+    if (!cepValido && !enderecoCompleto) {
+      return {
+        tem_cobertura: null,
+        erro: 'endereco_incompleto',
+        mensagem:
+          'Não dá para verificar viabilidade só pelo bairro ou cidade. Peça ao cliente o CEP ou o endereço completo (rua, número e bairro).',
+      };
+    }
 
-    // Fallback GeoSite com detalhes de CTOs
+    const endStr = [logradouro, numero, bairro, cidade].filter(Boolean).join(', ');
+    const cepStr = args.cep ? String(args.cep) : '';
+    ctx.enderecoConsultado = endStr || cepStr;
+
+    // 1. SEMPRE consulta a CTO no GeoSite — é quem conhece as portas disponíveis.
+    //    Seleciona a CTO mais próxima que cobre e tem porta livre; se a mais próxima
+    //    estiver lotada, usa a próxima mais próxima que cobre.
     if (config.geosite.enabled) {
-      const endStr = [args.logradouro, args.numero, args.bairro, args.cidade]
-        .filter(Boolean).join(', ') || String(args.cep ?? '');
       const geo = endStr
         ? await geosite.viabilidadePorEndereco(endStr)
-        : args.cep
-        ? await geosite.viabilidadePorCep(String(args.cep))
-        : { temCobertura: false };
+        : cepStr
+        ? await geosite.viabilidadePorCep(cepStr)
+        : { temCobertura: false, caixasProximas: 0 };
 
-      if (geo.temCobertura) {
+      if (geo.temCobertura && geo.caixaSelecionada) {
+        const cto = geo.caixaSelecionada;
+        const distancia = Math.round(cto.distanciaMetros);
+        ctx.log.push(
+          `Viabilidade GeoSite: CTO ${cto.tipoCodigo} a ${distancia}m com ${cto.portasDisponiveis} porta(s) livre(s)`,
+        );
         return {
           tem_cobertura: true,
           fonte: 'geosite',
+          cto_selecionada: cto.tipoCodigo,
+          distancia_metros: distancia,
+          portas_disponiveis: cto.portasDisponiveis,
           ctos_proximas: geo.caixasProximas,
-          distancia_min_metros: geo.distanciaMinMetros,
-          portas_disponiveis: geo.totalDisponiveis,
+        };
+      }
+
+      // Há CTO(s) cobrindo o endereço, mas todas estão sem porta disponível.
+      // A CTO é a autoridade sobre porta física, então não há viabilidade real.
+      if ((geo.caixasProximas ?? 0) > 0) {
+        ctx.log.push(
+          `Viabilidade GeoSite: ${geo.caixasProximas} CTO(s) próxima(s), todas sem porta disponível`,
+        );
+        return {
+          tem_cobertura: false,
+          fonte: 'geosite',
+          motivo: 'cto_sem_porta',
+          ctos_proximas: geo.caixasProximas,
+          oferecer_cadastro_interesse: true,
         };
       }
     }
 
-    // Salva endereço no contexto para uso no registrar_interesse_cobertura
-    ctx.enderecoConsultado = [
-      args.logradouro, args.numero, args.bairro, args.cidade,
-    ].filter(Boolean).join(', ') || String(args.cep ?? '');
+    // 2. Fallback SGP — usado apenas quando o GeoSite não encontrou CTOs próximas,
+    //    está desabilitado ou falhou. Ignorado se COVERAGE_USE_GEOSITE_ONLY=true.
+    if (!config.geosite.useGeositeOnly) {
+      const temCobertura = await sgp.viabilidade({
+        cep: cepDigitos || undefined,
+        logradouro: logradouro || undefined,
+        numero_inicial: numero || undefined,
+        numero_final: numero || undefined,
+        bairro: bairro || undefined,
+        cidade: cidade || undefined,
+      });
+
+      if (temCobertura) return { tem_cobertura: true, fonte: 'sgp' };
+    }
 
     return { tem_cobertura: false, oferecer_cadastro_interesse: true };
   });
