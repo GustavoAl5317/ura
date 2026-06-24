@@ -60,5 +60,5 @@ export type RealtimeEvent =
       name: string;
       arguments: string;
     }
-  | { type: 'conversation.item.created'; item: Record<string, unknown> }
+  | { type: 'conversation.item.created'; item: { role?: string; type?: string; content?: { type?: string; transcript?: string; text?: string }[] } }
   | { type: 'error'; error: { type: string; code: string; message: string } };

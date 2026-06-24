@@ -270,6 +270,21 @@ export class RealtimeClient extends EventEmitter {
         if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
         break;
 
+      case 'conversation.item.created': {
+        // gpt-realtime-* envia o texto do usuário aqui
+        const item = (event as any).item;
+        if (item?.role === 'user') {
+          const content = Array.isArray(item.content) ? item.content : [];
+          const text = content
+            .map((c: any) => c.transcript ?? c.text ?? '')
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (text) this.emit('userSpeech', text);
+        }
+        break;
+      }
+
       case 'error':
         logger.error(`[${this.callId}] Realtime error`, event.error);
         break;
