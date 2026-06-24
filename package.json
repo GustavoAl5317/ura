@@ -1,0 +1,23 @@
+{
+  "name": "ura-ai",
+  "version": "1.0.0",
+  "description": "URA com IA para atendimento automático - Aquitelecom",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "ws": "^8.17.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0"
+  }
+}
