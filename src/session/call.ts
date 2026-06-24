@@ -114,7 +114,6 @@ export class CallSession {
   }
 
   private onAudio(pcm8k: Buffer): void {
-    if (this.interrupted) return;
     const pcm24k = upsample8to24(pcm8k);
     this.rt.sendAudio(pcm24k);
   }
@@ -173,12 +172,14 @@ export class CallSession {
     });
 
     this.rt.on('speechStart', () => {
-      this.interrupted = true;
+      // Limpa o buffer de áudio do modelo (interrompe a fala atual)
+      this.audioQueue = [];
+      this.fillerCancel.cancelled = true;
       this.resetSilenceTimer();
     });
 
     this.rt.on('speechStop', () => {
-      this.interrupted = false;
+      // noop — o modelo responde automaticamente via create_response:true
     });
 
     this.rt.on('textDone', () => {
