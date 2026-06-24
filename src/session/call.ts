@@ -183,7 +183,8 @@ export class CallSession {
     });
 
     this.rt.on('speechStop', () => {
-      // noop — o modelo responde automaticamente via create_response:true
+      // gpt-realtime-* não tem turn_detection; disparamos response.create manualmente
+      if (useNativeAudio) this.rt.createResponse();
     });
 
     this.rt.on('textDone', () => {
