@@ -9,7 +9,7 @@ import { buildSystemPrompt } from '../prompts/system';
 import { TOOL_DEFINITIONS } from '../tools/definitions';
 import { sgp } from '../integrations/sgp';
 import { ami } from '../integrations/ami';
-import { getCallerNumber } from '../http/sidecar';
+import { getRegistration } from '../http/sidecar';
 import { config } from '../config';
 import { logger } from '../logger';
 import { PROCESSING_TONE } from '../audio/tone';
@@ -76,10 +76,15 @@ export class CallSession {
   private async onUuid(payload: Buffer): Promise<void> {
     const hex = payload.toString('hex');
     const uuid = hex.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
-    const callerNumber = getCallerNumber(uuid) ?? getCallerNumber(hex) ?? '';
+    const reg = getRegistration(uuid) ?? getRegistration(hex);
+    const callerNumber = reg?.callerNumber ?? '';
 
     this.ctx = createContext(uuid, callerNumber);
-    logger.info(`[${uuid}] Chamada iniciada`, { callerNumber: callerNumber || '(desconhecido)' });
+    if (reg?.channel) this.ctx.asteriskChannel = reg.channel;
+    logger.info(`[${uuid}] Chamada iniciada`, {
+      callerNumber: callerNumber || '(desconhecido)',
+      channel: reg?.channel || '(desconhecido)',
+    });
 
     // Tenta identificar cliente pelo telefone
     if (callerNumber) {

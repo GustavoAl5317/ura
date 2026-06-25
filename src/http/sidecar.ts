@@ -6,12 +6,18 @@ import http from 'http';
 import { config } from '../config';
 import { logger } from '../logger';
 
-const registrations = new Map<string, string>(); // uuid → callerNumber
+export interface CallRegistration {
+  callerNumber: string;
+  channel?: string; // canal Asterisk (ex.: PJSIP/xxx-0000001) — usado na transferência via AMI
+}
 
-export function getCallerNumber(uuid: string): string | undefined {
-  const n = registrations.get(uuid);
-  if (n) registrations.delete(uuid); // consume once
-  return n;
+const registrations = new Map<string, CallRegistration>(); // uuid → dados da chamada
+
+// Consome o registro uma única vez (retorna e remove).
+export function getRegistration(uuid: string): CallRegistration | undefined {
+  const r = registrations.get(uuid);
+  if (r) registrations.delete(uuid);
+  return r;
 }
 
 export function startSidecar(): void {
@@ -26,12 +32,12 @@ export function startSidecar(): void {
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
       try {
-        const { uuid, callerNumber } = JSON.parse(body) as Record<string, string>;
+        const { uuid, callerNumber, channel } = JSON.parse(body) as Record<string, string>;
         if (uuid && callerNumber) {
-          registrations.set(uuid, callerNumber);
+          registrations.set(uuid, { callerNumber, channel: channel || undefined });
           // Auto-cleanup após 5 minutos
           setTimeout(() => registrations.delete(uuid), 5 * 60_000);
-          logger.debug('Sidecar registro', { uuid, callerNumber });
+          logger.debug('Sidecar registro', { uuid, callerNumber, channel: channel || '(não informado)' });
         }
         res.writeHead(200);
         res.end('ok');
