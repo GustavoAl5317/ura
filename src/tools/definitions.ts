@@ -9,7 +9,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cpf: { type: 'string', description: 'CPF do cliente (com ou sem pontuação)' },
+        cpf: { type: 'string', description: 'CPF do cliente com exatamente 11 dígitos numéricos, sem pontuação (ex.: "80066969000")' },
       },
       required: ['cpf'],
     },

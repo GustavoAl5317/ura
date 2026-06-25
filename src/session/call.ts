@@ -38,6 +38,9 @@ export class CallSession {
   private hangupTimer: ReturnType<typeof setTimeout> | null = null;
   private tearing = false;
   private fillerCancel = { cancelled: false };
+  private toolsInFlight = 0;
+  private waitingAnaAfterTool = false;
+  private fillerLoopRunning = false;
   // Jitter buffer para pacing de áudio OpenAI (evita dump acima do real-time)
   private audioQueue: Buffer[] = [];
   private audioTimer: ReturnType<typeof setInterval> | null = null;
@@ -131,6 +134,11 @@ export class CallSession {
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('audio', (pcm24k: Buffer) => {
+      // Ana voltou a falar — para o som de digitação que cobre a espera da consulta
+      if (this.waitingAnaAfterTool && this.toolsInFlight === 0) {
+        this.stopTypingSound();
+      }
+
       const pcm8k = downsample24to8(pcm24k);
       // Enfileira chunks — o timer envia 1 chunk (20ms) a cada 20ms no ritmo correto
       for (let i = 0; i < pcm8k.length; i += CHUNK) {
@@ -164,9 +172,9 @@ export class CallSession {
     });
 
     this.rt.on('toolStart', () => {
-      // Som de digitação assim que a consulta começa (não espera 3,5s)
-      this.fillerCancel = { cancelled: false };
-      void this.playFillerLoop(this.fillerCancel, KEYBOARD_TYPING);
+      this.toolsInFlight++;
+      this.waitingAnaAfterTool = false;
+      this.startTypingSound();
     });
 
     this.rt.on('toolSlowdown', () => {
@@ -180,7 +188,11 @@ export class CallSession {
     });
 
     this.rt.on('toolDone', () => {
-      this.fillerCancel.cancelled = true;
+      // Consulta terminou, mas Ana ainda não falou — mantém digitação até o áudio dela voltar
+      this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
+      if (this.toolsInFlight === 0) {
+        this.waitingAnaAfterTool = true;
+      }
     });
 
     this.rt.on('userSpeech', (text: string) => {
@@ -190,7 +202,7 @@ export class CallSession {
     this.rt.on('speechStart', () => {
       // Cliente começou a falar — interrompe o áudio em fila (barge-in)
       this.audioQueue = [];
-      this.fillerCancel.cancelled = true;
+      this.stopTypingSound();
       this.resetSilenceTimer();
     });
 
@@ -282,6 +294,20 @@ export class CallSession {
 
   // ─── Filler tone loop ─────────────────────────────────────────────────────
 
+  private startTypingSound(): void {
+    if (this.fillerLoopRunning) return;
+    this.fillerCancel = { cancelled: false };
+    this.fillerLoopRunning = true;
+    void this.playFillerLoop(this.fillerCancel, KEYBOARD_TYPING);
+  }
+
+  private stopTypingSound(): void {
+    this.fillerCancel.cancelled = true;
+    this.fillerLoopRunning = false;
+    this.waitingAnaAfterTool = false;
+    this.toolsInFlight = 0;
+  }
+
   private async playFillerLoop(cancel: { cancelled: boolean }, sample: Buffer = KEYBOARD_TYPING): Promise<void> {
     let pos = 0;
     while (!cancel.cancelled && !this.socket.destroyed && !this.tearing) {
@@ -293,6 +319,7 @@ export class CallSession {
       pos = end >= sample.length ? 0 : end;
       await sleep(20);
     }
+    this.fillerLoopRunning = false;
   }
 
   // ─── Silence detection ────────────────────────────────────────────────────
@@ -339,6 +366,7 @@ export class CallSession {
   private teardown(): void {
     if (this.tearing) return;
     this.tearing = true;
+    this.stopTypingSound();
     this.stopAudioTimer();
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);

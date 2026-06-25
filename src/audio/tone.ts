@@ -24,16 +24,17 @@ function clamp(n: number): number {
   return n < -32768 ? -32768 : n > 32767 ? 32767 : n;
 }
 
-// Clique curto simulando tecla de teclado (40ms)
-function keyClick(amplitude = 2200): Buffer {
+// Clique curto simulando tecla de teclado (40ms) — amplitude alta para ouvir bem no telefone
+function keyClick(amplitude = 6500): Buffer {
   const n = Math.floor(SAMPLE_RATE * 0.04);
   const buf = Buffer.alloc(n * 2);
   for (let i = 0; i < n; i++) {
-    const env = Math.exp(-i / (SAMPLE_RATE * 0.006));
+    const env = Math.exp(-i / (SAMPLE_RATE * 0.005));
     const t = i / SAMPLE_RATE;
     const v = env * amplitude * (
-      Math.sin(2 * Math.PI * 1800 * t) * 0.6 +
-      Math.sin(2 * Math.PI * 3200 * t) * 0.4
+      Math.sin(2 * Math.PI * 1800 * t) * 0.55 +
+      Math.sin(2 * Math.PI * 3200 * t) * 0.35 +
+      Math.sin(2 * Math.PI * 5200 * t) * 0.1
     );
     buf.writeInt16LE(clamp(Math.round(v)), i * 2);
   }
@@ -45,7 +46,7 @@ function buildKeyboardLoop(): Buffer {
   const gapsMs = [120, 90, 140, 320, 100, 110, 280, 85, 130, 380];
   const parts: Buffer[] = [];
   for (let i = 0; i < gapsMs.length; i++) {
-    parts.push(keyClick(i % 3 === 0 ? 2400 : 1800));
+    parts.push(keyClick(i % 3 === 0 ? 8500 : 7000));
     parts.push(silence(gapsMs[i]));
   }
   return Buffer.concat(parts);

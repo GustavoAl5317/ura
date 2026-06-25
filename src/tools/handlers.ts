@@ -21,6 +21,11 @@ function classificarSinalOptico(
   return { faixa: 'ruim', descricao: 'Sinal óptico ruim (abaixo de -24 dBm)' };
 }
 
+/** Extrai só dígitos do CPF informado (com ou sem pontuação). */
+function cpfDigitos(raw: string): string {
+  return raw.replace(/\D/g, '');
+}
+
 function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
   const { ids, precoMin, precoMax, max } = config.plans;
   // 1. Whitelist explícita por .env tem prioridade — preserva a ordem informada
@@ -43,8 +48,20 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Identificação ─────────────────────────────────────────────────────────
 
   client.registerTool('buscar_cliente_por_cpf', async (args) => {
-    const cpf = String(args.cpf ?? '');
-    const cliente = await sgp.buscarPorCpf(cpf);
+    const digitos = cpfDigitos(String(args.cpf ?? ''));
+    if (digitos.length !== 11) {
+      return {
+        encontrado: false,
+        erro: 'cpf_invalido',
+        digitos_recebidos: digitos.length,
+        mensagem:
+          digitos.length < 11
+            ? `CPF incompleto: ${digitos.length} dígitos (precisa 11). Confira se expandiu todos os grupos — ex.: "800-669-690-00" = 800 + 669 + 690 + 00 = onze dígitos.`
+            : `CPF com dígitos a mais (${digitos.length}). Confirme com o cliente e tente de novo.`,
+      };
+    }
+
+    const cliente = await sgp.buscarPorCpf(digitos);
     if (!cliente) return { encontrado: false, mensagem: 'CPF não encontrado no cadastro.' };
 
     ctx.cliente = cliente;
@@ -76,9 +93,17 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const inadimplente = tits.some((t) => t.status === 'aberto' && t.diasAtraso > 0);
     const valorTotal = tits.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
+    const ct = ctx.cliente?.contratos[0];
+    const statusContrato = ct?.status ?? null;
+    const motivoStatus = ct?.motivo_status ?? null;
+    const contratoSuspenso = /suspens|bloquead|cancelad/i.test(statusContrato ?? '');
 
     return {
       inadimplente,
+      contrato_suspenso: contratoSuspenso,
+      status_contrato: statusContrato,
+      motivo_status: motivoStatus,
+      bloqueio_financeiro: inadimplente || (contratoSuspenso && /financ/i.test(motivoStatus ?? '')),
       total_em_aberto: `R$ ${valorTotal.toFixed(2).replace('.', ',')}`,
       faturas: tits.map((t) => ({
         id: t.id,
