@@ -288,10 +288,16 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     if (!r) return { sucesso: false, erro: 'Não foi possível abrir o chamado.' };
 
     ctx.log.push(`Chamado aberto: protocolo ${r.protocolo}`);
+    const aberto = !!r.protocolo;
     return {
-      sucesso: r.status === 1,
+      sucesso: aberto,
       protocolo: r.protocolo,
-      mensagem: `Chamado registrado. Protocolo: ${r.protocolo}`,
+      mensagem: aberto
+        ? `Chamado registrado. Protocolo: ${r.protocolo}. Informe o protocolo ao cliente agora.`
+        : 'Não foi possível abrir o chamado.',
+      orientacao: aberto
+        ? 'Fale imediatamente ao cliente: "Abri um chamado pra você, o protocolo é [número]. Nossa equipe técnica vai verificar."'
+        : undefined,
     };
   });
 

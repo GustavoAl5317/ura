@@ -85,7 +85,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'abrir_chamado',
     description:
-      'Abre ordem de serviço técnico no SGP. Use somente quando o problema não pode ser resolvido remotamente após diagnóstico completo.',
+      'Abre ordem de serviço técnico no SGP. Use SOMENTE após esgotar diagnóstico remoto E o cliente confirmar que tentou as orientações (reiniciar roteador/ONU) e não funcionou. NUNCA use no mesmo turno em que orienta uma ação — aguarde a resposta do cliente.',
     parameters: {
       type: 'object',
       properties: {
