@@ -10,6 +10,17 @@ import type { SgpPlano } from '../integrations/sgp';
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
 
+// Classifica o sinal óptico (RX em dBm) conforme as faixas de qualidade da operação.
+// Mais negativo = pior. Usado principalmente no diagnóstico de lentidão.
+function classificarSinalOptico(
+  rx: number | null,
+): { faixa: 'muito_bom' | 'regular' | 'ruim'; descricao: string } | null {
+  if (rx === null || !Number.isFinite(rx)) return null;
+  if (rx >= -22) return { faixa: 'muito_bom', descricao: 'Sinal óptico muito bom (-17 a -22 dBm)' };
+  if (rx >= -24) return { faixa: 'regular', descricao: 'Sinal óptico regular (-23 a -24 dBm)' };
+  return { faixa: 'ruim', descricao: 'Sinal óptico ruim (abaixo de -24 dBm)' };
+}
+
 function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
   const { ids, precoMin, precoMax, max } = config.plans;
   // 1. Whitelist explícita por .env tem prioridade — preserva a ordem informada
@@ -197,6 +208,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const rxNum = onu.rx ? parseFloat(onu.rx) : null;
     const sinalOk = rxNum !== null ? rxNum >= -27 && rxNum <= -7 : null;
     const status = onu.conexao?.status ?? 'desconhecido';
+    const classificacaoSinal = classificarSinalOptico(rxNum);
 
     return {
       status,
@@ -208,6 +220,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       ultima_conexao: onu.conexao?.data_conexao ?? null,
       ultima_desconexao: onu.conexao?.data_desconexao ?? null,
       sinal_ok: sinalOk,
+      classificacao_sinal: classificacaoSinal?.faixa ?? null,
+      classificacao_sinal_descricao: classificacaoSinal?.descricao ?? null,
       interpretacao:
         status === 'offline'
           ? 'ONU offline — verifique a luz da ONU ou se houve queda de energia'
