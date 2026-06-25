@@ -179,6 +179,8 @@ export class CallSession {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
       }
+      // Resposta já criada — cancela pendingSpeechStop para evitar resposta dupla
+      this.pendingSpeechStop = false;
       this.pacer.setHoldStream(true);
     });
 
@@ -247,7 +249,10 @@ export class CallSession {
 
     this.rt.on('speechStop', () => {
       logger.info(`[${callId}] 🎤 Cliente parou de falar`);
-      if (this.pacer.isPlaying() || this.rt.isResponseActive()) {
+      // Só adia se uma resposta já está sendo gerada pelo modelo
+      // Não checa isPlaying() pois o streaming/holdStream ficam true
+      // por centenas de ms extras e atrasam desnecessariamente
+      if (this.rt.isResponseActive()) {
         this.pendingSpeechStop = true;
         return;
       }
@@ -277,7 +282,7 @@ export class CallSession {
           }
           logger.warn(`[${callId}] Sem resposta após transcrição — forçando`);
           this.rt.createResponse();
-        }, attempt === 0 ? 4_000 : 1_000);
+        }, attempt === 0 ? 3_000 : 1_000);
       };
       scheduleTranscriptFallback();
     });
