@@ -165,6 +165,10 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
+  isResponseActive(): boolean {
+    return this.responseActive;
+  }
+
   private waitResponseDone(): Promise<void> {
     if (!this.responseActive) return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -276,6 +280,7 @@ export class RealtimeClient extends EventEmitter {
 
       case 'response.created':
         this.responseActive = true;
+        this.emit('responseCreated');
         break;
 
       case 'response.done':

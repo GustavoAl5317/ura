@@ -52,11 +52,13 @@ export const config = {
   },
 
   audio: {
-    startBufferMs: optInt('START_BUFFER_MS', 500),
-    targetBufferMs: optInt('TARGET_BUFFER_MS', 400),
-    minBufferMs: optInt('MIN_BUFFER_MS', 220),
-    maxBufferMs: optInt('MAX_BUFFER_MS', 1000),
+    maxBufferMs: optInt('MAX_BUFFER_MS', 800),
     endPauseMs: optInt('END_PAUSE_MS', 450),
+    inputMuteMs: optInt('INPUT_MUTE_MS', 1500),
+    // legado — ignorados pelo AudioPacer, mantidos para não quebrar .env existente
+    startBufferMs: optInt('START_BUFFER_MS', 0),
+    targetBufferMs: optInt('TARGET_BUFFER_MS', 0),
+    minBufferMs: optInt('MIN_BUFFER_MS', 0),
   },
 
   vad: {
