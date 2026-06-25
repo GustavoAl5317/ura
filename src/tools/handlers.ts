@@ -21,6 +21,86 @@ function classificarSinalOptico(
   return { faixa: 'ruim', descricao: 'Sinal óptico ruim (abaixo de -24 dBm)' };
 }
 
+/** Celular informado pelo cliente — obrigatório para WhatsApp (não usa fixo da chamada automaticamente). */
+function resolverWhatsAppCliente(
+  ctx: CallContext,
+  informado?: string,
+): { numero: string | null; motivo?: string } {
+  const tel = (informado ?? ctx.celularWhatsApp)?.trim();
+  if (!tel) {
+    return { numero: null, motivo: 'celular_nao_informado' };
+  }
+  if (!whatsapp.isCelularBr(tel)) {
+    return { numero: null, motivo: 'celular_invalido' };
+  }
+  const numero = tel.replace(/\D/g, '');
+  ctx.celularWhatsApp = numero;
+  return { numero };
+}
+
+interface EnvioWhatsappParams {
+  celular_whatsapp?: string;
+  resumo_atendimento?: string;
+  resposta_cliente?: string;
+  fatura?: CallContext['faturaWhatsApp'];
+}
+
+async function enviarWhatsappAtendimento(
+  ctx: CallContext,
+  params: EnvioWhatsappParams,
+): Promise<{ enviado: boolean; motivo?: string }> {
+  if (!ctx.cliente) {
+    return { enviado: false, motivo: 'cliente_nao_identificado' };
+  }
+
+  const resumo = params.resumo_atendimento?.trim();
+  const resposta = params.resposta_cliente?.trim();
+  if (!resumo || !resposta) {
+    return { enviado: false, motivo: 'resumo_ou_resposta_ausente' };
+  }
+
+  const destino = resolverWhatsAppCliente(ctx, params.celular_whatsapp);
+  if (!destino.numero) {
+    return { enviado: false, motivo: destino.motivo };
+  }
+
+  const fatura = params.fatura ?? ctx.faturaWhatsApp;
+  const enviado = await whatsapp.enviarResumoAtendimento(destino.numero, {
+    clienteNome: ctx.cliente.nome,
+    resumoAtendimento: resumo,
+    respostaCliente: resposta,
+    protocolos: ctx.protocolos.length ? [...ctx.protocolos] : undefined,
+    fatura,
+  });
+
+  return { enviado, motivo: enviado ? undefined : 'falha_api_whatsapp' };
+}
+
+/** Bloqueia ferramentas sensíveis até o titular confirmar identidade (fluxo CPF). */
+function bloqueioSemConfirmacao(ctx: CallContext): Record<string, unknown> | null {
+  if (ctx.cliente && ctx.clienteIdentificado && !ctx.clienteConfirmado) {
+    return {
+      erro: 'titular_nao_confirmado',
+      nome_contrato: ctx.cliente.nome,
+      mensagem:
+        'Aguarde o cliente confirmar a identidade antes de consultar ou executar ações. ' +
+        'Use confirmar_titular_contrato após a resposta dele.',
+    };
+  }
+  return null;
+}
+
+/** Nome curto para fala (primeiro nome ou primeiras palavras). */
+function nomeParaConfirmacao(nome: string): { nomeContrato: string; nomeFalado: string } {
+  const nomeContrato = nome.trim();
+  const partes = nomeContrato.split(/\s+/).filter(Boolean);
+  const pareceEmpresa = /ltda|me\b|eireli|s\.?a\.?|cnpj|fttx|conjunto|residencial|comercial/i.test(nomeContrato);
+  const nomeFalado = pareceEmpresa || partes.length > 4
+    ? nomeContrato
+    : partes[0] ?? nomeContrato;
+  return { nomeContrato, nomeFalado };
+}
+
 /** Extrai só dígitos do CPF informado (com ou sem pontuação). */
 function cpfDigitos(raw: string): string {
   return raw.replace(/\D/g, '');
@@ -66,26 +146,80 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     ctx.cliente = cliente;
     ctx.clienteIdentificado = true;
-    ctx.log.push(`Identificado por CPF: ${cliente.nome} (contrato ${cliente.contratoId})`);
+    ctx.clienteConfirmado = false;
+    ctx.log.push(`Identificado por CPF: ${cliente.nome} (contrato ${cliente.contratoId}) — aguardando confirmação`);
     logger.info(`[${ctx.callId}] Cliente identificado: ${cliente.nome}`);
+
+    const { nomeContrato, nomeFalado } = nomeParaConfirmacao(cliente.nome);
 
     return {
       encontrado: true,
+      titular_confirmado: false,
       nome: cliente.nome,
+      nome_contrato: nomeContrato,
+      nome_para_confirmar: nomeFalado,
       cpf: cliente.cpfcnpj,
       contrato_id: cliente.contratoId,
+      telefones_cadastro: cliente.telefones ?? [],
       status_contrato: cliente.contratos[0]?.status,
       motivo_status: cliente.contratos[0]?.motivo_status,
       plano: cliente.contratos[0]?.servicos[0]?.plano?.descricao,
       endereco: cliente.endereco
         ? `${cliente.endereco.logradouro}, ${cliente.endereco.numero} — ${cliente.endereco.bairro}, ${cliente.endereco.cidade}/${cliente.endereco.uf}`
         : null,
+      orientacao:
+        `PARE aqui — não consulte financeiro nem técnico ainda. ` +
+        `Diga: "O nome que consta no contrato é ${nomeContrato}. ` +
+        `Confirma que estou falando com ${nomeFalado}?" ` +
+        `Se SIM → confirmar_titular_contrato(confirmado:true). ` +
+        `Se NÃO → confirmar_titular_contrato(confirmado:false) e verifique se o CPF está correto.`,
+    };
+  });
+
+  client.registerTool('confirmar_titular_contrato', async (args) => {
+    if (!ctx.cliente) {
+      return {
+        sucesso: false,
+        mensagem: 'Nenhum cliente identificado. Busque pelo CPF com buscar_cliente_por_cpf primeiro.',
+      };
+    }
+
+    const confirmado = args.confirmado === true;
+    const nomeContrato = ctx.cliente.nome;
+
+    if (confirmado) {
+      ctx.clienteConfirmado = true;
+      ctx.log.push(`Titular confirmado: ${nomeContrato}`);
+      return {
+        sucesso: true,
+        confirmado: true,
+        mensagem: 'Identidade confirmada. Pode prosseguir com consultas e atendimento.',
+      };
+    }
+
+    ctx.cliente = undefined;
+    ctx.clienteIdentificado = false;
+    ctx.clienteConfirmado = false;
+    ctx.titulos = undefined;
+    ctx.log.push(`Titular NÃO confirmado (cadastro: ${nomeContrato})`);
+
+    return {
+      sucesso: true,
+      confirmado: false,
+      nome_contrato_rejeitado: nomeContrato,
+      mensagem: 'Titular não confirmou identidade.',
+      orientacao:
+        'Pergunte: "O CPF informado está correto?" ' +
+        'Se o CPF estiver errado, peça o CPF novamente e busque de novo. ' +
+        'Se o CPF estiver certo mas não é o titular, oriente que o titular do contrato precisa ligar ou autorizar.',
     };
   });
 
   // ── Financeiro ─────────────────────────────────────────────────────────────
 
   client.registerTool('consultar_financeiro', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
     const contratoId = Number(args.cliente_id); // mantemos "cliente_id" por compatibilidade com a tool definition
 
     const tits = await sgp.titulos(contratoId, 'abertos');
@@ -118,6 +252,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('gerar_segunda_via', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     const contratoId = Number(args.cliente_id);
     const faturaId = args.fatura_id ? Number(args.fatura_id) : undefined;
     const enviarWpp = args.enviar_whatsapp !== false;
@@ -153,39 +290,65 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const linkBoleto = linkObj.link;
     const linhaDigitavel = linkObj.linhadigitavel;
+    const valorFmt = `R$ ${linkObj.valor.toFixed(2).replace('.', ',')}`;
 
-    // Envia via WhatsApp se solicitado
+    ctx.faturaWhatsApp = {
+      valor: valorFmt,
+      vencimento: linkObj.vencimento,
+      pixCopiaCola: pixCola || null,
+      linkBoleto: linkBoleto || null,
+      linhaDigitavel: linhaDigitavel || null,
+    };
+
     let wppEnviado = false;
-    if (enviarWpp && ctx.callerNumber && ctx.cliente) {
-      const valorStr = linkObj.valor.toFixed(2).replace('.', ',');
-      wppEnviado = await whatsapp.enviarBoleto(ctx.callerNumber, {
-        clienteNome: ctx.cliente.nome,
-        valor: linkObj.valor,
-        vencimento: linkObj.vencimento,
-        linkBoleto,
-        codigoBarras: linhaDigitavel,
-        pixCopiaCola: pixCola || undefined,
+    let wppMotivo: string | undefined;
+
+    if (enviarWpp) {
+      const resultado = await enviarWhatsappAtendimento(ctx, {
+        celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+        resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
+        resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
+        fatura: ctx.faturaWhatsApp,
       });
+      wppEnviado = resultado.enviado;
+      wppMotivo = resultado.motivo;
+      if (!wppEnviado) {
+        logger.warn(`[${ctx.callId}] WhatsApp não enviado`, { motivo: wppMotivo });
+      }
     }
 
     ctx.log.push(`Segunda via gerada (fatura ${linkObj.fatura}, R$${linkObj.valor})`);
 
+    const msgBase = pixCola
+      ? 'PIX Copia e Cola e boleto gerados com sucesso.'
+      : 'Boleto gerado. PIX indisponível para esta fatura.';
+
+    const msgWhatsapp = wppMotivo === 'celular_nao_informado'
+      ? `${msgBase} Pergunte ao cliente qual celular com WhatsApp usar e tente de novo.`
+      : wppMotivo === 'resumo_ou_resposta_ausente'
+        ? `${msgBase} Inclua resumo_atendimento e resposta_cliente na tool.`
+        : wppMotivo === 'falha_api_whatsapp'
+          ? `${msgBase} Falha ao enviar WhatsApp — informe o PIX verbalmente ou tente de novo.`
+          : msgBase;
+
     return {
       sucesso: true,
       fatura_id: linkObj.fatura,
-      valor: `R$ ${linkObj.valor.toFixed(2).replace('.', ',')}`,
+      valor: valorFmt,
       vencimento: linkObj.vencimento,
       pix_copia_cola: pixCola || null,
       link_boleto: linkBoleto,
       linha_digitavel: linhaDigitavel,
       whatsapp_enviado: wppEnviado,
-      mensagem: pixCola
-        ? 'PIX Copia e Cola e boleto gerados com sucesso.'
-        : 'Boleto gerado. PIX indisponível para esta fatura.',
+      whatsapp_motivo: wppMotivo ?? null,
+      mensagem: msgWhatsapp,
     };
   });
 
   client.registerTool('desbloqueio_confianca', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     const contratoId = Number(args.cliente_id);
     const r = await sgp.desbloquearConfianca(contratoId);
 
@@ -205,6 +368,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Massiva ────────────────────────────────────────────────────────────────
 
   client.registerTool('verificar_massiva', async () => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     const manutencoes = await sgp.manutencoesAtivas();
     ctx.manutencoesAtivas = manutencoes;
 
@@ -232,6 +398,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── ONU ────────────────────────────────────────────────────────────────────
 
   client.registerTool('consultar_onu', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     const contratoId = Number(args.cliente_id);
 
     // Usa ONU já carregada no contexto ou busca
@@ -270,6 +439,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('reiniciar_onu', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     const contratoId = Number(args.cliente_id);
 
     // Precisa do ID interno da ONU (não o número na OLT)
@@ -298,6 +470,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Chamado / OS ───────────────────────────────────────────────────────────
 
   client.registerTool('abrir_chamado', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     if (!config.features.chamado) {
       return { sucesso: false, erro: 'Abertura de chamado desabilitada.' };
     }
@@ -312,21 +487,74 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     if (!r) return { sucesso: false, erro: 'Não foi possível abrir o chamado.' };
 
+    if (r.protocolo) ctx.protocolos.push(r.protocolo);
     ctx.log.push(`Chamado aberto: protocolo ${r.protocolo}`);
     const aberto = !!r.protocolo;
+
+    let wppEnviado = false;
+    let wppMotivo: string | undefined;
+    const enviarWpp = args.enviar_whatsapp === true;
+
+    if (enviarWpp && aberto) {
+      const resultado = await enviarWhatsappAtendimento(ctx, {
+        celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+        resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
+        resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
+      });
+      wppEnviado = resultado.enviado;
+      wppMotivo = resultado.motivo;
+    }
+
     return {
       sucesso: aberto,
       protocolo: r.protocolo,
+      whatsapp_enviado: enviarWpp ? wppEnviado : null,
+      whatsapp_motivo: wppMotivo ?? null,
       mensagem: aberto
         ? `Chamado registrado. Protocolo: ${r.protocolo}. Informe o protocolo ao cliente agora.`
         : 'Não foi possível abrir o chamado.',
       orientacao: aberto
-        ? 'Fale imediatamente ao cliente: "Abri um chamado pra você, o protocolo é [número]. Nossa equipe técnica vai verificar."'
+        ? enviarWpp && wppEnviado
+          ? 'Protocolo e resumo enviados por WhatsApp. Confirme com o cliente que recebeu.'
+          : 'Fale imediatamente ao cliente: "Abri um chamado pra você, o protocolo é [número]. Nossa equipe técnica vai verificar."'
         : undefined,
     };
   });
 
+  client.registerTool('enviar_resumo_whatsapp', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
+    const resultado = await enviarWhatsappAtendimento(ctx, {
+      celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+      resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
+      resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
+    });
+
+    if (resultado.enviado) {
+      ctx.log.push('Resumo do atendimento enviado por WhatsApp');
+    }
+
+    return {
+      sucesso: resultado.enviado,
+      whatsapp_enviado: resultado.enviado,
+      whatsapp_motivo: resultado.motivo ?? null,
+      protocolos_incluidos: ctx.protocolos,
+      fatura_incluida: !!ctx.faturaWhatsApp,
+      mensagem: resultado.enviado
+        ? 'Resumo enviado por WhatsApp com protocolo e fatura (se houver).'
+        : resultado.motivo === 'celular_nao_informado'
+          ? 'Pergunte ao cliente qual celular com WhatsApp usar.'
+          : resultado.motivo === 'resumo_ou_resposta_ausente'
+            ? 'Preencha resumo_atendimento e resposta_cliente.'
+            : 'Não foi possível enviar o WhatsApp agora.',
+    };
+  });
+
   client.registerTool('agendar_visita_tecnica', async (args) => {
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
     // Agendamento de visita técnica é feito abrindo chamado com conteúdo específico
     const contratoId = Number(args.cliente_id);
     const periodo = args.periodo_preferencia === 'TARDE' ? 'tarde' : 'manhã';
@@ -341,6 +569,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     if (!r) return { sucesso: false, erro: 'Não foi possível agendar a visita.' };
 
+    if (r.protocolo) ctx.protocolos.push(r.protocolo);
     ctx.log.push(`Visita técnica agendada: protocolo ${r.protocolo}`);
     return {
       sucesso: r.status === 1,

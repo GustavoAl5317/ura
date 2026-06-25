@@ -14,6 +14,7 @@ export interface CallContext {
 
   // Flags de estado
   clienteIdentificado: boolean;
+  clienteConfirmado: boolean;   // true após cliente confirmar titular (obrigatório após CPF)
   massivaAtiva: boolean;
   pendingTransfer: boolean;
   pendingHangup: boolean;
@@ -25,6 +26,17 @@ export interface CallContext {
   // Último endereço consultado na viabilidade (usado no registrar_interesse)
   enderecoConsultado?: string;
 
+  // WhatsApp — celular confirmado pelo cliente nesta chamada
+  celularWhatsApp?: string;
+  protocolos: string[];
+  faturaWhatsApp?: {
+    valor: string;
+    vencimento: string;
+    pixCopiaCola?: string | null;
+    linkBoleto?: string | null;
+    linhaDigitavel?: string | null;
+  };
+
   // Log resumido do atendimento
   log: string[];
 }
@@ -35,9 +47,11 @@ export function createContext(callId: string, callerNumber: string): CallContext
     callerNumber,
     startedAt: new Date(),
     clienteIdentificado: false,
+    clienteConfirmado: false,
     massivaAtiva: false,
     pendingTransfer: false,
     pendingHangup: false,
+    protocolos: [],
     log: [],
   };
 }

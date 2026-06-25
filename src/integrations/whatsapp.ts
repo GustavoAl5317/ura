@@ -25,29 +25,51 @@ export class WhatsAppClient {
     return d;
   }
 
+  /** Celular BR: DDD + 9 dígitos começando com 9 (WhatsApp não funciona em fixo). */
+  isCelularBr(phone: string): boolean {
+    const d = phone.replace(/\D/g, '');
+    const local = d.startsWith('55') ? d.slice(2) : d;
+    return local.length === 11 && local[2] === '9';
+  }
+
   private get available(): boolean {
     return !!(config.whatsapp.apiUrl && config.whatsapp.instance && config.whatsapp.apiKey);
   }
 
-  // Envia texto tentando o formato da Evolution v2 ({ number, text }) e, se a API
-  // responder 400/500 (comum por incompatibilidade de versão), tenta o formato
-  // legado da v1 ({ number, textMessage: { text } }).
+  // Evolution API varia por versão. Tentamos formatos compatíveis sem trocar em erro 500
+  // (500 costuma ser instância/desconexão — trocar o payload piora e mascara a causa).
   private async postSendText(number: string, text: string): Promise<void> {
     const path = `/message/sendText/${config.whatsapp.instance}`;
+    const modern = { number, text };
+    const classic = {
+      number,
+      textMessage: { text },
+      options: { delay: 1000, presence: 'composing' as const },
+    };
+
     try {
-      await this.client.post(path, { number, text });
-    } catch (errV2: any) {
-      const status = errV2.response?.status;
-      if (status === 400 || status === 500) {
-        logger.info('WhatsApp: formato v2 falhou, tentando formato legado v1', { status });
-        await this.client.post(path, {
-          number,
-          options: { delay: 1000, presence: 'composing' },
-          textMessage: { text },
-        });
+      await this.client.post(path, modern);
+      return;
+    } catch (errModern: any) {
+      const status = errModern.response?.status;
+      const body = JSON.stringify(errModern.response?.data ?? '');
+
+      // 500 = erro interno/instância — retenta o mesmo formato uma vez
+      if (status === 500) {
+        logger.warn('WhatsApp: erro 500, retentando mesmo formato', { number });
+        await new Promise((r) => setTimeout(r, 800));
+        await this.client.post(path, modern);
         return;
       }
-      throw errV2;
+
+      // 400 por schema — tenta formato clássico só se não exigir "text" na raiz
+      if ((status === 400 || status === 422) && !body.includes('requires property "text"')) {
+        logger.info('WhatsApp: formato moderno falhou, tentando formato clássico', { status });
+        await this.client.post(path, classic);
+        return;
+      }
+
+      throw errModern;
     }
   }
 
@@ -77,36 +99,71 @@ export class WhatsAppClient {
     }
   }
 
-  async enviarBoleto(para: string, params: {
+  montarMensagemAtendimento(params: {
     clienteNome: string;
-    valor: number;
-    vencimento: string;
-    linkBoleto?: string;
-    codigoBarras?: string;
-    pixCopiaCola?: string;
-  }): Promise<boolean> {
+    resumoAtendimento: string;
+    respostaCliente: string;
+    protocolos?: string[];
+    fatura?: {
+      valor: string;
+      vencimento: string;
+      pixCopiaCola?: string | null;
+      linkBoleto?: string | null;
+      linhaDigitavel?: string | null;
+    };
+  }): string {
     const primeiroNome = params.clienteNome.split(' ')[0];
-    const valor = params.valor.toFixed(2).replace('.', ',');
     const linhas = [
       `Olá, ${primeiroNome}! 😊`,
       ``,
-      `📄 *Segunda Via de Fatura*`,
-      `💰 Valor: R$ ${valor}`,
-      `📅 Vencimento: ${params.vencimento}`,
+      `📋 *Resumo do atendimento*`,
+      params.resumoAtendimento.trim(),
+      ``,
+      `💬 *Sobre o que você nos procurou*`,
+      params.respostaCliente.trim(),
     ];
 
-    if (params.pixCopiaCola) {
-      linhas.push(``, `⚡ *PIX Copia e Cola:*`, `\`${params.pixCopiaCola}\``);
+    if (params.protocolos?.length) {
+      linhas.push(``, `🔢 *Protocolo(s)*`);
+      for (const proto of params.protocolos) {
+        linhas.push(`• ${proto}`);
+      }
     }
-    if (params.linkBoleto) {
-      linhas.push(``, `🔗 Boleto: ${params.linkBoleto}`);
-    }
-    if (params.codigoBarras) {
-      linhas.push(``, `📋 Código de barras:`, params.codigoBarras);
-    }
-    linhas.push(``, `_${config.company.name} — sempre conectando você! 🚀_`);
 
-    return this.enviarTexto(para, linhas.join('\n'));
+    if (params.fatura) {
+      linhas.push(``, `📄 *Fatura*`);
+      linhas.push(`💰 Valor: ${params.fatura.valor}`);
+      linhas.push(`📅 Vencimento: ${params.fatura.vencimento}`);
+      if (params.fatura.pixCopiaCola) {
+        linhas.push(``, `⚡ *PIX Copia e Cola:*`, params.fatura.pixCopiaCola);
+      }
+      if (params.fatura.linkBoleto) {
+        linhas.push(``, `🔗 Boleto: ${params.fatura.linkBoleto}`);
+      }
+      if (params.fatura.linhaDigitavel) {
+        linhas.push(``, `📋 Linha digitável:`, params.fatura.linhaDigitavel);
+      }
+    }
+
+    linhas.push(``, `_${config.company.name} — sempre conectando você! 🚀_`);
+    return linhas.join('\n');
+  }
+
+  async enviarResumoAtendimento(para: string, params: {
+    clienteNome: string;
+    resumoAtendimento: string;
+    respostaCliente: string;
+    protocolos?: string[];
+    fatura?: {
+      valor: string;
+      vencimento: string;
+      pixCopiaCola?: string | null;
+      linkBoleto?: string | null;
+      linhaDigitavel?: string | null;
+    };
+  }): Promise<boolean> {
+    const mensagem = this.montarMensagemAtendimento(params);
+    return this.enviarTexto(para, mensagem);
   }
 
   async enviarGrupo(grupoId: string, mensagem: string): Promise<boolean> {

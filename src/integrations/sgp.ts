@@ -66,6 +66,7 @@ export interface SgpTitulo {
 export interface SgpCliente {
   nome: string;
   cpfcnpj: string;
+  telefones?: string[];
   endereco?: {
     logradouro: string;
     numero: number;
@@ -265,6 +266,7 @@ export class SgpClient {
     const cliente: SgpCliente = {
       nome: ct.razaoSocial,
       cpfcnpj: ct.cpfCnpj,
+      telefones: ct.telefones ?? [],
       endereco: {
         logradouro: ct.endereco_logradouro,
         numero: ct.endereco_numero,

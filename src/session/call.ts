@@ -41,9 +41,11 @@ export class CallSession {
   private toolsInFlight = 0;
   private waitingAnaAfterTool = false;
   private fillerLoopRunning = false;
-  // Jitter buffer para pacing de áudio OpenAI (evita dump acima do real-time)
+  // Jitter buffer — um único fluxo de saída para voz + teclado (evita gargalos)
   private audioQueue: Buffer[] = [];
   private audioTimer: ReturnType<typeof setInterval> | null = null;
+  private voiceRemainder = Buffer.alloc(0);
+  private playbackPrimed = false;
 
   constructor(socket: net.Socket) {
     this.socket = socket;
@@ -96,6 +98,7 @@ export class CallSession {
         if (cliente) {
           this.ctx.cliente = cliente;
           this.ctx.clienteIdentificado = true;
+          this.ctx.clienteConfirmado = true; // identificado pelo telefone da chamada
           logger.info(`[${uuid}] Cliente identificado pelo telefone: ${cliente.nome}`);
         }
       } catch (err: any) {
@@ -134,17 +137,17 @@ export class CallSession {
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('audio', (pcm24k: Buffer) => {
-      // Ana voltou a falar — para o som de digitação que cobre a espera da consulta
+      // Ana voltou a falar — para digitação e limpa fila de teclado pendente
       if (this.waitingAnaAfterTool && this.toolsInFlight === 0) {
-        this.stopTypingSound();
+        this.fillerCancel.cancelled = true;
+        this.fillerLoopRunning = false;
+        this.waitingAnaAfterTool = false;
+        this.audioQueue = [];
+        this.playbackPrimed = false;
       }
 
       const pcm8k = downsample24to8(pcm24k);
-      // Enfileira chunks — o timer envia 1 chunk (20ms) a cada 20ms no ritmo correto
-      for (let i = 0; i < pcm8k.length; i += CHUNK) {
-        const slice = pcm8k.subarray(i, i + CHUNK);
-        if (slice.length === CHUNK) this.audioQueue.push(Buffer.from(slice));
-      }
+      this.enqueuePcm8k(pcm8k);
     });
 
     this.rt.on('textDelta', (delta: string) => {
@@ -201,7 +204,7 @@ export class CallSession {
 
     this.rt.on('speechStart', () => {
       // Cliente começou a falar — interrompe o áudio em fila (barge-in)
-      this.audioQueue = [];
+      this.flushAudioQueue();
       this.stopTypingSound();
       this.resetSilenceTimer();
     });
@@ -237,9 +240,53 @@ export class CallSession {
     }
   }
 
+  private enqueuePcm8k(pcm8k: Buffer): void {
+    const combined = pcm8k.length
+      ? Buffer.concat([this.voiceRemainder, pcm8k])
+      : this.voiceRemainder;
+    let offset = 0;
+    while (offset + CHUNK <= combined.length) {
+      this.audioQueue.push(Buffer.from(combined.subarray(offset, offset + CHUNK)));
+      offset += CHUNK;
+    }
+    this.voiceRemainder = offset < combined.length
+      ? combined.subarray(offset)
+      : Buffer.alloc(0);
+
+    // Limita latência — descarta excesso antigo se fila crescer demais
+    const maxChunks = Math.ceil(config.audio.maxBufferMs / 20);
+    while (this.audioQueue.length > maxChunks) {
+      this.audioQueue.shift();
+    }
+  }
+
+  private flushAudioQueue(): void {
+    this.audioQueue = [];
+    this.voiceRemainder = Buffer.alloc(0);
+    this.playbackPrimed = false;
+  }
+
   private startAudioTimer(): void {
     if (this.audioTimer) return;
+    const startChunks = Math.max(1, Math.ceil(config.audio.startBufferMs / 20));
+
     this.audioTimer = setInterval(() => {
+      if (this.socket.destroyed || this.tearing) return;
+
+      // Pré-buffer no início de cada frase — acumula antes de tocar
+      if (!this.playbackPrimed) {
+        if (this.audioQueue.length >= startChunks) {
+          this.playbackPrimed = true;
+        } else {
+          return;
+        }
+      }
+
+      if (this.audioQueue.length === 0) {
+        this.playbackPrimed = false;
+        return;
+      }
+
       const chunk = this.audioQueue.shift();
       if (chunk) this.sendToAsterisk(chunk);
     }, 20);
@@ -247,19 +294,13 @@ export class CallSession {
 
   private stopAudioTimer(): void {
     if (this.audioTimer) { clearInterval(this.audioTimer); this.audioTimer = null; }
-    this.audioQueue = [];
+    this.flushAudioQueue();
   }
 
   private async sendPaced(pcm8k: Buffer): Promise<void> {
-    for (let i = 0; i < pcm8k.length; i += CHUNK) {
-      if (this.socket.destroyed) return;
-      const slice = pcm8k.subarray(i, i + CHUNK);
-      const chunk = slice.length === CHUNK
-        ? slice
-        : Buffer.concat([slice, Buffer.alloc(CHUNK - slice.length)]);
-      this.sendToAsterisk(chunk);
-      await sleep(20);
-    }
+    this.enqueuePcm8k(pcm8k);
+    const chunks = Math.ceil(pcm8k.length / CHUNK);
+    await sleep(chunks * 20 + config.audio.startBufferMs);
   }
 
   private sendToAsterisk(pcm8k: Buffer): void {
@@ -314,7 +355,8 @@ export class CallSession {
       const end = Math.min(pos + CHUNK, sample.length);
       const slice = sample.subarray(pos, end);
       if (slice.length === CHUNK) {
-        this.sendToAsterisk(slice);
+        // Mesma fila da voz — evita duas escritas simultâneas no socket (causa gargalo)
+        this.audioQueue.push(Buffer.from(slice));
       }
       pos = end >= sample.length ? 0 : end;
       await sleep(20);

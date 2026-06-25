@@ -5,7 +5,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'buscar_cliente_por_cpf',
     description:
-      'Busca o cadastro do cliente pelo CPF informado. Use quando o cliente fornecer o CPF para se identificar.',
+      'Busca o cadastro pelo CPF. Após encontrar, confirme o titular (nome no contrato) com o cliente antes de usar outras ferramentas.',
     parameters: {
       type: 'object',
       properties: {
@@ -31,7 +31,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'gerar_segunda_via',
     description:
-      'Gera segunda via de boleto e/ou PIX Copia e Cola para pagamento de fatura. Envia por WhatsApp se disponível.',
+      'Gera segunda via de boleto e/ou PIX Copia e Cola. Se enviar_whatsapp=true, envia mensagem completa com resumo do atendimento, resposta ao cliente, fatura/PIX e protocolos da chamada (se houver).',
     parameters: {
       type: 'object',
       properties: {
@@ -39,10 +39,41 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         fatura_id: { type: 'number', description: 'ID da fatura a gerar segunda via' },
         enviar_whatsapp: {
           type: 'boolean',
-          description: 'Se true, envia o link por WhatsApp para o número da chamada',
+          description: 'Se true, envia por WhatsApp (padrão: true)',
+        },
+        celular_whatsapp: {
+          type: 'string',
+          description:
+            'Celular com WhatsApp informado pelo cliente (com DDD). SEMPRE pergunte qual número usar — pode ser diferente do telefone da ligação.',
+        },
+        resumo_atendimento: {
+          type: 'string',
+          description:
+            'Resumo objetivo do que foi feito na ligação (ex.: identificação, consultas, diagnóstico, ações realizadas)',
+        },
+        resposta_cliente: {
+          type: 'string',
+          description:
+            'Resposta clara sobre o que o cliente questionou (ex.: motivo da suspensão, orientação técnica, próximos passos)',
         },
       },
-      required: ['cliente_id', 'fatura_id'],
+      required: ['cliente_id', 'fatura_id', 'celular_whatsapp', 'resumo_atendimento', 'resposta_cliente'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'confirmar_titular_contrato',
+    description:
+      'Registra se o cliente confirmou ser o titular do contrato após buscar_cliente_por_cpf. Use SOMENTE após perguntar o nome do contrato e ouvir a resposta do cliente.',
+    parameters: {
+      type: 'object',
+      properties: {
+        confirmado: {
+          type: 'boolean',
+          description: 'true se o cliente confirmou que é o titular; false se negou',
+        },
+      },
+      required: ['confirmado'],
     },
   },
   {
@@ -85,7 +116,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'abrir_chamado',
     description:
-      'Abre ordem de serviço técnico no SGP. Use SOMENTE após esgotar diagnóstico remoto E o cliente confirmar que tentou as orientações (reiniciar roteador/ONU) e não funcionou. NUNCA use no mesmo turno em que orienta uma ação — aguarde a resposta do cliente.',
+      'Abre ordem de serviço técnico no SGP. Use SOMENTE após esgotar diagnóstico remoto E o cliente confirmar que tentou as orientações (reiniciar roteador/ONU) e não funcionou. NUNCA use no mesmo turno em que orienta uma ação — aguarde a resposta do cliente. Pode enviar protocolo por WhatsApp com resumo do atendimento.',
     parameters: {
       type: 'object',
       properties: {
@@ -96,8 +127,48 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description:
             'Descrição detalhada: o que o cliente relatou, diagnóstico realizado, ações tentadas e resultado',
         },
+        enviar_whatsapp: {
+          type: 'boolean',
+          description: 'Se true, envia protocolo e resumo por WhatsApp',
+        },
+        celular_whatsapp: {
+          type: 'string',
+          description: 'Celular com WhatsApp informado pelo cliente (com DDD)',
+        },
+        resumo_atendimento: {
+          type: 'string',
+          description: 'Resumo do que foi feito na ligação até abrir o chamado',
+        },
+        resposta_cliente: {
+          type: 'string',
+          description: 'Resposta ao que o cliente questionou (ex.: situação da internet, o que será feito)',
+        },
       },
       required: ['cliente_id', 'titulo', 'descricao'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'enviar_resumo_whatsapp',
+    description:
+      'Envia por WhatsApp o resumo completo do atendimento: o que foi feito, resposta ao cliente, protocolo(s) abertos e fatura/PIX gerados nesta chamada. Use no final do atendimento ou quando o cliente pedir tudo por escrito.',
+    parameters: {
+      type: 'object',
+      properties: {
+        celular_whatsapp: {
+          type: 'string',
+          description: 'Celular com WhatsApp informado pelo cliente (com DDD)',
+        },
+        resumo_atendimento: {
+          type: 'string',
+          description: 'Resumo completo do atendimento realizado na ligação',
+        },
+        resposta_cliente: {
+          type: 'string',
+          description: 'Resposta clara ao motivo do contato do cliente',
+        },
+      },
+      required: ['celular_whatsapp', 'resumo_atendimento', 'resposta_cliente'],
     },
   },
   {

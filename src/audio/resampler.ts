@@ -25,7 +25,7 @@ export function upsample8to24(input: Buffer): Buffer {
   return out;
 }
 
-/** 24 kHz → 8 kHz (downsample ÷3, average 3 samples) */
+/** 24 kHz → 8 kHz (downsample ÷3, low-pass weighted average) */
 export function downsample24to8(input: Buffer): Buffer {
   const n = Math.floor(input.length / 6);
   const out = Buffer.allocUnsafe(n * 2);
@@ -35,7 +35,8 @@ export function downsample24to8(input: Buffer): Buffer {
     const s0 = input.readInt16LE(base);
     const s1 = input.readInt16LE(base + 2);
     const s2 = input.readInt16LE(base + 4);
-    out.writeInt16LE(clamp(Math.round((s0 + s1 + s2) / 3)), i * 2);
+    // Peso central reduz aliasing e deixa a voz mais limpa no telefone
+    out.writeInt16LE(clamp(Math.round((s0 + s1 * 2 + s2) / 4)), i * 2);
   }
 
   return out;
