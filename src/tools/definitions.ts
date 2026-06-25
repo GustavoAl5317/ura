@@ -160,7 +160,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         nome: { type: 'string', description: 'Nome completo do interessado' },
-        email: { type: 'string', description: 'E-mail do interessado (opcional)' },
+        celular: {
+          type: 'string',
+          description:
+            'Número de celular/WhatsApp para contato (com DDD). Sempre pergunte ao cliente. Se ele não tiver ou não quiser informar, deixe em branco.',
+        },
+        email: { type: 'string', description: 'E-mail do interessado (opcional, não insistir se não tiver)' },
         endereco: {
           type: 'string',
           description: 'Endereço consultado no formato "Rua X, 123, Bairro, Cidade/UF, CEP"',

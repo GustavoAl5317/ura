@@ -107,8 +107,21 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       ? r.links.find((l) => l.fatura === faturaId) ?? r.links[0]
       : r.links[0];
 
-    // Tenta gerar PIX da fatura selecionada
-    let pixCola = ctx.titulos?.find((t) => t.id === linkObj.fatura)?.codigoPix ?? '';
+    // Garante que temos os títulos em aberto para localizar um PIX já emitido.
+    let titulos = ctx.titulos;
+    if (!titulos || !titulos.length) {
+      titulos = await sgp.titulos(contratoId, 'abertos');
+      ctx.titulos = titulos;
+    }
+
+    // O modelo pode passar o id do título OU o número da fatura — tenta os dois
+    // (id e numeroDocumento) e, como último recurso, casa por valor.
+    const tituloMatch =
+      titulos.find((t) => t.id === faturaId || t.numeroDocumento === faturaId) ??
+      titulos.find((t) => t.id === linkObj.fatura || t.numeroDocumento === linkObj.fatura) ??
+      titulos.find((t) => Math.abs((t.valorCorrigido ?? t.valor) - linkObj.valor) < 0.01);
+
+    let pixCola = tituloMatch?.codigoPix ?? '';
     if (!pixCola) {
       pixCola = await sgp.gerarPix(linkObj.fatura, contratoId) ?? '';
     }
@@ -397,7 +410,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const endereco = String(args.endereco ?? ctx.enderecoConsultado ?? '').trim();
     const plano = args.plano_interesse ? String(args.plano_interesse).trim() : null;
     const horario = args.melhor_horario ? String(args.melhor_horario) : null;
-    const telefone = ctx.callerNumber || null;
+    // Celular informado pelo cliente tem prioridade; se não informar, usa o número da chamada.
+    const celularInformado = args.celular ? String(args.celular).replace(/\D/g, '') : '';
+    const telefone = celularInformado || ctx.callerNumber || null;
 
     if (!nome || !endereco) {
       return { sucesso: false, mensagem: 'Nome e endereço são obrigatórios.' };

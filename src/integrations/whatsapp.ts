@@ -29,17 +29,50 @@ export class WhatsAppClient {
     return !!(config.whatsapp.apiUrl && config.whatsapp.instance && config.whatsapp.apiKey);
   }
 
-  async enviarTexto(para: string, mensagem: string): Promise<boolean> {
-    if (!this.available) return false;
+  // Envia texto tentando o formato da Evolution v2 ({ number, text }) e, se a API
+  // responder 400/500 (comum por incompatibilidade de versão), tenta o formato
+  // legado da v1 ({ number, textMessage: { text } }).
+  private async postSendText(number: string, text: string): Promise<void> {
+    const path = `/message/sendText/${config.whatsapp.instance}`;
     try {
-      await this.client.post(
-        `/message/sendText/${config.whatsapp.instance}`,
-        { number: this.normalize(para), text: mensagem },
-      );
-      logger.info('WhatsApp enviado', { para });
+      await this.client.post(path, { number, text });
+    } catch (errV2: any) {
+      const status = errV2.response?.status;
+      if (status === 400 || status === 500) {
+        logger.info('WhatsApp: formato v2 falhou, tentando formato legado v1', { status });
+        await this.client.post(path, {
+          number,
+          options: { delay: 1000, presence: 'composing' },
+          textMessage: { text },
+        });
+        return;
+      }
+      throw errV2;
+    }
+  }
+
+  async enviarTexto(para: string, mensagem: string): Promise<boolean> {
+    if (!this.available) {
+      logger.error('WhatsApp não configurado', {
+        temApiUrl: !!config.whatsapp.apiUrl,
+        temInstance: !!config.whatsapp.instance,
+        temApiKey: !!config.whatsapp.apiKey,
+      });
+      return false;
+    }
+    const numero = this.normalize(para);
+    try {
+      await this.postSendText(numero, mensagem);
+      logger.info('WhatsApp enviado', { para: numero });
       return true;
     } catch (err: any) {
-      logger.error('WhatsApp erro', { err: err.message });
+      logger.error('WhatsApp erro', {
+        para: numero,
+        url: `${config.whatsapp.apiUrl}/message/sendText/${config.whatsapp.instance}`,
+        status: err.response?.status,
+        body: JSON.stringify(err.response?.data)?.slice(0, 300),
+        err: err.message,
+      });
       return false;
     }
   }
@@ -77,15 +110,24 @@ export class WhatsAppClient {
   }
 
   async enviarGrupo(grupoId: string, mensagem: string): Promise<boolean> {
-    if (!this.available) return false;
+    if (!this.available) {
+      logger.error('WhatsApp não configurado (grupo)', {
+        temApiUrl: !!config.whatsapp.apiUrl,
+        temInstance: !!config.whatsapp.instance,
+        temApiKey: !!config.whatsapp.apiKey,
+      });
+      return false;
+    }
     try {
-      await this.client.post(
-        `/message/sendText/${config.whatsapp.instance}`,
-        { number: grupoId, text: mensagem },
-      );
+      await this.postSendText(grupoId, mensagem);
       return true;
     } catch (err: any) {
-      logger.error('WhatsApp grupo erro', { err: err.message });
+      logger.error('WhatsApp grupo erro', {
+        grupoId,
+        status: err.response?.status,
+        body: JSON.stringify(err.response?.data)?.slice(0, 300),
+        err: err.message,
+      });
       return false;
     }
   }
