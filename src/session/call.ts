@@ -143,32 +143,34 @@ export class CallSession {
     return this.rt.isResponseActive() || this.pacer.isMicGated();
   }
 
-  private scheduleUserResponse(callId: string, retries = 0): void {
-    const MAX_RETRIES = 15; // 15 × speechStopDelayMs ≈ 22.5 s
+  private scheduleUserResponse(callId: string, retries = 0, delayMs?: number): void {
+    const MAX_RETRIES = 20;
+    const RETRY_INTERVAL_MS = 300;
+    const firstDelay = delayMs ?? config.vad.speechStopDelayMs;
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     this.userResponseTimer = setTimeout(() => {
       this.userResponseTimer = null;
       if (this.tearing || this.socket.destroyed) return;
-      if (this.pacer.isPlaying() || this.rt.isResponseActive()) {
-        // Em vez de desistir, reagenda se ainda está reproduzindo áudio
+      if (this.rt.isResponseActive()) {
         if (retries < MAX_RETRIES) {
           logger.debug(`[${callId}] scheduleUserResponse reagendado (retry=${retries + 1})`);
-          this.scheduleUserResponse(callId, retries + 1);
+          this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
         } else {
-          logger.warn(`[${callId}] scheduleUserResponse esgotou retries`);
+          logger.warn(`[${callId}] scheduleUserResponse esgotou retries — forçando`);
+          this.rt.createResponse(true);
         }
         return;
       }
       logger.info(`[${callId}] Gerando resposta após fala do cliente`);
       this.rt.createResponse();
-    }, config.vad.speechStopDelayMs);
+    }, retries === 0 ? firstDelay : RETRY_INTERVAL_MS);
   }
 
   private tryPendingSpeechStop(callId: string): void {
     if (!this.pendingSpeechStop) return;
     this.pendingSpeechStop = false;
-    // Agenda mesmo se ainda reproduzindo — scheduleUserResponse faz o retry
-    this.scheduleUserResponse(callId);
+    // Delay curto pois já esperamos no holdRelease
+    this.scheduleUserResponse(callId, 0, 300);
   }
 
   private setupRealtimeEvents(callId: string): void {
@@ -256,19 +258,18 @@ export class CallSession {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
       this.resetSilenceTimer();
 
-      // Fallback: se nenhum speechStop/response.create ocorrer em 6s, força
+      // Fallback: se nenhum speechStop/response.create ocorrer em 4s, força
       const scheduleTranscriptFallback = (attempt = 0) => {
-        const MAX_ATTEMPTS = 10;
+        const MAX_ATTEMPTS = 8;
         if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
         this.userResponseTimer = setTimeout(() => {
           this.userResponseTimer = null;
           if (this.tearing || this.socket.destroyed) return;
-          if (this.rt.isResponseActive() || this.pacer.isMicGated()) {
+          if (this.rt.isResponseActive()) {
             if (attempt < MAX_ATTEMPTS) {
               logger.debug(`[${callId}] Fallback transcrição reagendado (attempt=${attempt + 1})`);
               scheduleTranscriptFallback(attempt + 1);
             } else {
-              // Mesmo após max tentativas, força a resposta
               logger.warn(`[${callId}] Forçando resposta após ${MAX_ATTEMPTS} tentativas`);
               this.rt.createResponse(true);
             }
@@ -276,7 +277,7 @@ export class CallSession {
           }
           logger.warn(`[${callId}] Sem resposta após transcrição — forçando`);
           this.rt.createResponse();
-        }, attempt === 0 ? 6_000 : 2_000);
+        }, attempt === 0 ? 4_000 : 1_000);
       };
       scheduleTranscriptFallback();
     });
