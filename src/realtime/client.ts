@@ -242,6 +242,8 @@ export class RealtimeClient extends EventEmitter {
           return;
         }
 
+        this.emit('toolStart', name);
+
         // Timer de lentidão: emite evento se a tool demorar demais
         const slowTimer = setTimeout(() => {
           this.emit('toolSlowdown');

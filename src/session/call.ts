@@ -12,15 +12,15 @@ import { ami } from '../integrations/ami';
 import { getRegistration } from '../http/sidecar';
 import { config } from '../config';
 import { logger } from '../logger';
-import { PROCESSING_TONE } from '../audio/tone';
+import { KEYBOARD_TYPING } from '../audio/tone';
 
 const CHUNK = 320;  // 160 samples × 2 bytes = 20 ms at 8kHz/16-bit
 const FILLERS = [
-  'Só um instante...',
-  'Aguarda um segundinho...',
-  'Deixa eu ver aqui...',
-  'Um momentinho...',
-  'Estou verificando...',
+  'Só um instante, estou consultando...',
+  'Aguarda um momentinho, já estou verificando...',
+  'Deixa eu ver aqui, me aguarda um pouquinho...',
+  'Um momentinho, estou checando pra você...',
+  'Estou consultando, aguarda só um instante...',
 ];
 
 const SILENCE_WARN_MS  = 35_000;  // 35s sem atividade → pergunta se está na linha
@@ -163,12 +163,14 @@ export class CallSession {
       }
     });
 
-    this.rt.on('toolSlowdown', () => {
-      // Tom de processamento direto no Asterisk (independente do TTS provider)
+    this.rt.on('toolStart', () => {
+      // Som de digitação assim que a consulta começa (não espera 3,5s)
       this.fillerCancel = { cancelled: false };
-      void this.playFillerLoop(this.fillerCancel);
+      void this.playFillerLoop(this.fillerCancel, KEYBOARD_TYPING);
+    });
 
-      // Frase verbal adicional via IA
+    this.rt.on('toolSlowdown', () => {
+      // Consulta demorada — reforço verbal se a IA ainda não avisou o cliente
       const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)];
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(filler));
@@ -280,15 +282,15 @@ export class CallSession {
 
   // ─── Filler tone loop ─────────────────────────────────────────────────────
 
-  private async playFillerLoop(cancel: { cancelled: boolean }): Promise<void> {
+  private async playFillerLoop(cancel: { cancelled: boolean }, sample: Buffer = KEYBOARD_TYPING): Promise<void> {
     let pos = 0;
     while (!cancel.cancelled && !this.socket.destroyed && !this.tearing) {
-      const end = Math.min(pos + CHUNK, PROCESSING_TONE.length);
-      const slice = PROCESSING_TONE.subarray(pos, end);
+      const end = Math.min(pos + CHUNK, sample.length);
+      const slice = sample.subarray(pos, end);
       if (slice.length === CHUNK) {
         this.sendToAsterisk(slice);
       }
-      pos = end >= PROCESSING_TONE.length ? 0 : end;
+      pos = end >= sample.length ? 0 : end;
       await sleep(20);
     }
   }
