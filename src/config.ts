@@ -63,7 +63,7 @@ export const config = {
 
   vad: {
     type: opt('TURN_DETECTION_TYPE', 'semantic_vad') as 'semantic_vad' | 'server_vad',
-    eagerness: opt('TURN_DETECTION_EAGERNESS', 'medium') as 'low' | 'medium' | 'high',
+    eagerness: opt('TURN_DETECTION_EAGERNESS', 'low') as 'low' | 'medium' | 'high',
     threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.65),
     silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 700),
     speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 1500),

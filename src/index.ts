@@ -5,10 +5,13 @@ import { startSidecar } from './http/sidecar';
 import { startAudioSocketServer } from './audiosocket/server';
 
 process.on('uncaughtException', (err) => {
-  logger.error('Uncaught exception', { err: err.message });
+  logger.error('Uncaught exception', { err: err.message, stack: err.stack });
 });
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled rejection', { reason: String(reason) });
+  logger.error('Unhandled rejection', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
 });
 
 function main() {

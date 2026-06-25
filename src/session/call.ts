@@ -122,6 +122,8 @@ export class CallSession {
   }
 
   private onAudio(pcm8k: Buffer): void {
+    // Enquanto a Ana fala, não envia áudio do cliente — eco do Jabber disparava resposta cedo
+    if (this.pacer.isMicGated()) return;
     this.rt.sendAudio(upsample8to24(pcm8k));
   }
 

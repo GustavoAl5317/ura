@@ -78,6 +78,11 @@ export class AudioPacer {
     return this.queue.length;
   }
 
+  /** Bloqueia microfone enquanto a Ana está falando — evita eco do softphone disparar o VAD. */
+  isMicGated(): boolean {
+    return this.holdStream || this.queue.length > 0;
+  }
+
   private onTick(): void {
     const active = this.streaming || this.holdStream;
 
