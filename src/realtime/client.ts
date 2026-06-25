@@ -14,6 +14,7 @@ export class RealtimeClient extends EventEmitter {
   private callId = '';
   private toolTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private responseActive = false;
+  private responsePending = false;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -47,6 +48,9 @@ export class RealtimeClient extends EventEmitter {
     });
 
     logger.info(`[${callId}] Realtime WebSocket conectado (model=${model})`);
+
+    this.responseActive = false;
+    this.responsePending = false;
 
     this.ws.on('message', (data) => this.onMessage(data.toString()));
     this.ws.on('close', (code) => {
@@ -160,8 +164,8 @@ export class RealtimeClient extends EventEmitter {
   }
 
   createResponse(): void {
-    if (this.responseActive) return;
-    this.responseActive = true;
+    if (this.responseActive || this.responsePending) return;
+    this.responsePending = true;
     this.send({ type: 'response.create' });
   }
 
@@ -279,12 +283,14 @@ export class RealtimeClient extends EventEmitter {
         break;
 
       case 'response.created':
+        this.responsePending = false;
         this.responseActive = true;
         this.emit('responseCreated');
         break;
 
       case 'response.done':
         this.responseActive = false;
+        this.responsePending = false;
         this.emit('responseDone');
         break;
 

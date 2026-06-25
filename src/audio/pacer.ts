@@ -10,13 +10,14 @@ export class AudioPacer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private streaming = false;
   private idleTicks = 0;
-  private readonly maxChunks: number;
+  private readonly safetyMaxChunks: number;
 
   constructor(
     private readonly write: (frame: Buffer) => void,
     maxBufferMs: number,
   ) {
-    this.maxChunks = Math.max(4, Math.ceil(maxBufferMs / 20));
+    // Teto de segurança alto — NÃO descartar o início da fala (causava sumir a saudação)
+    this.safetyMaxChunks = Math.max(100, Math.ceil(maxBufferMs / 20));
   }
 
   start(): void {
@@ -57,9 +58,10 @@ export class AudioPacer {
       ? combined.subarray(offset)
       : Buffer.alloc(0);
 
-    // Sempre descarta o mais antigo — evita atraso crescente que parece "travamento"
-    while (this.queue.length > this.maxChunks) {
-      this.queue.shift();
+    // Só corta em filas absurdas (ex.: bug) — nunca para "controlar latência" no meio da fala
+    if (this.queue.length > this.safetyMaxChunks * 4) {
+      const drop = this.queue.length - this.safetyMaxChunks * 2;
+      this.queue.splice(0, drop);
     }
 
     this.streaming = true;
@@ -91,8 +93,7 @@ export class AudioPacer {
     if (this.streaming) {
       this.write(SILENCE_CHUNK);
       this.idleTicks++;
-      // ~100 ms de silêncio após esvaziar a fila → para o clock
-      if (this.idleTicks >= 5) {
+      if (this.idleTicks >= 15) {
         this.streaming = false;
         this.idleTicks = 0;
       }

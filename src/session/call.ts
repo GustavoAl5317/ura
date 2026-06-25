@@ -41,8 +41,6 @@ export class CallSession {
   private toolsInFlight = 0;
   private waitingAnaAfterTool = false;
   private fillerLoopRunning = false;
-  private callConnectedAt = 0;
-  private muteInputUntil = 0;
 
   constructor(socket: net.Socket) {
     this.socket = socket;
@@ -84,8 +82,6 @@ export class CallSession {
     const callerNumber = reg?.callerNumber ?? '';
 
     this.ctx = createContext(uuid, callerNumber);
-    this.callConnectedAt = Date.now();
-    this.muteInputUntil = this.callConnectedAt + config.audio.inputMuteMs;
     if (reg?.channel) this.ctx.asteriskChannel = reg.channel;
     logger.info(`[${uuid}] Chamada iniciada`, {
       callerNumber: callerNumber || '(desconhecido)',
@@ -126,7 +122,6 @@ export class CallSession {
   }
 
   private onAudio(pcm8k: Buffer): void {
-    if (Date.now() < this.muteInputUntil) return;
     this.rt.sendAudio(upsample8to24(pcm8k));
   }
 
@@ -193,15 +188,15 @@ export class CallSession {
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente: ${text}`);
+      // Barge-in só com fala real transcrita — speechStart/VAD cortava a Ana por eco do softphone
+      if (config.vad.interruptResponse && text.trim().length >= 2) {
+        this.pacer.flush();
+        this.stopTypingSound();
+        this.resetSilenceTimer();
+      }
     });
 
-    this.rt.on('speechStart', () => {
-      if (!config.vad.interruptResponse) return;
-      if (Date.now() - this.callConnectedAt < config.audio.inputMuteMs) return;
-      this.pacer.flush();
-      this.stopTypingSound();
-      this.resetSilenceTimer();
-    });
+    // speechStart: não limpar fila — VAD falso (Jabber/ruído) cortava a saudação inteira
 
     this.rt.on('responseDone', () => {
       if (this.pacer.getQueueLength() === 0) {
