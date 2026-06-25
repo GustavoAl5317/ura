@@ -46,7 +46,7 @@ export class CallSession {
     this.socket = socket;
     this.pacer = new AudioPacer(
       (frame) => writeAudioSocketFrame(this.socket, frame),
-      config.audio.maxBufferMs,
+      config.audio.preBufferMs,
     );
   }
 
@@ -127,7 +127,7 @@ export class CallSession {
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('responseCreated', () => {
-      this.pacer.setStreaming(true);
+      this.pacer.setHoldStream(true);
     });
 
     this.rt.on('audio', (pcm24k: Buffer) => {
@@ -135,7 +135,6 @@ export class CallSession {
         this.fillerCancel.cancelled = true;
         this.fillerLoopRunning = false;
         this.waitingAnaAfterTool = false;
-        this.pacer.flush();
       }
 
       this.pacer.enqueue(downsample24to8(pcm24k));
@@ -199,9 +198,7 @@ export class CallSession {
     // speechStart: não limpar fila — VAD falso (Jabber/ruído) cortava a saudação inteira
 
     this.rt.on('responseDone', () => {
-      if (this.pacer.getQueueLength() === 0) {
-        this.pacer.setStreaming(false);
-      }
+      this.pacer.setHoldStream(false);
     });
 
     this.rt.on('close', () => {
@@ -219,7 +216,6 @@ export class CallSession {
     try {
       const pcm8k = await synthesize(text);
       this.pacer.enqueue(pcm8k);
-      this.pacer.setStreaming(true);
       const ms = Math.ceil(pcm8k.length / SLIN_CHUNK_BYTES) * 20 + 80;
       await sleep(ms);
       await sleep(config.audio.endPauseMs);
@@ -267,7 +263,6 @@ export class CallSession {
       const slice = sample.subarray(pos, end);
       if (slice.length === SLIN_CHUNK_BYTES) {
         this.pacer.enqueue(slice);
-        this.pacer.setStreaming(true);
       }
       pos = end >= sample.length ? 0 : end;
       await sleep(20);

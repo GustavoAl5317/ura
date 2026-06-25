@@ -7,34 +7,33 @@ export const SILENCE_CHUNK = Buffer.alloc(SLIN_CHUNK_BYTES);
 export class AudioPacer {
   private queue: Buffer[] = [];
   private remainder = Buffer.alloc(0);
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
   private streaming = false;
+  private holdStream = false;
+  private primed = false;
   private idleTicks = 0;
-  private readonly safetyMaxChunks: number;
+  private readonly preBufferChunks: number;
 
   constructor(
-    private readonly write: (frame: Buffer) => void,
-    maxBufferMs: number,
+    private readonly write: (frame: Buffer) => boolean,
+    preBufferMs: number,
   ) {
-    // Teto de segurança alto — NÃO descartar o início da fala (causava sumir a saudação)
-    this.safetyMaxChunks = Math.max(100, Math.ceil(maxBufferMs / 20));
+    this.preBufferChunks = Math.max(0, Math.ceil(preBufferMs / 20));
   }
 
   start(): void {
     if (this.timer) return;
-    const tick = () => {
-      this.timer = setTimeout(tick, 20);
-      this.onTick();
-    };
-    this.timer = setTimeout(tick, 20);
+    this.timer = setInterval(() => this.onTick(), 20);
   }
 
   stop(): void {
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.queue = [];
     this.remainder = Buffer.alloc(0);
     this.streaming = false;
+    this.holdStream = false;
+    this.primed = false;
     this.idleTicks = 0;
   }
 
@@ -42,6 +41,8 @@ export class AudioPacer {
     this.queue = [];
     this.remainder = Buffer.alloc(0);
     this.streaming = false;
+    this.holdStream = false;
+    this.primed = false;
     this.idleTicks = 0;
   }
 
@@ -58,23 +59,19 @@ export class AudioPacer {
       ? combined.subarray(offset)
       : Buffer.alloc(0);
 
-    // Só corta em filas absurdas (ex.: bug) — nunca para "controlar latência" no meio da fala
-    if (this.queue.length > this.safetyMaxChunks * 4) {
-      const drop = this.queue.length - this.safetyMaxChunks * 2;
-      this.queue.splice(0, drop);
-    }
-
     this.streaming = true;
     this.idleTicks = 0;
   }
 
-  setStreaming(active: boolean): void {
-    this.streaming = active;
-    if (active) this.idleTicks = 0;
-  }
-
-  isStreaming(): boolean {
-    return this.streaming;
+  /** Mantém clock ativo durante toda a resposta da OpenAI (evita micro-pausas entre sílabas). */
+  setHoldStream(hold: boolean): void {
+    this.holdStream = hold;
+    if (hold) {
+      this.streaming = true;
+      this.idleTicks = 0;
+    } else if (this.queue.length === 0) {
+      this.primed = false;
+    }
   }
 
   getQueueLength(): number {
@@ -82,26 +79,39 @@ export class AudioPacer {
   }
 
   private onTick(): void {
+    const active = this.streaming || this.holdStream;
+
+    if (!this.primed && active) {
+      if (this.queue.length < this.preBufferChunks) return;
+      this.primed = true;
+    }
+
     const frame = this.queue.shift();
     if (frame) {
-      this.write(frame);
+      if (!this.write(frame)) {
+        this.queue.unshift(frame);
+      }
       this.streaming = true;
       this.idleTicks = 0;
       return;
     }
 
-    if (this.streaming) {
-      this.write(SILENCE_CHUNK);
+    if (active) {
+      if (!this.write(SILENCE_CHUNK)) return;
       this.idleTicks++;
-      if (this.idleTicks >= 15) {
+      if (!this.holdStream && this.idleTicks >= 30) {
         this.streaming = false;
+        this.primed = false;
         this.idleTicks = 0;
       }
     }
   }
 }
 
-export function writeAudioSocketFrame(socket: { destroyed: boolean; write: (buf: Buffer) => void }, pcm8k: Buffer): void {
-  if (socket.destroyed || pcm8k.length !== SLIN_CHUNK_BYTES) return;
-  socket.write(AudioSocketProtocol.audio(pcm8k));
+export function writeAudioSocketFrame(
+  socket: { destroyed: boolean; writable: boolean; write: (buf: Buffer) => boolean },
+  pcm8k: Buffer,
+): boolean {
+  if (socket.destroyed || pcm8k.length !== SLIN_CHUNK_BYTES) return true;
+  return socket.write(AudioSocketProtocol.audio(pcm8k));
 }
