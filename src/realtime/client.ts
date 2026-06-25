@@ -71,20 +71,19 @@ export class RealtimeClient extends EventEmitter {
 
     // turn_detection nativo: semantic_vad espera o cliente terminar de falar
     // (ideal para coletar CPF/CEP dígito a dígito sem interromper)
+    const turnFlags = {
+      create_response: false,
+      interrupt_response: config.vad.interruptResponse,
+    };
+
     const newTurnDetection: TurnDetectionConfig =
       config.vad.type === 'semantic_vad'
-        ? {
-            type: 'semantic_vad',
-            eagerness: config.vad.eagerness,
-            create_response: true,
-            interrupt_response: true,
-          }
+        ? { type: 'semantic_vad', eagerness: config.vad.eagerness, ...turnFlags }
         : {
             type: 'server_vad',
             threshold: config.vad.threshold,
             silence_duration_ms: config.vad.silenceMs,
-            create_response: true,
-            interrupt_response: true,
+            ...turnFlags,
           };
 
     const sessionCfg: RealtimeSessionConfig = isNewSchema
@@ -115,8 +114,8 @@ export class RealtimeClient extends EventEmitter {
           output_audio_format: 'pcm16',
           input_audio_transcription: { model: 'whisper-1' },
           turn_detection: config.vad.type === 'semantic_vad'
-            ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: true, interrupt_response: config.vad.interruptResponse }
-            : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: true, interrupt_response: config.vad.interruptResponse },
+            ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: false, interrupt_response: config.vad.interruptResponse }
+            : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: false, interrupt_response: config.vad.interruptResponse },
           tools: toolDefs,
           tool_choice: 'auto',
           temperature: config.openai.temperature,
@@ -163,8 +162,15 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
-  createResponse(): void {
-    if (this.responseActive || this.responsePending) return;
+  createResponse(force = false): void {
+    if (!force && (this.responseActive || this.responsePending)) {
+      logger.debug(`[${this.callId}] createResponse bloqueado (active=${this.responseActive}, pending=${this.responsePending})`);
+      return;
+    }
+    if (force && this.responseActive) {
+      logger.warn(`[${this.callId}] createResponse forçado (active=${this.responseActive})`);
+      this.responseActive = false;
+    }
     this.responsePending = true;
     this.send({ type: 'response.create' });
   }
@@ -214,6 +220,10 @@ export class RealtimeClient extends EventEmitter {
         this.emit('audio', buf);
         break;
       }
+
+      case 'response.output_audio.done':
+        this.emit('audioOutputDone');
+        break;
 
       case 'response.text.delta':
       case 'response.output_audio_transcript.delta':

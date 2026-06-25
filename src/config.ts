@@ -56,6 +56,7 @@ export const config = {
     maxBufferMs: optInt('MAX_BUFFER_MS', 3000),
     endPauseMs: optInt('END_PAUSE_MS', 450),
     inputMuteMs: optInt('INPUT_MUTE_MS', 1500),
+    inputRingMs: optInt('INPUT_RING_MS', 10_000),
     startBufferMs: optInt('START_BUFFER_MS', 0),
     targetBufferMs: optInt('TARGET_BUFFER_MS', 0),
     minBufferMs: optInt('MIN_BUFFER_MS', 0),
@@ -68,7 +69,7 @@ export const config = {
     silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 700),
     speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 1500),
     deferAudioWhileUserSpeaks: optBool('DEFER_ASSISTANT_AUDIO_WHILE_USER_SPEAKS', true),
-    interruptResponse: optBool('REALTIME_INTERRUPT_RESPONSE', true),
+    interruptResponse: optBool('REALTIME_INTERRUPT_RESPONSE', false),
   },
 
   sgp: {

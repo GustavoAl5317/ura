@@ -12,13 +12,17 @@ export class AudioPacer {
   private holdStream = false;
   private primed = false;
   private idleTicks = 0;
+  private micMuteUntil = 0;
   private readonly preBufferChunks: number;
+  private readonly inputMuteMs: number;
 
   constructor(
     private readonly write: (frame: Buffer) => boolean,
     preBufferMs: number,
+    inputMuteMs = 1500,
   ) {
     this.preBufferChunks = Math.max(0, Math.ceil(preBufferMs / 20));
+    this.inputMuteMs = inputMuteMs;
   }
 
   start(): void {
@@ -35,15 +39,20 @@ export class AudioPacer {
     this.holdStream = false;
     this.primed = false;
     this.idleTicks = 0;
+    this.micMuteUntil = 0;
   }
 
   flush(): void {
     this.queue = [];
     this.remainder = Buffer.alloc(0);
     this.streaming = false;
-    this.holdStream = false;
     this.primed = false;
     this.idleTicks = 0;
+    this.micMuteUntil = 0;
+  }
+
+  isPlaying(): boolean {
+    return this.holdStream || this.queue.length > 0 || this.streaming;
   }
 
   enqueue(pcm8k: Buffer): void {
@@ -78,9 +87,15 @@ export class AudioPacer {
     return this.queue.length;
   }
 
-  /** Bloqueia microfone enquanto a Ana está falando — evita eco do softphone disparar o VAD. */
+  /** Bloqueia microfone enquanto há áudio na saída ou janela anti-eco após a fala. */
   isMicGated(): boolean {
-    return this.holdStream || this.queue.length > 0;
+    return this.holdStream || this.queue.length > 0 || Date.now() < this.micMuteUntil;
+  }
+
+  private armMicMute(): void {
+    if (this.inputMuteMs > 0) {
+      this.micMuteUntil = Math.max(this.micMuteUntil, Date.now() + this.inputMuteMs);
+    }
   }
 
   private onTick(): void {
@@ -91,6 +106,7 @@ export class AudioPacer {
       this.primed = true;
     }
 
+    const hadQueuedAudio = this.queue.length > 0;
     const frame = this.queue.shift();
     if (frame) {
       if (!this.write(frame)) {
@@ -98,6 +114,9 @@ export class AudioPacer {
       }
       this.streaming = true;
       this.idleTicks = 0;
+      if (hadQueuedAudio && this.queue.length === 0) {
+        this.armMicMute();
+      }
       return;
     }
 

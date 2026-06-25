@@ -19,7 +19,8 @@ function main() {
   logger.info(`  URA AI — ${config.company.name}`);
   logger.info(`  Agente : ${config.company.agentName}`);
   logger.info(`  TTS    : ${config.tts.provider}`);
-  logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness}`);
+  logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness} | interrupt=${config.vad.interruptResponse ? 'on' : 'off'} | manual_response`);
+  logger.info(`  Audio  : ring=${config.audio.inputRingMs}ms pre=${config.audio.preBufferMs}ms mute=${config.audio.inputMuteMs}ms`);
   logger.info('══════════════════════════════════════════');
 
   startSidecar();

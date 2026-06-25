@@ -3,6 +3,7 @@ import { RealtimeClient } from '../realtime/client';
 import { AudioSocketProtocol, AUDIOSOCKET_TYPE } from '../audiosocket/protocol';
 import { upsample8to24, downsample24to8 } from '../audio/resampler';
 import { AudioPacer, SLIN_CHUNK_BYTES, writeAudioSocketFrame } from '../audio/pacer';
+import { MicRingBuffer } from '../audio/mic-ring';
 import { synthesize } from '../tts/elevenlabs';
 import { registerTools } from '../tools/handlers';
 import { createContext } from './context';
@@ -41,13 +42,20 @@ export class CallSession {
   private toolsInFlight = 0;
   private waitingAnaAfterTool = false;
   private fillerLoopRunning = false;
+  private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSpeechStop = false;
+  private readonly micRing: MicRingBuffer;
 
   constructor(socket: net.Socket) {
     this.socket = socket;
     this.pacer = new AudioPacer(
       (frame) => writeAudioSocketFrame(this.socket, frame),
       config.audio.preBufferMs,
+      config.audio.inputMuteMs,
     );
+    const ringBytes = Math.ceil(24_000 * 2 * (config.audio.inputRingMs / 1000));
+    this.micRing = new MicRingBuffer(ringBytes);
   }
 
   start(): void {
@@ -122,13 +130,53 @@ export class CallSession {
   }
 
   private onAudio(pcm8k: Buffer): void {
-    // Enquanto a Ana fala, não envia áudio do cliente — eco do Jabber disparava resposta cedo
-    if (this.pacer.isMicGated()) return;
-    this.rt.sendAudio(upsample8to24(pcm8k));
+    const pcm24 = upsample8to24(pcm8k);
+    if (this.isMicBlocked()) {
+      this.micRing.push(pcm24);
+      return;
+    }
+    this.micRing.drain((chunk) => this.rt.sendAudio(chunk));
+    this.rt.sendAudio(pcm24);
+  }
+
+  private isMicBlocked(): boolean {
+    return this.rt.isResponseActive() || this.pacer.isMicGated();
+  }
+
+  private scheduleUserResponse(callId: string, retries = 0): void {
+    const MAX_RETRIES = 15; // 15 × speechStopDelayMs ≈ 22.5 s
+    if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
+    this.userResponseTimer = setTimeout(() => {
+      this.userResponseTimer = null;
+      if (this.tearing || this.socket.destroyed) return;
+      if (this.pacer.isPlaying() || this.rt.isResponseActive()) {
+        // Em vez de desistir, reagenda se ainda está reproduzindo áudio
+        if (retries < MAX_RETRIES) {
+          logger.debug(`[${callId}] scheduleUserResponse reagendado (retry=${retries + 1})`);
+          this.scheduleUserResponse(callId, retries + 1);
+        } else {
+          logger.warn(`[${callId}] scheduleUserResponse esgotou retries`);
+        }
+        return;
+      }
+      logger.info(`[${callId}] Gerando resposta após fala do cliente`);
+      this.rt.createResponse();
+    }, config.vad.speechStopDelayMs);
+  }
+
+  private tryPendingSpeechStop(callId: string): void {
+    if (!this.pendingSpeechStop) return;
+    this.pendingSpeechStop = false;
+    // Agenda mesmo se ainda reproduzindo — scheduleUserResponse faz o retry
+    this.scheduleUserResponse(callId);
   }
 
   private setupRealtimeEvents(callId: string): void {
     this.rt.on('responseCreated', () => {
+      if (this.userResponseTimer) {
+        clearTimeout(this.userResponseTimer);
+        this.userResponseTimer = null;
+      }
       this.pacer.setHoldStream(true);
     });
 
@@ -149,7 +197,7 @@ export class CallSession {
     const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
 
     this.rt.on('textDone', (text: string) => {
-      if (text.trim()) logger.info(`[${callId}] 🤖 Ana: ${text.trim()}`);
+      if (text.trim()) logger.info(`[${callId}] 🤖 Ana (texto): ${text.trim()}`);
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
@@ -187,21 +235,81 @@ export class CallSession {
       }
     });
 
-    this.rt.on('userSpeech', (text: string) => {
-      logger.info(`[${callId}] 👤 Cliente: ${text}`);
-      // Barge-in só com fala real transcrita — speechStart/VAD cortava a Ana por eco do softphone
-      if (config.vad.interruptResponse && text.trim().length >= 2) {
-        this.pacer.flush();
-        this.stopTypingSound();
-        this.resetSilenceTimer();
+    this.rt.on('speechStart', () => {
+      logger.info(`[${callId}] 🎤 Cliente falando...`);
+      if (this.userResponseTimer) {
+        clearTimeout(this.userResponseTimer);
+        this.userResponseTimer = null;
       }
     });
 
-    // speechStart: não limpar fila — VAD falso (Jabber/ruído) cortava a saudação inteira
-
-    this.rt.on('responseDone', () => {
-      this.pacer.setHoldStream(false);
+    this.rt.on('speechStop', () => {
+      logger.info(`[${callId}] 🎤 Cliente parou de falar`);
+      if (this.pacer.isPlaying() || this.rt.isResponseActive()) {
+        this.pendingSpeechStop = true;
+        return;
+      }
+      this.scheduleUserResponse(callId);
     });
+
+    this.rt.on('userSpeech', (text: string) => {
+      logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
+      this.resetSilenceTimer();
+
+      // Fallback: se nenhum speechStop/response.create ocorrer em 6s, força
+      const scheduleTranscriptFallback = (attempt = 0) => {
+        const MAX_ATTEMPTS = 10;
+        if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
+        this.userResponseTimer = setTimeout(() => {
+          this.userResponseTimer = null;
+          if (this.tearing || this.socket.destroyed) return;
+          if (this.rt.isResponseActive() || this.pacer.isMicGated()) {
+            if (attempt < MAX_ATTEMPTS) {
+              logger.debug(`[${callId}] Fallback transcrição reagendado (attempt=${attempt + 1})`);
+              scheduleTranscriptFallback(attempt + 1);
+            } else {
+              // Mesmo após max tentativas, força a resposta
+              logger.warn(`[${callId}] Forçando resposta após ${MAX_ATTEMPTS} tentativas`);
+              this.rt.createResponse(true);
+            }
+            return;
+          }
+          logger.warn(`[${callId}] Sem resposta após transcrição — forçando`);
+          this.rt.createResponse();
+        }, attempt === 0 ? 6_000 : 2_000);
+      };
+      scheduleTranscriptFallback();
+    });
+
+    const HOLD_RELEASE_MAX_MS = 15_000;
+
+    const scheduleHoldRelease = () => {
+      if (this.releaseHoldTimer) clearTimeout(this.releaseHoldTimer);
+      const startedAt = Date.now();
+      const attempt = () => {
+        if (Date.now() - startedAt > HOLD_RELEASE_MAX_MS) {
+          logger.warn(`[${callId}] holdStream forçado a liberar (timeout)`);
+          this.pacer.setHoldStream(false);
+          this.tryPendingSpeechStop(callId);
+          return;
+        }
+        if (this.pacer.getQueueLength() > 0 || this.rt.isResponseActive()) {
+          this.releaseHoldTimer = setTimeout(attempt, 40);
+          return;
+        }
+        this.releaseHoldTimer = setTimeout(() => {
+          if (this.pacer.getQueueLength() === 0 && !this.rt.isResponseActive()) {
+            this.pacer.setHoldStream(false);
+            this.tryPendingSpeechStop(callId);
+          }
+        }, 250);
+      };
+      attempt();
+    };
+
+    this.rt.on('audioOutputDone', () => scheduleHoldRelease());
+
+    this.rt.on('responseDone', () => scheduleHoldRelease());
 
     this.rt.on('close', () => {
       logger.info(`[${callId}] Realtime fechado`);
@@ -314,6 +422,8 @@ export class CallSession {
     this.tearing = true;
     this.stopTypingSound();
     this.pacer.stop();
+    if (this.releaseHoldTimer) clearTimeout(this.releaseHoldTimer);
+    if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     logger.info(`[${this.ctx.callId}] Chamada encerrada`);
