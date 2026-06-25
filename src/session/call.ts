@@ -263,10 +263,15 @@ export class CallSession {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
       this.resetSilenceTimer();
 
-      // Fallback: se nenhum speechStop/response.create ocorrer em 4s, força
+      // Fallback de segurança — NÃO sobrescreve timer do speechStop (caminho rápido)
+      // Só agenda se nenhum timer existe (ex: speechStop não disparou)
+      if (this.userResponseTimer) {
+        logger.debug(`[${callId}] Transcrição recebida, timer já ativo — mantendo`);
+        return;
+      }
+
       const scheduleTranscriptFallback = (attempt = 0) => {
         const MAX_ATTEMPTS = 8;
-        if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
         this.userResponseTimer = setTimeout(() => {
           this.userResponseTimer = null;
           if (this.tearing || this.socket.destroyed) return;
