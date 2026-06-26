@@ -262,7 +262,7 @@ export class CallSession {
       }
       this.pendingSpeechStop = false;
       this.respondedSinceLastSpeech = true;
-      if (useElevenLabsTts) {
+      if (useElevenLabsTts && this.toolsInFlight > 0) {
         this.startTypingSound();
       }
       // Com ElevenLabs o áudio é local — holdStream bloqueava o mic por 15s sem TTS da OpenAI
@@ -302,6 +302,7 @@ export class CallSession {
         }
       }
       if (useElevenLabsTts && text.trim()) {
+        this.stopTypingSound();
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
       this.textBuf = '';
@@ -584,6 +585,7 @@ export class CallSession {
     this.clearPostToolSpeechWatchdog();
     this.assistantTextInResponse = true;
     this.waitingAnaAfterTool = false;
+    this.stopTypingSound();
     logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
     sessionRegistry.emit(callId, 'assistant_text', speech);
     this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(speech));
@@ -738,19 +740,13 @@ export class CallSession {
 
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
-    this.startTypingSound();
+    this.stopTypingSound();
     try {
-      let firstChunk = true;
       await synthesizeStream(text, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
-        if (firstChunk) {
-          this.stopTypingSound();
-          firstChunk = false;
-        }
         this.pacer.enqueue(pcm8k);
       }, this.ctx.voiceId);
       if (gen !== this.ttsGeneration) return;
-      this.stopTypingSound();
       await this.pacer.drain();
       if (gen !== this.ttsGeneration) return;
       await sleep(config.audio.endPauseMs);
