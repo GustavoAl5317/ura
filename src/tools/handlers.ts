@@ -78,19 +78,34 @@ function mapFaturaResumo(t: SgpTitulo) {
   };
 }
 
+const FALA_SUSPENSAO_FINANCEIRA =
+  'Sua internet está suspensa por pendência financeira. Após o pagamento, a conexão costuma voltar em alguns minutos.';
+
+function suspensoPorFinanceiro(contratoSuspenso: boolean, motivoStatus: string | null): boolean {
+  return contratoSuspenso && /financ/i.test(motivoStatus ?? '');
+}
+
+function contratoDoContexto(ctx: CallContext, contratoId: number) {
+  return ctx.cliente?.contratos.find((c) => c.contrato === contratoId) ?? ctx.cliente?.contratos[0];
+}
+
 function orientacaoFinanceiro(params: {
   vencidas: SgpTitulo[];
   aVencer: SgpTitulo[];
   contratoSuspenso: boolean;
   bloqueioFinanceiro: boolean;
+  servicoSuspensoFinanceiro: boolean;
 }): string {
-  const { vencidas, aVencer, contratoSuspenso, bloqueioFinanceiro } = params;
+  const { vencidas, aVencer, contratoSuspenso, bloqueioFinanceiro, servicoSuspensoFinanceiro } = params;
+  const prefixoSuspensao = servicoSuspensoFinanceiro
+    ? 'OBRIGATÓRIO: comece sua fala com fala_obrigatoria (texto exato do campo). '
+    : '';
 
   if (vencidas.length > 0 && (contratoSuspenso || bloqueioFinanceiro)) {
     return (
-      `Há ${vencidas.length} fatura(s) VENCIDA(s). Em corte/suspensão por financeiro, ` +
-      'ofereça segunda via/PIX SOMENTE da(s) vencida(s) (faturas_vencidas[].id). ' +
-      'NÃO envie nem mencione faturas a vencer sem o cliente pedir.'
+      prefixoSuspensao +
+      `Há ${vencidas.length} fatura(s) VENCIDA(s). Informe valor e vencimento da vencida e ` +
+      'ofereça segunda via/PIX (faturas_vencidas[].id). NÃO envie faturas a vencer sem o cliente pedir.'
     );
   }
 
@@ -103,8 +118,9 @@ function orientacaoFinanceiro(params: {
 
   if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
     return (
-      'Contrato suspenso por financeiro com fatura(s) em aberto sem data vencida. ' +
-      'Explique a suspensão; se o cliente pedir boleto, liste faturas_a_vencer e use gerar_segunda_via com fatura_id.'
+      prefixoSuspensao +
+      'Há fatura(s) em aberto sem data vencida. Explique a suspensão; se o cliente pedir boleto, ' +
+      'liste faturas_a_vencer e use gerar_segunda_via com fatura_id.'
     );
   }
 
@@ -118,8 +134,9 @@ function orientacaoFinanceiro(params: {
 
   if (contratoSuspenso) {
     return (
-      'Contrato suspenso/bloqueado MAS sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
-      'Explique a situação e avalie desbloqueio_confianca ou oriente contato comercial.'
+      prefixoSuspensao +
+      'Sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
+      'Avalie desbloqueio_confianca ou oriente contato comercial.'
     );
   }
 
@@ -520,11 +537,12 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const inadimplente = vencidas.length > 0;
     const valorTotalVencido = vencidas.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
     const valorTotalAVencer = aVencer.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
-    const ct = ctx.cliente?.contratos[0];
+    const ct = contratoDoContexto(ctx, contratoId);
     const statusContrato = ct?.status ?? null;
     const motivoStatus = ct?.motivo_status ?? null;
     const contratoSuspenso = /suspens|bloquead|cancelad/i.test(statusContrato ?? '');
-    const bloqueioFinanceiro = inadimplente || (contratoSuspenso && /financ/i.test(motivoStatus ?? ''));
+    const servicoSuspensoFinanceiro = suspensoPorFinanceiro(contratoSuspenso, motivoStatus);
+    const bloqueioFinanceiro = inadimplente || servicoSuspensoFinanceiro;
     const temFaturasAbertas = tits.length > 0;
     const temFaturasVencidas = vencidas.length > 0;
 
@@ -535,6 +553,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       status_contrato: statusContrato,
       motivo_status: motivoStatus,
       bloqueio_financeiro: bloqueioFinanceiro,
+      servico_suspenso_financeiro: servicoSuspensoFinanceiro,
+      fala_obrigatoria: servicoSuspensoFinanceiro ? FALA_SUSPENSAO_FINANCEIRA : null,
       tem_faturas_abertas: temFaturasAbertas,
       tem_faturas_vencidas: temFaturasVencidas,
       total_vencido: temFaturasVencidas
@@ -551,6 +571,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         aVencer,
         contratoSuspenso,
         bloqueioFinanceiro,
+        servicoSuspensoFinanceiro,
       }),
     };
   });
