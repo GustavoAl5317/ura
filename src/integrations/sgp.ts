@@ -339,12 +339,17 @@ export class SgpClient {
     return r?.titulos ?? [];
   }
 
-  async fatura2via(contratoId: number): Promise<SgpFatura2via | null> {
-    return this.postForm<SgpFatura2via>('/api/ura/fatura2via/', {
+  async fatura2via(contratoId: number, faturaId?: number): Promise<SgpFatura2via | null> {
+    const body: Record<string, string | number> = {
       contrato: contratoId,
-      faturas_abertas_todas: 1,
       nao_gerar_os: 1,
-    });
+    };
+    if (faturaId) {
+      body.fatura = faturaId;
+    } else {
+      body.faturas_abertas_todas = 1;
+    }
+    return this.postForm<SgpFatura2via>('/api/ura/fatura2via/', body);
   }
 
   async gerarPix(faturaId: number, contratoId: number): Promise<string | null> {

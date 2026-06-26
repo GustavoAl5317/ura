@@ -5,7 +5,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { RealtimeClient } from '../realtime/client';
-import type { SgpPlano } from '../integrations/sgp';
+import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
@@ -19,6 +19,87 @@ function classificarSinalOptico(
   if (rx >= -22) return { faixa: 'muito_bom', descricao: 'Sinal óptico muito bom (-17 a -22 dBm)' };
   if (rx >= -24) return { faixa: 'regular', descricao: 'Sinal óptico regular (-23 a -24 dBm)' };
   return { faixa: 'ruim', descricao: 'Sinal óptico ruim (abaixo de -24 dBm)' };
+}
+
+function tituloVencido(t: SgpTitulo): boolean {
+  return t.diasAtraso > 0;
+}
+
+function separarTitulos(tits: SgpTitulo[]): { vencidas: SgpTitulo[]; aVencer: SgpTitulo[] } {
+  const vencidas = tits.filter(tituloVencido);
+  const aVencer = tits.filter((t) => !tituloVencido(t));
+  return { vencidas, aVencer };
+}
+
+function mapFaturaResumo(t: SgpTitulo) {
+  return {
+    id: t.id,
+    numero_documento: t.numeroDocumento,
+    valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
+    vencimento: t.dataVencimento,
+    atraso_dias: t.diasAtraso,
+    vencida: tituloVencido(t),
+    status: t.status,
+    tem_pix: !!t.codigoPix,
+    tem_boleto: !!t.codigoBarras || !!t.link,
+  };
+}
+
+function orientacaoFinanceiro(params: {
+  vencidas: SgpTitulo[];
+  aVencer: SgpTitulo[];
+  contratoSuspenso: boolean;
+  bloqueioFinanceiro: boolean;
+}): string {
+  const { vencidas, aVencer, contratoSuspenso, bloqueioFinanceiro } = params;
+
+  if (vencidas.length > 0 && (contratoSuspenso || bloqueioFinanceiro)) {
+    return (
+      `Há ${vencidas.length} fatura(s) VENCIDA(s). Em corte/suspensão por financeiro, ` +
+      'ofereça segunda via/PIX SOMENTE da(s) vencida(s) (faturas_vencidas[].id). ' +
+      'NÃO envie nem mencione faturas a vencer sem o cliente pedir.'
+    );
+  }
+
+  if (vencidas.length > 0) {
+    return (
+      'Há fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ' +
+      'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.'
+    );
+  }
+
+  if (aVencer.length > 0) {
+    return (
+      'Há fatura(s) a vencer, mas NENHUMA vencida. NÃO ofereça boleto automaticamente. ' +
+      'Se o cliente pedir fatura: informe que não há vencida, pergunte qual deseja, ' +
+      'liste faturas_a_vencer (valor e vencimento) e use gerar_segunda_via com fatura_id escolhida.'
+    );
+  }
+
+  if (contratoSuspenso) {
+    return (
+      'Contrato suspenso/bloqueado MAS sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
+      'Explique a situação e avalie desbloqueio_confianca ou oriente contato comercial.'
+    );
+  }
+
+  return 'Situação financeira regular — sem faturas pendentes.';
+}
+
+function resolverFaturaIdPriorizandoVencida(
+  ctx: CallContext,
+  raw?: unknown,
+): number | undefined {
+  const fromArgs = Number(raw);
+  if (Number.isFinite(fromArgs) && fromArgs > 0) return fromArgs;
+
+  const titulos = ctx.titulos ?? [];
+  const vencidas = titulos.filter(tituloVencido);
+  if (vencidas.length > 0) {
+    const maisAtrasada = [...vencidas].sort((a, b) => b.diasAtraso - a.diasAtraso)[0];
+    return maisAtrasada.id ?? maisAtrasada.numeroDocumento;
+  }
+  return undefined;
 }
 
 /** Celular informado pelo cliente — obrigatório para WhatsApp (não usa fixo da chamada automaticamente). */
@@ -177,8 +258,7 @@ function resolverFaturaId(
 ): number | undefined {
   const fromArgs = Number(raw);
   if (Number.isFinite(fromArgs) && fromArgs > 0) return fromArgs;
-  const titulo = ctx.titulos?.[0];
-  return titulo?.id ?? titulo?.numeroDocumento ?? undefined;
+  return resolverFaturaIdPriorizandoVencida(ctx);
 }
 
 /** Nome curto para fala (primeiro nome ou primeiras palavras). */
@@ -396,13 +476,17 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const tits = await sgp.titulos(contratoId, 'abertos');
     ctx.titulos = tits;
 
-    const inadimplente = tits.some((t) => t.status === 'aberto' && t.diasAtraso > 0);
-    const valorTotal = tits.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
+    const { vencidas, aVencer } = separarTitulos(tits);
+    const inadimplente = vencidas.length > 0;
+    const valorTotalVencido = vencidas.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
+    const valorTotalAVencer = aVencer.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
     const ct = ctx.cliente?.contratos[0];
     const statusContrato = ct?.status ?? null;
     const motivoStatus = ct?.motivo_status ?? null;
     const contratoSuspenso = /suspens|bloquead|cancelad/i.test(statusContrato ?? '');
+    const bloqueioFinanceiro = inadimplente || (contratoSuspenso && /financ/i.test(motivoStatus ?? ''));
     const temFaturasAbertas = tits.length > 0;
+    const temFaturasVencidas = vencidas.length > 0;
 
     return {
       contrato_id: contratoId,
@@ -410,24 +494,24 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       contrato_suspenso: contratoSuspenso,
       status_contrato: statusContrato,
       motivo_status: motivoStatus,
-      bloqueio_financeiro: inadimplente || (contratoSuspenso && /financ/i.test(motivoStatus ?? '')),
+      bloqueio_financeiro: bloqueioFinanceiro,
       tem_faturas_abertas: temFaturasAbertas,
-      total_em_aberto: `R$ ${valorTotal.toFixed(2).replace('.', ',')}`,
-      faturas: tits.map((t) => ({
-        id: t.id,
-        numero_documento: t.numeroDocumento,
-        valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
-        vencimento: t.dataVencimento,
-        atraso_dias: t.diasAtraso,
-        status: t.status,
-        tem_pix: !!t.codigoPix,
-        tem_boleto: !!t.codigoBarras || !!t.link,
-      })),
-      orientacao: temFaturasAbertas
-        ? 'Há faturas em aberto — pode oferecer segunda via/PIX com gerar_segunda_via usando faturas[].id.'
-        : contratoSuspenso
-          ? 'Contrato suspenso/bloqueado MAS sem faturas em aberto no sistema. NÃO ofereça boleto. Explique a situação e avalie desbloqueio_confianca ou oriente contato comercial.'
-          : 'Situação financeira regular — sem faturas pendentes.',
+      tem_faturas_vencidas: temFaturasVencidas,
+      total_vencido: temFaturasVencidas
+        ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}`
+        : null,
+      total_a_vencer: aVencer.length > 0
+        ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}`
+        : null,
+      faturas_vencidas: vencidas.map(mapFaturaResumo),
+      faturas_a_vencer: aVencer.map(mapFaturaResumo),
+      faturas: vencidas.map(mapFaturaResumo),
+      orientacao: orientacaoFinanceiro({
+        vencidas,
+        aVencer,
+        contratoSuspenso,
+        bloqueioFinanceiro,
+      }),
     };
   });
 
@@ -460,10 +544,50 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    const faturaId = resolverFaturaId(ctx, args.fatura_id);
+    const { vencidas, aVencer } = separarTitulos(titulos);
+    const faturaIdArg = Number(args.fatura_id);
+    const faturaIdInformada = Number.isFinite(faturaIdArg) && faturaIdArg > 0 ? faturaIdArg : undefined;
+    let faturaId = faturaIdInformada ?? resolverFaturaIdPriorizandoVencida(ctx);
+
+    if (!faturaId) {
+      return {
+        sucesso: false,
+        requer_escolha_cliente: true,
+        tem_faturas_vencidas: false,
+        faturas_disponiveis: aVencer.map(mapFaturaResumo),
+        mensagem: 'Não há fatura vencida em aberto.',
+        orientacao:
+          'Informe ao cliente que não há fatura vencida. Pergunte qual fatura ele deseja ' +
+          '(liste valor e vencimento de faturas_disponiveis) e chame gerar_segunda_via novamente com fatura_id.',
+      };
+    }
+
+    const tituloAlvo =
+      titulos.find((t) => t.id === faturaId || t.numeroDocumento === faturaId) ?? null;
+
+    if (!tituloAlvo) {
+      return {
+        sucesso: false,
+        mensagem: 'Fatura não encontrada entre as faturas em aberto deste contrato.',
+        orientacao: 'Use um id de faturas_vencidas[] ou faturas_a_vencer[] retornado por consultar_financeiro.',
+      };
+    }
+
+    if (!faturaIdInformada && !tituloVencido(tituloAlvo) && vencidas.length === 0) {
+      return {
+        sucesso: false,
+        requer_escolha_cliente: true,
+        faturas_disponiveis: aVencer.map(mapFaturaResumo),
+        mensagem: 'Não há fatura vencida — é necessário o cliente escolher qual fatura deseja.',
+        orientacao:
+          'Liste as opções em faturas_disponiveis e chame novamente com fatura_id após a escolha do cliente.',
+      };
+    }
+
+    faturaId = tituloAlvo.id ?? tituloAlvo.numeroDocumento;
     const enviarWpp = args.enviar_whatsapp !== false;
 
-    const r = await sgp.fatura2via(contratoId);
+    const r = await sgp.fatura2via(contratoId, faturaId);
     if (!r || !r.links?.length) {
       return {
         sucesso: false,
@@ -473,10 +597,10 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    // Pega a fatura específica ou a mais recente
-    const linkObj = faturaId
-      ? r.links.find((l) => l.fatura === faturaId) ?? r.links[0]
-      : r.links[0];
+    // Pega a fatura solicitada (nunca envia todas de uma vez)
+    const linkObj =
+      r.links.find((l) => l.fatura === faturaId) ??
+      r.links[0];
 
     // Garante que temos os títulos em aberto para localizar um PIX já emitido.
     titulos = ctx.titulos ?? titulos;

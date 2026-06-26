@@ -18,7 +18,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'consultar_financeiro',
     description:
-      'Consulta a situação financeira do cliente: faturas em aberto, valores, vencimentos e inadimplência.',
+      'Consulta a situação financeira: separa faturas VENCIDAS (atraso_dias > 0) de faturas A VENCER. Só ofereça boleto automaticamente para vencidas em caso de corte/suspensão.',
     parameters: {
       type: 'object',
       properties: {
@@ -34,7 +34,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'gerar_segunda_via',
     description:
-      'Gera segunda via de boleto e/ou PIX. Use SOMENTE se consultar_financeiro retornou tem_faturas_abertas=true. Se enviar_whatsapp=true, envia mensagem completa com resumo, resposta, fatura/PIX e protocolos.',
+      'Gera segunda via de boleto e/ou PIX de UMA fatura. Sem fatura_id: usa automaticamente a vencida (corte/suspensão). Se não houver vencida, retorna faturas_disponiveis — pergunte ao cliente qual quer e chame de novo com fatura_id.',
     parameters: {
       type: 'object',
       properties: {
@@ -44,7 +44,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         fatura_id: {
           type: 'number',
-          description: 'ID da fatura (faturas[].id de consultar_financeiro). Opcional — usa a primeira em aberto.',
+          description:
+            'ID da fatura (faturas_vencidas[].id ou faturas_a_vencer[].id). Obrigatório quando não há vencida e o cliente escolheu qual fatura quer.',
         },
         enviar_whatsapp: {
           type: 'boolean',
