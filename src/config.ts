@@ -175,7 +175,7 @@ export const config = {
     /** Padrões de busca em problem.get (nome do trigger), separados por | */
     searchPatterns: opt(
       'ZABBIX_SEARCH_PATTERNS',
-      'ALERTA: cto off|Queda da Interface|POP',
+      'Queda de Clientes na CTO|Queda total no número de sessões PPPoE|ALERTA: cto off|Queda da Interface|POP',
     ).split('|').map((s) => s.trim()).filter(Boolean),
     includeOutros: optBool('ZABBIX_INCLUDE_OUTROS', false),
   },

@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
 
-export type ZabbixEventoTipo = 'cto_off' | 'pop_off' | 'fibra' | 'energia' | 'outro';
+export type ZabbixEventoTipo = 'cto_off' | 'pop_off' | 'fibra' | 'energia' | 'pppoe_off' | 'outro';
 
 export interface ZabbixIncidente {
   eventid: string;
@@ -110,16 +110,42 @@ export class ZabbixClient {
 
   /** Classifica alerta pelo nome/descrição do trigger. */
   static classificar(nome: string): ZabbixEventoTipo {
-    if (/alerta:\s*cto\s*off/i.test(nome)) return 'cto_off';
+    if (/alerta:\s*cto\s*off|queda de clientes na cto/i.test(nome)) return 'cto_off';
     if (/queda da interface/i.test(nome)) return 'fibra';
+    if (/pppoe|sess[oõ]es pppoe/i.test(nome) && /queda/i.test(nome)) return 'pppoe_off';
     if (/\bpop\b/i.test(nome) && /queda|off|down|indispon/i.test(nome)) return 'pop_off';
     if (/\bdse\b|energia|power|ups|bateria/i.test(nome)) return 'energia';
     return 'outro';
   }
 
+  private static normalizarTexto(s: string): string {
+    return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  /** Extrai nome da CTO entre aspas no alerta SGP SESSOES. */
+  static extrairCtoDoAlerta(nome: string): string | null {
+    const m = nome.match(/na CTO\s+"([^"]+)"/i)
+      ?? nome.match(/CTO\s+"([^"]+)"/i);
+    return m?.[1]?.trim() ?? null;
+  }
+
+  private static termoCoincide(termo: string, blob: string): boolean {
+    const t = ZabbixClient.normalizarTexto(termo);
+    const b = ZabbixClient.normalizarTexto(blob);
+    if (t.length < 3) return false;
+    if (b.includes(t) || t.includes(b)) return true;
+    const palavras = t.split(' ').filter((w) => w.length >= 4);
+    if (palavras.length >= 2) {
+      const hits = palavras.filter((w) => b.includes(w)).length;
+      if (hits >= Math.min(2, palavras.length)) return true;
+    }
+    return false;
+  }
+
   private static labelTipo(tipo: ZabbixEventoTipo): string {
     switch (tipo) {
       case 'cto_off': return 'queda de CTO';
+      case 'pppoe_off': return 'queda de sessões PPPoE';
       case 'pop_off': return 'queda de POP';
       case 'fibra': return 'rompimento/queda de interface';
       case 'energia': return 'falta de energia na infraestrutura';
@@ -195,10 +221,13 @@ export class ZabbixClient {
   /** Termo aparece no host ou no nome do alerta? */
   static incidenteAfetaTermos(incidente: ZabbixIncidente, termos: string[]): boolean {
     if (!termos.length) return false;
-    const blob = `${incidente.host} ${incidente.hostVisivel} ${incidente.nome}`.toLowerCase();
+    const blob = `${incidente.host} ${incidente.hostVisivel} ${incidente.nome}`;
+    const ctoNoAlerta = ZabbixClient.extrairCtoDoAlerta(incidente.nome);
+
     return termos.some((t) => {
-      const term = t.toLowerCase().trim();
-      return term.length >= 3 && blob.includes(term);
+      if (ZabbixClient.termoCoincide(t, blob)) return true;
+      if (ctoNoAlerta && ZabbixClient.termoCoincide(t, ctoNoAlerta)) return true;
+      return false;
     });
   }
 
@@ -230,7 +259,8 @@ export class ZabbixClient {
 
     let problemas: ZabbixProblem[];
     try {
-      problemas = await this.problemasPorPadroes(padroes, hosts);
+      // Alertas SGP SESSOES ficam no host "SGP SESSOES" — CTO/OLT vêm no NOME do trigger
+      problemas = await this.problemasPorPadroes(padroes);
     } catch (err: any) {
       logger.error('Zabbix diagnóstico falhou', { err: err.message });
       return { ...base, erro: err.message };

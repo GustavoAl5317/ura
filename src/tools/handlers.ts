@@ -18,6 +18,9 @@ function termosInfraDoCliente(ctx: CallContext): string[] {
   if (onu?.cto_nome) termos.push(onu.cto_nome);
   if (onu?.caixa) termos.push(onu.caixa);
   if (onu?.serial && onu.serial.length >= 6) termos.push(onu.serial);
+  if (onu?.pon != null && onu?.slot != null) {
+    termos.push(`${onu.slot}/${onu.pon}`, `PON ${onu.slot}/${onu.pon}`);
+  }
   if (ctx.infraTermos?.length) termos.push(...ctx.infraTermos);
   return [...new Set(termos.map((t) => t.trim()).filter((t) => t.length >= 3))];
 }
@@ -55,6 +58,8 @@ function orientacaoZabbix(tipo: ZabbixEventoTipo | null, afetaCliente: boolean):
   switch (tipo) {
     case 'cto_off':
       return 'Confirmado: alerta de queda na CTO deste cliente. Informe, peça desculpas e diga que a equipe já está atuando. NÃO reinicie ONU nem abra chamado individual.';
+    case 'pppoe_off':
+      return 'Confirmado: queda de sessões PPPoE na infraestrutura deste cliente (PON/OLT/CTO). Informe instabilidade na rede e que a equipe está atuando. NÃO reinicie ONU.';
     case 'pop_off':
       return 'Confirmado: alerta no POP deste cliente. Informe o cliente; não reinicie equipamento.';
     case 'fibra':
