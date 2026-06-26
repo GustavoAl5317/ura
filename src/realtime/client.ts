@@ -17,8 +17,6 @@ export class RealtimeClient extends EventEmitter {
   private static readonly PENDING_TIMEOUT_MS = 6_000;
   private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
   private toolChain: Promise<void> = Promise.resolve();
-  private pendingToolOutputs: Array<{ call_id: string; output: unknown }> = [];
-  private activeResponseId: string | null = null;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -31,7 +29,6 @@ export class RealtimeClient extends EventEmitter {
   async connect(callId: string, instructions: string, toolDefs: ToolDefinition[]): Promise<void> {
     this.callId = callId;
 
-    // Normalize model name: if it's not a recognized OpenAI realtime model, fall back
     let model = config.openai.realtimeModel;
     if (!model.startsWith('gpt-')) {
       model = 'gpt-4o-realtime-preview';
@@ -42,7 +39,6 @@ export class RealtimeClient extends EventEmitter {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${config.openai.apiKey}`,
     };
-    // Beta header required only for non-GA schema
     if (config.openai.realtimeSchema !== 'ga') {
       headers['OpenAI-Beta'] = 'realtime=v1';
     }
@@ -72,13 +68,8 @@ export class RealtimeClient extends EventEmitter {
 
     const useAudio = config.tts.provider === 'openai';
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
-
-    // gpt-realtime-* usa o schema GA — voice/format/turn_detection/transcription
-    // ficam ANINHADOS em audio.input/audio.output (não no topo como no beta)
     const isNewSchema = model.startsWith('gpt-realtime');
 
-    // turn_detection nativo: semantic_vad espera o cliente terminar de falar
-    // (ideal para coletar CPF/CEP dígito a dígito sem interromper)
     const turnFlags = {
       create_response: false,
       interrupt_response: config.vad.interruptResponse,
@@ -142,11 +133,6 @@ export class RealtimeClient extends EventEmitter {
   }
 
   sendFunctionResult(callId: string, result: unknown): void {
-    this.sendToolOutput(callId, result);
-    this.createResponse(true);
-  }
-
-  private sendToolOutput(callId: string, result: unknown): void {
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -155,19 +141,7 @@ export class RealtimeClient extends EventEmitter {
         output: typeof result === 'string' ? result : JSON.stringify(result),
       },
     });
-  }
-
-  /** Envia todos os resultados de tools da mesma resposta e pede UMA continuação. */
-  private flushPendingToolOutputs(): void {
-    if (!this.pendingToolOutputs.length) return;
-    const batch = this.pendingToolOutputs.splice(0);
-    for (const { call_id, output } of batch) {
-      this.sendToolOutput(call_id, output);
-    }
-    logger.info(`[${this.callId}] ${batch.length} tool(s) — resultados enviados, continuando resposta`);
-    setTimeout(() => {
-      this.createResponse(true);
-    }, 250);
+    this.createResponse(true);
   }
 
   private clearToolTimer(callId: string): void {
@@ -180,11 +154,11 @@ export class RealtimeClient extends EventEmitter {
       type: 'conversation.item.create',
       item: {
         type: 'message',
-        role: 'system',
+        role: 'user',
         content: [{ type: 'input_text', text }],
       },
     });
-    setTimeout(() => this.createResponse(true), 250);
+    this.createResponse(true);
   }
 
   createResponse(force = false): boolean {
@@ -199,8 +173,6 @@ export class RealtimeClient extends EventEmitter {
       this.clearPendingWatchdog();
     }
     this.responsePending = true;
-    this.activeResponseId = null;
-    this.pendingToolOutputs = [];
     this.armPendingWatchdog();
     this.send({ type: 'response.create' });
     return true;
@@ -235,12 +207,56 @@ export class RealtimeClient extends EventEmitter {
     this.clearPendingWatchdog();
     this.responseActive = false;
     this.responsePending = false;
-    this.activeResponseId = null;
-    this.pendingToolOutputs = [];
   }
 
   isResponseActive(): boolean {
     return this.responseActive;
+  }
+
+  /** Executa tool pelo servidor (sem function_call do modelo) e pede resposta. */
+  async runServerTool(name: string, args: Record<string, unknown> = {}): Promise<unknown | null> {
+    const handler = this.tools.get(name);
+    if (!handler) {
+      logger.warn(`[${this.callId}] runServerTool: ${name} não registrada`);
+      return null;
+    }
+
+    logger.info(`[${this.callId}] Server tool: ${name}`, args);
+    this.emit('toolStart', name);
+
+    if (this.toolPreambleHook) {
+      try {
+        await this.toolPreambleHook(name);
+      } catch (err: any) {
+        logger.warn(`[${this.callId}] Falha no preâmbulo da server tool ${name}`, { err: err.message });
+      }
+    }
+
+    try {
+      const result = await handler(args);
+      logger.info(`[${this.callId}] Server tool ${name} resultado`, result);
+      this.emit('toolDone', name, result);
+      await this.waitResponseDone();
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text:
+              `[SISTEMA] Resultado de ${name}: ${JSON.stringify(result)}. ` +
+              'Fale ao cliente AGORA com base nisso. Não fique em silêncio.',
+          }],
+        },
+      });
+      this.createResponse(true);
+      return result;
+    } catch (err: any) {
+      logger.error(`[${this.callId}] Erro server tool ${name}`, { err: err.message });
+      this.emit('toolDone', name, { error: err.message });
+      return null;
+    }
   }
 
   private waitResponseDone(): Promise<void> {
@@ -248,7 +264,6 @@ export class RealtimeClient extends EventEmitter {
     return new Promise<void>((resolve) => {
       const done = () => resolve();
       this.once('responseDone', done);
-      // Fallback: se response.done não vier em 3s, continua mesmo assim
       setTimeout(() => { this.removeListener('responseDone', done); resolve(); }, 3_000);
     });
   }
@@ -274,19 +289,6 @@ export class RealtimeClient extends EventEmitter {
     }
 
     if (config.debug.tx) logger.debug(`[${this.callId}] ← ${event.type}`);
-
-    const respId = (event as any).response_id || (event as any).response?.id;
-    if (respId) {
-      if (event.type === 'response.created') {
-        this.activeResponseId = respId;
-      } else if (this.activeResponseId && respId !== this.activeResponseId) {
-        logger.debug(`[${this.callId}] Ignorando evento antigo ${event.type} (${respId})`);
-        return;
-      } else if (!this.activeResponseId) {
-        logger.debug(`[${this.callId}] Ignorando evento ${event.type} (${respId}) antes de response.created`);
-        return;
-      }
-    }
 
     this.emit('event', event);
 
@@ -343,28 +345,12 @@ export class RealtimeClient extends EventEmitter {
         this.emit('responseCreated');
         break;
 
-      case 'response.done': {
-        const respId = (event as any).response?.id;
-        const expectedCalls = this.countFunctionCallsInResponse(event);
-        for (let i = 0; i < 80 && expectedCalls > 0; i++) {
-          await this.toolChain;
-          if (this.pendingToolOutputs.length >= expectedCalls) break;
-          await new Promise((r) => setTimeout(r, 25));
-        }
-        await this.toolChain;
-        
-        if (this.activeResponseId && respId && respId !== this.activeResponseId) {
-          logger.debug(`[${this.callId}] Ignorando response.done antigo (${respId}) após await`);
-          break;
-        }
-
-        this.flushPendingToolOutputs();
+      case 'response.done':
         this.clearPendingWatchdog();
         this.responseActive = false;
         this.responsePending = false;
         this.emit('responseDone');
         break;
-      }
 
       case 'conversation.item.input_audio_transcription.completed':
       case 'input_audio_buffer.transcript':
@@ -390,7 +376,8 @@ export class RealtimeClient extends EventEmitter {
       const handler = this.tools.get(name);
       if (!handler) {
         logger.warn(`[${this.callId}] Tool desconhecida: ${name}`);
-        this.pendingToolOutputs.push({ call_id, output: { error: `Tool '${name}' não registrada` } });
+        await this.waitResponseDone();
+        this.sendFunctionResult(call_id, { error: `Tool '${name}' não registrada` });
         return;
       }
 
@@ -414,25 +401,20 @@ export class RealtimeClient extends EventEmitter {
         const result = await handler(args);
         this.clearToolTimer(call_id);
         logger.info(`[${this.callId}] Tool ${name} resultado`, result);
-        this.pendingToolOutputs.push({ call_id, output: result });
         this.emit('toolDone', name, result);
+        await this.waitResponseDone();
+        this.sendFunctionResult(call_id, result);
       } catch (err: any) {
         this.clearToolTimer(call_id);
         logger.error(`[${this.callId}] Erro na tool ${name}`, { err: err.message });
-        this.pendingToolOutputs.push({ call_id, output: { error: err.message } });
         this.emit('toolDone', name, { error: err.message });
+        await this.waitResponseDone();
+        this.sendFunctionResult(call_id, { error: err.message });
       }
     };
 
     this.toolChain = this.toolChain.then(run).catch((err) => {
       logger.error(`[${this.callId}] Falha na cadeia de tools`, { err: String(err) });
     });
-  }
-
-  private countFunctionCallsInResponse(event: RealtimeEvent): number {
-    const response = (event as { response?: { output?: { type?: string }[] } }).response;
-    const output = response?.output;
-    if (!Array.isArray(output)) return 0;
-    return output.filter((o) => o.type === 'function_call').length;
   }
 }

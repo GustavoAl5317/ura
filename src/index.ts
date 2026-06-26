@@ -6,6 +6,7 @@ import { startAudioSocketServer } from './audiosocket/server';
 import { startAdminServer } from './admin/server';
 import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
+import { BUILD_ID } from './build';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -21,7 +22,7 @@ async function main() {
   await initWaitSound();
 
   logger.info('══════════════════════════════════════════');
-  logger.info(`  URA AI — ${config.company.name}`);
+  logger.info(`  URA AI — ${config.company.name}  [build ${BUILD_ID}]`);
   logger.info(`  Agente : ${config.company.agentName}${config.tts.elevenlabs.alternateVoices ? ` / ${config.company.agentNameMale} (alternado)` : ''}`);
   logVoiceRotationConfig();
   if (config.zabbix.enabled) {
