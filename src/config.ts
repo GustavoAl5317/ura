@@ -65,7 +65,11 @@ export const config = {
     elevenlabs: {
       apiKey: opt('ELEVENLABS_API_KEY'),
       voiceId: opt('ELEVENLABS_VOICE_ID'),
-      modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_turbo_v2_5'),
+      modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_flash_v2_5'),
+      outputFormat: opt('ELEVENLABS_OUTPUT_FORMAT', 'pcm_24000'),
+      stability: optFloat('ELEVENLABS_STABILITY', 0.68),
+      similarityBoost: optFloat('ELEVENLABS_SIMILARITY', 0.68),
+      speakerBoost: optBool('ELEVENLABS_SPEAKER_BOOST', false),
     },
   },
 

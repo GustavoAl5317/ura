@@ -25,31 +25,41 @@ export function upsample8to24(input: Buffer): Buffer {
   return out;
 }
 
-/** 24 kHz → 8 kHz (downsample ÷3, filtro 3-tap suavizado) */
+/** 24 kHz → 8 kHz (decimação ÷3 com filtro passa-baixa 5-tap — reduz chiado) */
 export function downsample24to8(input: Buffer): Buffer {
-  const n = Math.floor(input.length / 6);
-  const out = Buffer.allocUnsafe(n * 2);
+  const samples = input.length >> 1;
+  const outSamples = Math.floor(samples / 3);
+  const out = Buffer.allocUnsafe(outSamples * 2);
 
-  for (let i = 0; i < n; i++) {
-    const base = i * 6;
-    const s0 = input.readInt16LE(base);
-    const s1 = input.readInt16LE(base + 2);
-    const s2 = input.readInt16LE(base + 4);
-    out.writeInt16LE(clamp(Math.round((s0 + s1 * 4 + s2) / 6)), i * 2);
+  const at = (idx: number): number => {
+    const clamped = idx < 0 ? 0 : idx >= samples ? samples - 1 : idx;
+    return input.readInt16LE(clamped * 2);
+  };
+
+  for (let i = 0; i < outSamples; i++) {
+    const c = i * 3;
+    const v = at(c - 1) + at(c) * 2 + at(c + 1) * 3 + at(c + 2) * 2 + at(c + 3);
+    out.writeInt16LE(clamp(Math.round(v / 9)), i * 2);
   }
 
   return out;
 }
 
-/** 16 kHz → 8 kHz (downsample ÷2, average 2 samples) */
+/** 16 kHz → 8 kHz (decimação ÷2 com filtro passa-baixa 5-tap) */
 export function downsample16to8(input: Buffer): Buffer {
-  const n = Math.floor(input.length / 4);
-  const out = Buffer.allocUnsafe(n * 2);
+  const samples = input.length >> 1;
+  const outSamples = Math.floor(samples / 2);
+  const out = Buffer.allocUnsafe(outSamples * 2);
 
-  for (let i = 0; i < n; i++) {
-    const s0 = input.readInt16LE(i * 4);
-    const s1 = input.readInt16LE(i * 4 + 2);
-    out.writeInt16LE(clamp(Math.round((s0 + s1) / 2)), i * 2);
+  const at = (idx: number): number => {
+    const clamped = idx < 0 ? 0 : idx >= samples ? samples - 1 : idx;
+    return input.readInt16LE(clamped * 2);
+  };
+
+  for (let i = 0; i < outSamples; i++) {
+    const c = i * 2;
+    const v = at(c - 1) + at(c) * 2 + at(c + 1) * 3 + at(c + 2) * 2 + at(c + 3);
+    out.writeInt16LE(clamp(Math.round(v / 9)), i * 2);
   }
 
   return out;

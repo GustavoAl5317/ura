@@ -4,7 +4,7 @@ import { AudioSocketProtocol, AUDIOSOCKET_TYPE } from '../audiosocket/protocol';
 import { upsample8to24, downsample24to8 } from '../audio/resampler';
 import { AudioPacer, SLIN_CHUNK_BYTES, writeAudioSocketFrame } from '../audio/pacer';
 import { MicRingBuffer } from '../audio/mic-ring';
-import { synthesize } from '../tts/elevenlabs';
+import { synthesize, synthesizeStream } from '../tts/elevenlabs';
 import { registerTools } from '../tools/handlers';
 import { createContext } from './context';
 import { buildSystemPrompt } from '../prompts/system';
@@ -210,7 +210,7 @@ export class CallSession {
         this.waitingAnaAfterTool = false;
       }
 
-      this.pacer.enqueue(downsample24to8(pcm24k));
+      this.pacer.enqueue(downsample24to8(pcm24k), true);
     });
 
     this.rt.on('textDelta', (delta: string) => {
@@ -370,10 +370,8 @@ export class CallSession {
   private async synthesizeAndSend(text: string): Promise<void> {
     this.stopTypingSound();
     try {
-      const pcm8k = await synthesize(text);
-      this.pacer.enqueue(pcm8k);
-      const ms = Math.ceil(pcm8k.length / SLIN_CHUNK_BYTES) * 20 + 80;
-      await sleep(ms);
+      await synthesizeStream(text, (pcm8k) => this.pacer.enqueue(pcm8k));
+      await this.pacer.drain();
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
       logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message });

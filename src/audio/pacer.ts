@@ -11,7 +11,7 @@ export interface AudioPacerOptions {
   startBufferMs?: number;
   /** Após underrun, exige este mínimo na fila antes de retomar (ms) */
   minBufferMs?: number;
-  /** Limite máximo da fila (ms) — descarta frames antigos se exceder */
+  /** Limite máximo da fila (ms) — só aplica em streaming ao vivo (chunks pequenos) */
   maxBufferMs?: number;
   /** Janela anti-eco após a fala (ms) */
   inputMuteMs?: number;
@@ -28,8 +28,11 @@ export class AudioPacer {
   private holdStream = false;
   private primed = false;
   private underrun = false;
+  private underrunTicks = 0;
   private idleTicks = 0;
   private micMuteUntil = 0;
+  private lastFrame = SILENCE_CHUNK;
+  private hasLastFrame = false;
   private readonly startBufferChunks: number;
   private readonly minBufferChunks: number;
   private readonly maxBufferChunks: number;
@@ -63,8 +66,11 @@ export class AudioPacer {
     this.holdStream = false;
     this.primed = false;
     this.underrun = false;
+    this.underrunTicks = 0;
     this.idleTicks = 0;
     this.micMuteUntil = 0;
+    this.lastFrame = SILENCE_CHUNK;
+    this.hasLastFrame = false;
   }
 
   flush(): void {
@@ -73,16 +79,24 @@ export class AudioPacer {
     this.streaming = false;
     this.primed = false;
     this.underrun = false;
+    this.underrunTicks = 0;
     this.idleTicks = 0;
     this.micMuteUntil = 0;
+    this.lastFrame = SILENCE_CHUNK;
+    this.hasLastFrame = false;
   }
 
   isPlaying(): boolean {
     return this.holdStream || this.queue.length > 0 || this.streaming;
   }
 
-  enqueue(pcm8k: Buffer): void {
+  /**
+   * @param streaming true = chunks ao vivo (OpenAI); aplica teto de latência na fila
+   */
+  enqueue(pcm8k: Buffer, streaming = false): void {
     if (!pcm8k.length) return;
+
+    const beforeLen = this.queue.length;
 
     const combined = Buffer.concat([this.remainder, pcm8k]);
     const fullChunks = Math.floor(combined.length / SLIN_CHUNK_BYTES);
@@ -96,7 +110,13 @@ export class AudioPacer {
       ? Buffer.from(combined.subarray(consumed))
       : Buffer.alloc(0);
 
-    if (this.maxBufferChunks > 0 && this.queue.length > this.maxBufferChunks) {
+    // Só limita fila em streaming ao vivo — bulk TTS (ElevenLabs) não pode cortar o início
+    if (
+      streaming
+      && this.maxBufferChunks > 0
+      && beforeLen > 0
+      && this.queue.length > this.maxBufferChunks
+    ) {
       this.queue.splice(0, this.queue.length - this.maxBufferChunks);
     }
 
@@ -128,6 +148,16 @@ export class AudioPacer {
     return this.holdStream || this.queue.length > 0 || Date.now() < this.micMuteUntil;
   }
 
+  /** Aguarda a fila esvaziar (útil após TTS em streaming). */
+  async drain(timeoutMs = 120_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.queue.length > 0 || this.remainder.length > 0) {
+      if (Date.now() > deadline) return;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    await new Promise((r) => setTimeout(r, SLIN_TICK_MS * 2));
+  }
+
   private armMicMute(): void {
     if (this.inputMuteMs > 0) {
       this.micMuteUntil = Math.max(this.micMuteUntil, Date.now() + this.inputMuteMs);
@@ -146,62 +176,71 @@ export class AudioPacer {
     this.timer = setTimeout(() => {
       this.timer = null;
       if (!this.ticking) return;
-      const now = Date.now();
-      const lateMs = now - this.nextTickAt;
-      const catchUp = lateMs > SLIN_TICK_MS
-        ? Math.min(3, Math.floor(lateMs / SLIN_TICK_MS))
-        : 1;
 
-      for (let i = 0; i < catchUp; i++) {
-        this.onTick();
-        this.nextTickAt += SLIN_TICK_MS;
+      this.onTick();
+      this.nextTickAt += SLIN_TICK_MS;
+
+      if (Date.now() - this.nextTickAt > SLIN_TICK_MS * 6) {
+        this.nextTickAt = Date.now() + SLIN_TICK_MS;
       }
 
-      if (now - this.nextTickAt > SLIN_TICK_MS * 4) {
-        this.nextTickAt = now + SLIN_TICK_MS;
-      }
-
-      if (this.ticking) this.scheduleTick();
+      this.scheduleTick();
     }, delay);
   }
 
   private onTick(): void {
     const active = this.streaming || this.holdStream;
+    if (!active) return;
 
     const required = this.requiredBufferChunks();
-    if (active && required > 0 && this.queue.length < required) {
-      return;
-    }
-    if (active && required > 0) {
+    const gated = required > 0 && this.queue.length < required;
+
+    if (!gated && required > 0) {
       this.primed = true;
       this.underrun = false;
+      this.underrunTicks = 0;
     }
 
-    const hadQueuedAudio = this.queue.length > 0;
-    const frame = this.queue.shift();
-    if (frame) {
-      if (!this.write(frame)) {
-        this.queue.unshift(frame);
-      }
-      this.streaming = true;
-      this.idleTicks = 0;
-      this.underrun = false;
-      if (hadQueuedAudio && this.queue.length === 0) {
-        this.armMicMute();
-      }
-      return;
-    }
+    let out: Buffer;
+    let dequeued = false;
 
-    if (active) {
-      this.underrun = true;
-      if (!this.write(SILENCE_CHUNK)) return;
-      this.idleTicks++;
-      if (!this.holdStream && this.idleTicks >= 30) {
-        this.streaming = false;
-        this.primed = false;
+    if (gated) {
+      out = SILENCE_CHUNK;
+    } else {
+      const hadQueuedAudio = this.queue.length > 0;
+      const frame = this.queue.shift();
+      if (frame) {
+        out = frame;
+        dequeued = true;
+        this.lastFrame = Buffer.from(frame);
+        this.hasLastFrame = true;
         this.underrun = false;
-        this.idleTicks = 0;
+        this.underrunTicks = 0;
+        if (hadQueuedAudio && this.queue.length === 0) {
+          this.armMicMute();
+        }
+      } else {
+        this.underrun = true;
+        this.underrunTicks++;
+        const hold = this.holdStream && this.hasLastFrame && this.underrunTicks <= 2;
+        out = hold ? this.lastFrame : SILENCE_CHUNK;
       }
+    }
+
+    if (!this.write(out)) {
+      if (dequeued) this.queue.unshift(out);
+    }
+
+    if (dequeued || gated || this.underrun) {
+      this.streaming = true;
+      this.idleTicks = gated ? 0 : (dequeued ? 0 : this.idleTicks + 1);
+    }
+
+    if (!this.holdStream && !dequeued && !gated && this.idleTicks >= 30) {
+      this.streaming = false;
+      this.primed = false;
+      this.underrun = false;
+      this.idleTicks = 0;
     }
   }
 }
