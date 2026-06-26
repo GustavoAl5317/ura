@@ -472,11 +472,13 @@ export class CallSession {
         }
         // Modelo encerrou sem texto após tool — reenvia e mantém teclado
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
-          logger.warn(`[${callId}] Resposta vazia após consulta — reenviando`);
+          logger.warn(`[${callId}] Resposta vazia após consulta — injetando instrução e reenviando`);
           if (!this.fillerLoopRunning) this.startTypingSound();
           setTimeout(() => {
             if (!this.tearing && !this.socket.destroyed && this.waitingAnaAfterTool) {
-              this.rt.createResponse(true);
+              this.rt.injectSystemNote(
+                '[SISTEMA] Você recebeu o resultado da ferramenta mas não respondeu ao cliente. Por favor, dê a resposta adequada com base nos dados que acabou de receber.'
+              );
             }
           }, 200);
         }
