@@ -120,11 +120,14 @@ export class CallSession {
     const agent = assignAgentVoice();
     this.ctx.agentName = agent.name;
     this.ctx.voiceId = agent.voiceId;
+    this.ctx.agentGender = agent.gender;
     if (reg?.channel) this.ctx.asteriskChannel = reg.channel;
     logger.info(`[${uuid}] Chamada iniciada`, {
       callerNumber: callerNumber || '(desconhecido)',
       channel: reg?.channel || '(desconhecido)',
       agente: agent.name,
+      genero: agent.gender === 'm' ? 'masculino' : 'feminino',
+      voiceId: agent.voiceId ? `${agent.voiceId.slice(0, 6)}…` : '(vazio)',
     });
 
     sessionRegistry.register(uuid, { callerNumber, channel: reg?.channel });
@@ -303,8 +306,13 @@ export class CallSession {
       this.cancelTypingDelay();
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
-        this.stopWaitSound();
         this.waitingAnaAfterTool = true;
+        // Com ElevenLabs: mantém teclado até o próximo TTS (evita silêncio após consulta rápida)
+        if (useElevenLabsTts) {
+          if (!this.fillerLoopRunning) this.startTypingSound();
+        } else {
+          this.stopWaitSound();
+        }
       }
       if (this.lastToolName) {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
@@ -430,6 +438,12 @@ export class CallSession {
           clearTimeout(this.releaseHoldTimer);
           this.releaseHoldTimer = null;
         }
+        // Modelo encerrou sem texto após tool — reenvia e mantém teclado
+        if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
+          logger.warn(`[${callId}] Resposta vazia após consulta — reenviando`);
+          if (!this.fillerLoopRunning) this.startTypingSound();
+          this.rt.createResponse(true);
+        }
       } else {
         scheduleHoldRelease();
       }
@@ -531,7 +545,6 @@ export class CallSession {
 
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
-    this.startTypingSound();
     try {
       let firstChunk = true;
       await synthesizeStream(text, (pcm8k) => {

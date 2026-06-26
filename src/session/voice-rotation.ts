@@ -4,6 +4,7 @@ import { logger } from '../logger';
 export interface AgentVoice {
   name: string;
   voiceId: string;
+  gender: 'f' | 'm';
 }
 
 let nextIsMale = false;
@@ -13,15 +14,21 @@ export function assignAgentVoice(): AgentVoice {
   const female: AgentVoice = {
     name: config.company.agentName,
     voiceId: config.tts.elevenlabs.voiceId,
+    gender: 'f',
   };
   const maleId = config.tts.elevenlabs.voiceIdMale;
   const male: AgentVoice = {
     name: config.company.agentNameMale,
     voiceId: maleId,
+    gender: 'm',
   };
 
   if (!config.tts.elevenlabs.alternateVoices || !maleId) {
     return female;
+  }
+
+  if (maleId === config.tts.elevenlabs.voiceId) {
+    logger.warn('ELEVENLABS_VOICE_ID_MALE igual à voz feminina — João soará como Ana');
   }
 
   const picked = nextIsMale ? male : female;

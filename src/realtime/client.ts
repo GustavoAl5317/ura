@@ -147,7 +147,7 @@ export class RealtimeClient extends EventEmitter {
         output: typeof result === 'string' ? result : JSON.stringify(result),
       },
     });
-    this.send({ type: 'response.create' });
+    this.createResponse(true);
   }
 
   private clearToolTimer(callId: string): void {

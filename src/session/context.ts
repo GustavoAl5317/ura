@@ -47,6 +47,8 @@ export interface CallContext {
   /** Agente desta chamada (nome + voz ElevenLabs) */
   agentName?: string;
   voiceId?: string;
+  /** Gênero do agente para concordância no prompt e TTS */
+  agentGender?: 'f' | 'm';
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {
