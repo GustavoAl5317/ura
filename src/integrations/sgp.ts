@@ -5,8 +5,13 @@
 // Base URL: SGP_BASE_URL  (ex: https://sys.aquitelecom.com)
 
 import axios, { AxiosInstance } from 'axios';
+import http from 'http';
+import https from 'https';
 import { config } from '../config';
 import { logger } from '../logger';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 12 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 12 });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,6 +199,8 @@ export class SgpClient {
     this.http = axios.create({
       baseURL: config.sgp.baseUrl,
       timeout: config.sgp.timeoutMs,
+      httpAgent,
+      httpsAgent,
     });
 
     this.http.interceptors.response.use(
@@ -257,7 +264,7 @@ export class SgpClient {
     const tel = telefone.replace(/\D/g, '');
     const r = await this.postForm<{ clientes?: SgpCliente[] }>('/api/ura/clientes/', {
       telefone: tel,
-      exibir_conexao: 1,
+      exibir_conexao: config.sgp.exibirConexao ? 1 : 0,
     });
     const c = r?.clientes?.[0] ?? null;
     return c ? enrich(c) : null;
@@ -286,7 +293,10 @@ export class SgpClient {
         endereco_cep: string;
         contratoValorAberto: number;
       }>;
-    }>('/api/ura/consultacliente/', { cpfcnpj: c, servicos_dados: 1 });
+    }>('/api/ura/consultacliente/', {
+      cpfcnpj: c,
+      servicos_dados: config.sgp.servicosDados ? 1 : 0,
+    });
 
     const items = r?.contratos ?? [];
     if (!items.length) return null;
@@ -374,7 +384,7 @@ export class SgpClient {
   async onuDoContrato(contratoId: number): Promise<SgpOnu | null> {
     const r = await this.postForm<{ clientes?: SgpCliente[] }>('/api/ura/clientes/', {
       contrato: contratoId,
-      exibir_conexao: 1,
+      exibir_conexao: config.sgp.exibirConexao ? 1 : 0,
     });
     const cliente = r?.clientes?.[0];
     if (!cliente) return null;

@@ -40,6 +40,10 @@ export interface CallContext {
 
   // Log resumido do atendimento
   log: string[];
+
+  /** Agente desta chamada (nome + voz ElevenLabs) */
+  agentName?: string;
+  voiceId?: string;
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {

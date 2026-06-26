@@ -353,6 +353,15 @@ function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
 
 export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
+  /** Pré-carrega faturas, massiva e ONU em paralelo — consultas seguintes usam cache. */
+  const prefetchConsultas = (contratoId: number) => {
+    void Promise.all([
+      sgp.titulos(contratoId, 'abertos').then((t) => { ctx.titulos = t; }),
+      sgp.manutencoesAtivas().then((m) => { ctx.manutencoesAtivas = m; }),
+      sgp.onuDoContrato(contratoId).then((o) => { if (o) ctx.onu = o; }),
+    ]).catch((err) => logger.debug(`[${ctx.callId}] prefetch SGP`, { err: String(err) }));
+  };
+
   // ── Identificação ─────────────────────────────────────────────────────────
 
   client.registerTool('buscar_cliente_por_cpf', async (args) => {
@@ -446,6 +455,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const ct = ctx.cliente.contratos.find((c) => c.contrato === contratoId)!;
     ctx.log.push(`Contrato selecionado: ${contratoId} — ${formatarEndereco(ct.endereco)}`);
+    prefetchConsultas(contratoId);
 
     return {
       sucesso: true,
@@ -491,6 +501,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       }
 
       syncContratoSelecionado(ctx);
+      if (ctx.cliente.contratoId) prefetchConsultas(ctx.cliente.contratoId);
       return {
         sucesso: true,
         confirmado: true,
@@ -530,8 +541,11 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     if ('erro' in contrato) return { sucesso: false, ...contrato };
     const contratoId = contrato.contratoId;
 
-    const tits = await sgp.titulos(contratoId, 'abertos');
-    ctx.titulos = tits;
+    let tits = ctx.titulos;
+    if (!tits) {
+      tits = await sgp.titulos(contratoId, 'abertos');
+      ctx.titulos = tits;
+    }
 
     const { vencidas, aVencer } = separarTitulos(tits);
     const inadimplente = vencidas.length > 0;
@@ -763,8 +777,11 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    const manutencoes = await sgp.manutencoesAtivas();
-    ctx.manutencoesAtivas = manutencoes;
+    let manutencoes = ctx.manutencoesAtivas;
+    if (!manutencoes) {
+      manutencoes = await sgp.manutencoesAtivas();
+      ctx.manutencoesAtivas = manutencoes;
+    }
 
     if (!manutencoes.length) {
       return { tem_massiva: false };
@@ -1137,6 +1154,13 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('encerrar_atendimento', async (args) => {
+    if (ctx.pendingTransfer) {
+      return {
+        sucesso: false,
+        erro: 'transferencia_em_andamento',
+        mensagem: 'Transferência em andamento — não encerre a chamada.',
+      };
+    }
     const motivo = String(args.motivo ?? 'concluído');
     logger.info(`[${ctx.callId}] Encerramento: ${motivo}`);
     ctx.pendingHangup = true;

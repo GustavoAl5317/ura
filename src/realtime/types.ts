@@ -63,6 +63,7 @@ export type RealtimeEvent =
   | { type: 'response.audio.done'; response_id: string; item_id: string }
   | { type: 'response.text.delta'; response_id: string; item_id: string; delta: string }
   | { type: 'response.text.done'; response_id: string; item_id: string; text: string }
+  | { type: 'response.output_text.done'; text: string }
   // gpt-realtime-* events (new schema)
   | { type: 'response.output_audio.delta'; delta: string }
   | { type: 'response.output_audio.done' }

@@ -5,6 +5,7 @@ import { startSidecar } from './http/sidecar';
 import { startAudioSocketServer } from './audiosocket/server';
 import { startAdminServer } from './admin/server';
 import { initWaitSound } from './audio/wait-sound';
+import { logVoiceRotationConfig } from './session/voice-rotation';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -21,7 +22,8 @@ async function main() {
 
   logger.info('══════════════════════════════════════════');
   logger.info(`  URA AI — ${config.company.name}`);
-  logger.info(`  Agente : ${config.company.agentName}`);
+  logger.info(`  Agente : ${config.company.agentName}${config.tts.elevenlabs.alternateVoices ? ` / ${config.company.agentNameMale} (alternado)` : ''}`);
+  logVoiceRotationConfig();
   logger.info(`  TTS    : ${config.tts.provider}`);
   logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness} | interrupt=${config.vad.interruptResponse ? 'on' : 'off'} | manual_response`);
   const bufStart = Math.max(config.audio.preBufferMs, config.audio.startBufferMs);

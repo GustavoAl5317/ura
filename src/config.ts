@@ -65,6 +65,8 @@ export const config = {
     elevenlabs: {
       apiKey: opt('ELEVENLABS_API_KEY'),
       voiceId: opt('ELEVENLABS_VOICE_ID'),
+      voiceIdMale: opt('ELEVENLABS_VOICE_ID_MALE'),
+      alternateVoices: optBool('VOICE_ALTERNATE', false),
       modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_flash_v2_5'),
       outputFormat: opt('ELEVENLABS_OUTPUT_FORMAT', 'pcm_24000'),
       stability: optFloat('ELEVENLABS_STABILITY', 0.68),
@@ -84,6 +86,8 @@ export const config = {
     minBufferMs: optInt('MIN_BUFFER_MS', 0),
     /** Caminho local para WAV de espera (PCM 16-bit). Ex.: assets/wait-typing.wav */
     waitSoundPath: opt('WAIT_SOUND_PATH', ''),
+    /** Só toca teclado se a consulta demorar mais que isso (ms) */
+    toolTypingDelayMs: optInt('TOOL_TYPING_DELAY_MS', 0),
     /** URL de WAV para baixar na inicialização (alternativa ao arquivo local) */
     waitSoundUrl: opt('WAIT_SOUND_URL', ''),
   },
@@ -93,7 +97,13 @@ export const config = {
     eagerness: opt('TURN_DETECTION_EAGERNESS', 'low') as 'low' | 'medium' | 'high',
     threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.65),
     silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 700),
-    speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 1500),
+    speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 900),
+    /** Mais longo enquanto coleta CPF (cliente pausa entre grupos de dígitos) */
+    speechStopDelayCollectingMs: optInt('SPEECH_STOP_DELAY_COLLECTING_MS', 1600),
+    /** Ignora speechStop mais curto que isso (ruído de linha / eco) */
+    minSpeechMs: optInt('MIN_SPEECH_MS', 450),
+    /** Só interrompe a Ana após o cliente falar por esse tempo (evita ruído) */
+    interruptArmMs: optInt('INTERRUPT_ARM_MS', 400),
     deferAudioWhileUserSpeaks: optBool('DEFER_ASSISTANT_AUDIO_WHILE_USER_SPEAKS', true),
     interruptResponse: optBool('REALTIME_INTERRUPT_RESPONSE', false),
   },
@@ -104,6 +114,11 @@ export const config = {
     token: req('SGP_TOKEN'),
     timeoutMs: optInt('SGP_TIMEOUT_MS', 8000),
     retries: optInt('SGP_RETRIES', 1),
+    toolSlowdownMs: optInt('TOOL_SLOWDOWN_MS', 3500),
+    /** 1 = traz ONU/conexão (mais lento). 0 = consulta mais rápida; ONU buscada só quando precisar. */
+    exibirConexao: optBool('SGP_EXIBIR_CONEXAO', false),
+    /** 1 = dados completos de serviços no CPF (mais lento) */
+    servicosDados: optBool('SGP_SERVICOS_DADOS', false),
   },
 
   geosite: {
@@ -135,6 +150,7 @@ export const config = {
   company: {
     name: opt('COMPANY_NAME', 'Aquitelecom'),
     agentName: opt('AGENT_NAME', 'Ana'),
+    agentNameMale: opt('AGENT_NAME_MALE', 'João'),
   },
 
   plans: {

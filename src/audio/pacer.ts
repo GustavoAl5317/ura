@@ -148,6 +148,11 @@ export class AudioPacer {
     return this.holdStream || this.queue.length > 0 || Date.now() < this.micMuteUntil;
   }
 
+  /** Só janela anti-eco pós-fala — permite barge-in durante TTS (ElevenLabs). */
+  isEchoGated(): boolean {
+    return Date.now() < this.micMuteUntil;
+  }
+
   /** Aguarda a fila esvaziar (útil após TTS em streaming). */
   async drain(timeoutMs = 120_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;

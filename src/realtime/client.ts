@@ -6,8 +6,6 @@ import type { RealtimeEvent, ToolDefinition, RealtimeSessionConfig, TurnDetectio
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
-const TOOL_SLOWDOWN_MS = 3_500; // emite toolSlowdown se tool demorar mais que isso
-
 export class RealtimeClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private tools = new Map<string, ToolHandler>();
@@ -15,9 +13,16 @@ export class RealtimeClient extends EventEmitter {
   private toolTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private responseActive = false;
   private responsePending = false;
+  private pendingWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private static readonly PENDING_TIMEOUT_MS = 6_000;
+  private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
+  }
+
+  onToolPreamble(hook: (name: string) => Promise<void>): void {
+    this.toolPreambleHook = hook;
   }
 
   async connect(callId: string, instructions: string, toolDefs: ToolDefinition[]): Promise<void> {
@@ -162,22 +167,50 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
-  createResponse(force = false): void {
+  createResponse(force = false): boolean {
     if (!force && (this.responseActive || this.responsePending)) {
-      logger.debug(`[${this.callId}] createResponse bloqueado (active=${this.responseActive}, pending=${this.responsePending})`);
-      return;
+      logger.warn(`[${this.callId}] createResponse bloqueado (active=${this.responseActive}, pending=${this.responsePending})`);
+      return false;
     }
-    if (force && this.responseActive) {
-      logger.warn(`[${this.callId}] createResponse forçado (active=${this.responseActive})`);
+    if (force && (this.responseActive || this.responsePending)) {
+      logger.warn(`[${this.callId}] createResponse forçado (active=${this.responseActive}, pending=${this.responsePending})`);
       this.responseActive = false;
+      this.responsePending = false;
+      this.clearPendingWatchdog();
     }
     this.responsePending = true;
+    this.armPendingWatchdog();
     this.send({ type: 'response.create' });
+    return true;
+  }
+
+  isResponsePending(): boolean {
+    return this.responsePending;
+  }
+
+  private armPendingWatchdog(): void {
+    this.clearPendingWatchdog();
+    this.pendingWatchdog = setTimeout(() => {
+      this.pendingWatchdog = null;
+      if (this.responsePending && !this.responseActive) {
+        logger.warn(`[${this.callId}] response.create sem confirmação em ${RealtimeClient.PENDING_TIMEOUT_MS}ms — liberando pending`);
+        this.responsePending = false;
+        this.emit('responsePendingTimeout');
+      }
+    }, RealtimeClient.PENDING_TIMEOUT_MS);
+  }
+
+  private clearPendingWatchdog(): void {
+    if (this.pendingWatchdog) {
+      clearTimeout(this.pendingWatchdog);
+      this.pendingWatchdog = null;
+    }
   }
 
   cancelResponse(): void {
     if (!this.responseActive && !this.responsePending) return;
     this.send({ type: 'response.cancel' });
+    this.clearPendingWatchdog();
     this.responseActive = false;
     this.responsePending = false;
   }
@@ -197,6 +230,7 @@ export class RealtimeClient extends EventEmitter {
   }
 
   close(): void {
+    this.clearPendingWatchdog();
     this.ws?.close();
     this.ws = null;
   }
@@ -241,6 +275,10 @@ export class RealtimeClient extends EventEmitter {
         this.emit('textDone', event.text);
         break;
 
+      case 'response.output_text.done':
+        this.emit('textDone', event.text);
+        break;
+
       case 'response.output_audio_transcript.done':
         this.emit('textDone', event.transcript);
         break;
@@ -269,11 +307,19 @@ export class RealtimeClient extends EventEmitter {
 
         this.emit('toolStart', name);
 
+        if (this.toolPreambleHook) {
+          try {
+            await this.toolPreambleHook(name);
+          } catch (err: any) {
+            logger.warn(`[${this.callId}] Falha no preâmbulo da tool ${name}`, { err: err.message });
+          }
+        }
+
         // Timer de lentidão: emite evento se a tool demorar demais
         const slowTimer = setTimeout(() => {
           this.emit('toolSlowdown');
           this.toolTimers.delete(call_id);
-        }, TOOL_SLOWDOWN_MS);
+        }, config.sgp.toolSlowdownMs);
         this.toolTimers.set(call_id, slowTimer);
 
         try {
@@ -300,12 +346,14 @@ export class RealtimeClient extends EventEmitter {
         break;
 
       case 'response.created':
+        this.clearPendingWatchdog();
         this.responsePending = false;
         this.responseActive = true;
         this.emit('responseCreated');
         break;
 
       case 'response.done':
+        this.clearPendingWatchdog();
         this.responseActive = false;
         this.responsePending = false;
         this.emit('responseDone');

@@ -12,7 +12,33 @@ export class AmiClient extends EventEmitter {
   private pendingBanner: (() => void) | null = null;
   private activeSock: net.Socket | null = null;
 
+  constructor() {
+    super();
+    this.setMaxListeners(20);
+  }
+
   async connect(): Promise<void> {
+    if (this.socket) return;
+    if (this.connecting) return this.connecting;
+
+    const MAX_ATTEMPTS = 3;
+    let lastErr: Error | null = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.connectOnce();
+        return;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (attempt < MAX_ATTEMPTS) {
+          logger.warn(`AMI connect tentativa ${attempt} falhou`, { err: lastErr.message });
+          await new Promise((r) => setTimeout(r, 500 * attempt));
+        }
+      }
+    }
+    throw lastErr ?? new Error('AMI connect failed');
+  }
+
+  private async connectOnce(): Promise<void> {
     if (this.socket) return;
     if (this.connecting) return this.connecting;
 

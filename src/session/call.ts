@@ -7,6 +7,7 @@ import { MicRingBuffer } from '../audio/mic-ring';
 import { synthesize, synthesizeStream } from '../tts/elevenlabs';
 import { registerTools } from '../tools/handlers';
 import { createContext } from './context';
+import { assignAgentVoice } from './voice-rotation';
 import { buildSystemPrompt } from '../prompts/system';
 import { TOOL_DEFINITIONS } from '../tools/definitions';
 import { sgp } from '../integrations/sgp';
@@ -18,8 +19,24 @@ import { getWaitSound } from '../audio/wait-sound';
 import { sessionRegistry } from '../admin/registry';
 import { saveCallHistory } from '../admin/history';
 
-const SILENCE_WARN_MS  = 35_000;
-const SILENCE_HANGUP_MS = 20_000;
+const SILENCE_WARN_MS  = 90_000;
+const RESPONSE_STALL_MS = 12_000;
+
+/** Frase falada antes da consulta quando o modelo chama a tool sem avisar o cliente. */
+const TOOL_PREAMBLES: Record<string, string> = {
+  buscar_cliente_por_cpf: 'Vou buscar as informações do seu contrato, só um momentinho.',
+  verificar_massiva: 'Vou verificar se tem algum problema na rede, aguarda um pouquinho.',
+  consultar_financeiro: 'Vou consultar a situação financeira aqui, só um instante.',
+  consultar_onu: 'Vou verificar o equipamento aqui, um momentinho.',
+  reiniciar_onu: 'Vou reiniciar o equipamento remotamente, aguarda um pouquinho.',
+  abrir_chamado: 'Vou abrir o chamado aqui, só um momentinho.',
+  gerar_segunda_via: 'Vou gerar a segunda via aqui, aguarda.',
+  enviar_resumo_whatsapp: 'Vou enviar isso pro seu WhatsApp, um momentinho.',
+  agendar_visita_tecnica: 'Vou agendar a visita técnica aqui, aguarda.',
+  desbloqueio_confianca: 'Vou solicitar o desbloqueio de confiança, só um instante.',
+  verificar_viabilidade: 'Vou verificar a viabilidade no seu endereço, aguarda.',
+  consultar_planos: 'Vou consultar os planos disponíveis, um momentinho.',
+};
 
 export class CallSession {
   private parser = new AudioSocketProtocol();
@@ -43,6 +60,12 @@ export class CallSession {
   private lastToolName = '';
   private clientSpeaking = false;
   private respondedSinceLastSpeech = false;
+  private assistantTextInResponse = false;
+  private speechStartedAt = 0;
+  private typingDelayTimer: ReturnType<typeof setTimeout> | null = null;
+  private interruptArmTimer: ReturnType<typeof setTimeout> | null = null;
+  private responseStallTimer: ReturnType<typeof setTimeout> | null = null;
+  private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
   constructor(socket: net.Socket) {
@@ -93,10 +116,14 @@ export class CallSession {
     const callerNumber = reg?.callerNumber ?? '';
 
     this.ctx = createContext(uuid, callerNumber);
+    const agent = assignAgentVoice();
+    this.ctx.agentName = agent.name;
+    this.ctx.voiceId = agent.voiceId;
     if (reg?.channel) this.ctx.asteriskChannel = reg.channel;
     logger.info(`[${uuid}] Chamada iniciada`, {
       callerNumber: callerNumber || '(desconhecido)',
       channel: reg?.channel || '(desconhecido)',
+      agente: agent.name,
     });
 
     sessionRegistry.register(uuid, { callerNumber, channel: reg?.channel });
@@ -123,6 +150,7 @@ export class CallSession {
 
     registerTools(this.rt, this.ctx);
     this.setupRealtimeEvents(uuid);
+    void ami.connect().catch((err) => logger.warn(`[${uuid}] AMI pre-connect falhou`, { err: err.message }));
 
     const instructions = buildSystemPrompt(this.ctx);
     try {
@@ -150,19 +178,33 @@ export class CallSession {
     this.rt.sendAudio(pcm24);
   }
 
+  private agentLabel(): string {
+    return this.ctx.agentName ?? config.company.agentName;
+  }
+
   private isMicBlocked(): boolean {
+    if (this.useElevenLabsTts) {
+      // Mic aberto durante TTS e geração OpenAI — só anti-eco pós-fala (barge-in real)
+      return this.pacer.isEchoGated();
+    }
     return this.rt.isResponseActive() || this.pacer.isMicGated();
+  }
+
+  /** Mais paciência na coleta de CPF; resposta rápida após identificação. */
+  private speechStopDelayForContext(): number {
+    if (this.ctx.clienteIdentificado) return config.vad.speechStopDelayMs;
+    return config.vad.speechStopDelayCollectingMs;
   }
 
   private scheduleUserResponse(callId: string, retries = 0, delayMs?: number): void {
     const MAX_RETRIES = 20;
     const RETRY_INTERVAL_MS = 300;
-    const firstDelay = delayMs ?? config.vad.speechStopDelayMs;
+    const firstDelay = delayMs ?? this.speechStopDelayForContext();
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     this.userResponseTimer = setTimeout(() => {
       this.userResponseTimer = null;
       if (this.tearing || this.socket.destroyed) return;
-      if (this.rt.isResponseActive()) {
+      if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
         if (retries < MAX_RETRIES) {
           logger.debug(`[${callId}] scheduleUserResponse reagendado (retry=${retries + 1})`);
           this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
@@ -173,7 +215,11 @@ export class CallSession {
         return;
       }
       logger.info(`[${callId}] Gerando resposta após fala do cliente`);
-      this.rt.createResponse();
+      if (!this.rt.createResponse()) {
+        if (retries < MAX_RETRIES) {
+          this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
+        }
+      }
     }, retries === 0 ? firstDelay : RETRY_INTERVAL_MS);
   }
 
@@ -181,19 +227,35 @@ export class CallSession {
     if (!this.pendingSpeechStop) return;
     this.pendingSpeechStop = false;
     // Delay curto pois já esperamos no holdRelease
-    this.scheduleUserResponse(callId, 0, 300);
+    this.scheduleUserResponse(callId, 0, 150);
   }
 
   private setupRealtimeEvents(callId: string): void {
+    const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
+    const useElevenLabsTts = config.tts.provider === 'elevenlabs' && !useNativeAudio;
+    this.useElevenLabsTts = useElevenLabsTts;
+
+    this.rt.onToolPreamble((name) => this.runToolPreamble(callId, name, useElevenLabsTts));
+
+    this.rt.on('responsePendingTimeout', () => {
+      if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
+      logger.warn(`[${callId}] Retentando response.create após pending travado`);
+      this.rt.createResponse(true);
+    });
+
     this.rt.on('responseCreated', () => {
+      this.assistantTextInResponse = false;
+      this.armResponseStallWatchdog(callId);
       if (this.userResponseTimer) {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
       }
-      // Resposta já criada — cancela pending para evitar resposta dupla
       this.pendingSpeechStop = false;
       this.respondedSinceLastSpeech = true;
-      this.pacer.setHoldStream(true);
+      // Com ElevenLabs o áudio é local — holdStream bloqueava o mic por 15s sem TTS da OpenAI
+      if (!useElevenLabsTts) {
+        this.pacer.setHoldStream(true);
+      }
     });
 
     this.rt.on('audio', (pcm24k: Buffer) => {
@@ -210,44 +272,37 @@ export class CallSession {
       this.textBuf += delta;
     });
 
-    const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
-
     this.rt.on('textDone', (text: string) => {
       if (text.trim()) {
-        logger.info(`[${callId}] 🤖 Ana (texto): ${text.trim()}`);
+        this.assistantTextInResponse = true;
+        this.clearResponseStallWatchdog();
+        logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
         sessionRegistry.emit(callId, 'assistant_text', text.trim());
       }
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
       this.textBuf = '';
-
-      if (this.ctx.pendingTransfer) {
-        this.ctx.pendingTransfer = false;
-        void this.executeTransfer(callId);
-      } else if (this.ctx.pendingHangup) {
-        this.ctx.pendingHangup = false;
-        setTimeout(() => this.teardown(), config.audio.endPauseMs + 500);
-      }
-      this.resetSilenceTimer();
     });
 
     this.rt.on('toolStart', (name: string) => {
+      this.clearResponseStallWatchdog();
       this.lastToolName = name;
       this.toolsInFlight++;
       this.waitingAnaAfterTool = false;
-      this.startTypingSound();
+      this.scheduleTypingSound();
       sessionRegistry.emit(callId, 'tool_start', `Consulta: ${name}`, { tool: name });
     });
 
     this.rt.on('toolSlowdown', () => {
-      // Mantém som de digitação — não interrompe com fala da Ana
       this.startTypingSound();
     });
 
     this.rt.on('toolDone', () => {
+      this.cancelTypingDelay();
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
+        this.stopWaitSound();
         this.waitingAnaAfterTool = true;
       }
       if (this.lastToolName) {
@@ -258,20 +313,38 @@ export class CallSession {
     this.rt.on('speechStart', () => {
       logger.info(`[${callId}] 🎤 Cliente falando...`);
       this.clientSpeaking = true;
+      this.speechStartedAt = Date.now();
       this.respondedSinceLastSpeech = false;
       if (this.userResponseTimer) {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
       }
-      if (this.pacer.isPlaying() || this.rt.isResponseActive() || this.fillerLoopRunning) {
+
+      const anaAudivel = this.pacer.isPlaying() || this.fillerLoopRunning;
+      const anaGerando = this.useElevenLabsTts && (this.rt.isResponseActive() || this.rt.isResponsePending());
+      if (!anaAudivel && !anaGerando) return;
+
+      const armMs = config.vad.interruptArmMs;
+      if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
+      if (armMs <= 0) {
         this.interruptAssistantSpeech(callId);
+        return;
       }
+      this.interruptArmTimer = setTimeout(() => {
+        this.interruptArmTimer = null;
+        if (this.clientSpeaking) this.interruptAssistantSpeech(callId);
+      }, armMs);
     });
 
     this.rt.on('speechStop', () => {
-      logger.info(`[${callId}] 🎤 Cliente parou de falar`);
+      if (this.interruptArmTimer) {
+        clearTimeout(this.interruptArmTimer);
+        this.interruptArmTimer = null;
+      }
+      const spokeMs = Date.now() - this.speechStartedAt;
+      logger.info(`[${callId}] 🎤 Cliente parou de falar (${spokeMs}ms)`);
       this.clientSpeaking = false;
-      if (this.rt.isResponseActive()) {
+      if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
         this.pendingSpeechStop = true;
         return;
       }
@@ -302,7 +375,7 @@ export class CallSession {
             logger.debug(`[${callId}] Fallback cancelado — cliente falando`);
             return;
           }
-          if (this.rt.isResponseActive()) {
+          if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
             if (attempt < MAX_ATTEMPTS) {
               scheduleTranscriptFallback(attempt + 1);
             } else {
@@ -330,12 +403,12 @@ export class CallSession {
           this.tryPendingSpeechStop(callId);
           return;
         }
-        if (this.pacer.getQueueLength() > 0 || this.rt.isResponseActive()) {
+        if (this.pacer.getQueueLength() > 0 || this.rt.isResponseActive() || this.rt.isResponsePending()) {
           this.releaseHoldTimer = setTimeout(attempt, 40);
           return;
         }
         this.releaseHoldTimer = setTimeout(() => {
-          if (this.pacer.getQueueLength() === 0 && !this.rt.isResponseActive()) {
+          if (this.pacer.getQueueLength() === 0 && !this.rt.isResponseActive() && !this.rt.isResponsePending()) {
             this.pacer.setHoldStream(false);
             this.tryPendingSpeechStop(callId);
           }
@@ -344,9 +417,23 @@ export class CallSession {
       attempt();
     };
 
-    this.rt.on('audioOutputDone', () => scheduleHoldRelease());
+    this.rt.on('audioOutputDone', () => {
+      if (!useElevenLabsTts) scheduleHoldRelease();
+    });
 
-    this.rt.on('responseDone', () => scheduleHoldRelease());
+    this.rt.on('responseDone', () => {
+      this.clearResponseStallWatchdog();
+      if (useElevenLabsTts) {
+        this.pacer.setHoldStream(false);
+        if (this.releaseHoldTimer) {
+          clearTimeout(this.releaseHoldTimer);
+          this.releaseHoldTimer = null;
+        }
+      } else {
+        scheduleHoldRelease();
+      }
+      void this.onAssistantResponseDone(callId);
+    });
 
     this.rt.on('close', () => {
       logger.info(`[${callId}] Realtime fechado`);
@@ -361,6 +448,7 @@ export class CallSession {
 
   private interruptAssistantSpeech(callId: string): void {
     this.ttsGeneration++;
+    this.ttsQueue = Promise.resolve();
     this.stopTypingSound();
     this.pacer.flush();
     this.pacer.setHoldStream(false);
@@ -368,10 +456,76 @@ export class CallSession {
       clearTimeout(this.releaseHoldTimer);
       this.releaseHoldTimer = null;
     }
-    if (this.rt.isResponseActive()) {
+    if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
       this.rt.cancelResponse();
     }
-    logger.info(`[${callId}] Cliente interrompeu a fala da Ana`);
+    logger.info(`[${callId}] Cliente interrompeu a fala de ${this.agentLabel()}`);
+  }
+
+  private armResponseStallWatchdog(callId: string): void {
+    this.clearResponseStallWatchdog();
+    this.responseStallTimer = setTimeout(() => {
+      this.responseStallTimer = null;
+      if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
+      if (this.toolsInFlight > 0 || this.assistantTextInResponse) return;
+      if (!this.rt.isResponseActive() && !this.rt.isResponsePending()) return;
+      logger.warn(`[${callId}] ${this.agentLabel()} sem resposta em ${RESPONSE_STALL_MS}ms — cancelando e reenviando`);
+      this.interruptAssistantSpeech(callId);
+      this.rt.createResponse(true);
+    }, RESPONSE_STALL_MS);
+  }
+
+  private clearResponseStallWatchdog(): void {
+    if (this.responseStallTimer) {
+      clearTimeout(this.responseStallTimer);
+      this.responseStallTimer = null;
+    }
+  }
+
+  private async runToolPreamble(callId: string, name: string, useElevenLabsTts: boolean): Promise<void> {
+    if (this.assistantTextInResponse) return;
+    const phrase = TOOL_PREAMBLES[name];
+    if (!phrase) return;
+
+    logger.info(`[${callId}] 🤖 ${this.agentLabel()} (pré-consulta): ${phrase}`);
+    sessionRegistry.emit(callId, 'assistant_text', phrase);
+
+    if (useElevenLabsTts) {
+      await this.speakToolPreamble(phrase);
+    }
+  }
+
+  /** Fala o início do preâmbulo e libera a consulta em paralelo com o restante do áudio. */
+  private async speakToolPreamble(text: string): Promise<void> {
+    this.cancelTypingDelay();
+    this.stopWaitSound();
+
+    const gen = this.ttsGeneration;
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const maxWait = setTimeout(finish, 2500);
+
+      void synthesizeStream(text, (pcm8k) => {
+        if (gen !== this.ttsGeneration) return;
+        this.pacer.enqueue(pcm8k);
+        if (!settled) {
+          clearTimeout(maxWait);
+          setTimeout(finish, 600);
+        }
+      }, this.ctx.voiceId)
+        .then(() => {
+          if (!settled) {
+            clearTimeout(maxWait);
+            setTimeout(finish, 300);
+          }
+        })
+        .catch(() => finish());
+    });
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
@@ -386,7 +540,7 @@ export class CallSession {
           firstChunk = false;
         }
         this.pacer.enqueue(pcm8k);
-      });
+      }, this.ctx.voiceId);
       if (gen !== this.ttsGeneration) return;
       this.stopTypingSound();
       await this.pacer.drain();
@@ -399,7 +553,46 @@ export class CallSession {
     }
   }
 
-  private async executeTransfer(callId: string): Promise<void> {
+  private async onAssistantResponseDone(callId: string): Promise<void> {
+    if (this.ctx.pendingTransfer) {
+      this.ctx.pendingTransfer = false;
+      if (!this.assistantTextInResponse) {
+        this.ttsQueue = this.ttsQueue.then(() =>
+          this.synthesizeAndSend('Vou te transferir para um de nossos atendentes. Um momento, por favor.'),
+        );
+      }
+      try {
+        await this.ttsQueue;
+        await this.pacer.drain();
+        const ok = await this.executeTransfer(callId);
+        if (ok) {
+          setTimeout(() => this.teardownForTransfer(), 300);
+        } else {
+          this.ttsQueue = this.ttsQueue.then(() =>
+            this.synthesizeAndSend(
+              'Não consegui completar a transferência agora. Aguarde um instante ou ligue novamente.',
+            ),
+          );
+        }
+      } catch (err: any) {
+        logger.error(`[${callId}] Falha no pós-transferência`, { err: err.message });
+      }
+      return;
+    }
+
+    if (this.ctx.pendingHangup) {
+      this.ctx.pendingHangup = false;
+      try {
+        await this.ttsQueue;
+        await this.pacer.drain();
+      } catch { /* ignore */ }
+      setTimeout(() => this.teardown(), config.audio.endPauseMs + 500);
+    }
+
+    this.resetSilenceTimer();
+  }
+
+  private async executeTransfer(callId: string): Promise<boolean> {
     logger.info(`[${callId}] Executando transferência para atendente`);
     try {
       await ami.connect();
@@ -409,11 +602,34 @@ export class CallSession {
           config.ami.transferExten,
           config.ami.transferContext,
         );
-      } else {
-        logger.warn(`[${callId}] Canal Asterisk não conhecido — não foi possível redirecionar via AMI`);
+        logger.info(`[${callId}] Transferência AMI concluída → ${config.ami.transferExten}`);
+        return true;
       }
+      logger.warn(`[${callId}] Canal Asterisk não conhecido — não foi possível redirecionar via AMI`);
+      return false;
     } catch (err: any) {
       logger.error(`[${callId}] Erro na transferência AMI`, { err: err.message });
+      return false;
+    }
+  }
+
+  private scheduleTypingSound(): void {
+    this.cancelTypingDelay();
+    const delay = config.audio.toolTypingDelayMs;
+    if (delay <= 0) {
+      this.startTypingSound();
+      return;
+    }
+    this.typingDelayTimer = setTimeout(() => {
+      this.typingDelayTimer = null;
+      if (this.toolsInFlight > 0) this.startTypingSound();
+    }, delay);
+  }
+
+  private cancelTypingDelay(): void {
+    if (this.typingDelayTimer) {
+      clearTimeout(this.typingDelayTimer);
+      this.typingDelayTimer = null;
     }
   }
 
@@ -424,11 +640,15 @@ export class CallSession {
     void this.playFillerLoop(this.fillerCancel, getWaitSound());
   }
 
-  private stopTypingSound(): void {
+  private stopWaitSound(): void {
     this.fillerCancel.cancelled = true;
     this.fillerLoopRunning = false;
+  }
+
+  private stopTypingSound(): void {
+    this.cancelTypingDelay();
+    this.stopWaitSound();
     this.waitingAnaAfterTool = false;
-    this.toolsInFlight = 0;
   }
 
   private async playFillerLoop(cancel: { cancelled: boolean }, sample?: Buffer): Promise<void> {
@@ -454,13 +674,14 @@ export class CallSession {
   }
 
   private onSilenceWarning(): void {
-    if (this.tearing || this.socket.destroyed) return;
-    logger.warn(`[${this.ctx.callId}] Silêncio prolongado — verificando linha`);
-    this.rt.injectSystemNote('[SISTEMA: silêncio prolongado detectado]');
-    this.hangupTimer = setTimeout(() => {
-      logger.warn(`[${this.ctx.callId}] Sem resposta após aviso — encerrando`);
-      this.teardown();
-    }, SILENCE_HANGUP_MS);
+    if (this.tearing || this.socket.destroyed || this.ctx.pendingTransfer) return;
+    if (this.pacer.isEchoGated() || this.toolsInFlight > 0) return;
+    if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
+      logger.warn(`[${this.ctx.callId}] Silêncio com resposta pendente — forçando nova tentativa`);
+      this.rt.createResponse(true);
+      return;
+    }
+    logger.warn(`[${this.ctx.callId}] Silêncio prolongado (sem encerrar automaticamente)`);
   }
 
   private async handleRealtimeDisconnect(callId: string): Promise<void> {
@@ -471,6 +692,7 @@ export class CallSession {
       try {
         const pcm = await synthesize(
           'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
+          this.ctx.voiceId,
         );
         this.pacer.enqueue(pcm);
         await sleep(Math.ceil(pcm.length / SLIN_CHUNK_BYTES) * 20 + 200);
@@ -483,6 +705,24 @@ export class CallSession {
     setTimeout(() => this.teardown(), 3_000);
   }
 
+  private teardownForTransfer(): void {
+    if (this.tearing) return;
+    this.tearing = true;
+    this.stopTypingSound();
+    this.pacer.stop();
+    if (this.releaseHoldTimer) clearTimeout(this.releaseHoldTimer);
+    if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
+    if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
+    if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    if (this.hangupTimer) clearTimeout(this.hangupTimer);
+    const ended = sessionRegistry.end(this.ctx.callId);
+    if (ended) saveCallHistory(ended, [...this.ctx.log]);
+    logger.info(`[${this.ctx.callId}] Chamada liberada após transferência`);
+    if (!this.socket.destroyed) this.socket.destroy();
+    this.rt.close();
+  }
+
   private teardown(): void {
     if (this.tearing) return;
     this.tearing = true;
@@ -490,6 +730,8 @@ export class CallSession {
     this.pacer.stop();
     if (this.releaseHoldTimer) clearTimeout(this.releaseHoldTimer);
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
+    if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
+    if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     const ended = sessionRegistry.end(this.ctx.callId);

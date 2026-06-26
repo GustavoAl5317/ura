@@ -5,6 +5,7 @@
 import http from 'http';
 import { config } from '../config';
 import { logger } from '../logger';
+import { isUraEnabled } from '../admin/ura-control';
 
 export interface CallRegistration {
   callerNumber: string;
@@ -22,6 +23,12 @@ export function getRegistration(uuid: string): CallRegistration | undefined {
 
 export function startSidecar(): void {
   const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ online: true, uraEnabled: isUraEnabled() }));
+      return;
+    }
+
     if (req.method !== 'POST' || req.url !== '/register') {
       res.writeHead(404);
       res.end();
