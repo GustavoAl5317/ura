@@ -39,10 +39,16 @@ export const config = {
     apiKey: opt('ADMIN_API_KEY', ''),
     uraEnabledDefault: optBool('URA_ENABLED', true),
     openaiOrgId: opt('OPENAI_ORG_ID', ''),
+    openaiAdminKey: opt('OPENAI_ADMIN_KEY', ''),
+    openaiPrepaidUsd: optFloat('OPENAI_PREPAID_USD', 0),
     openaiBudgetUsd: optFloat('OPENAI_BUDGET_USD', 0),
     openaiAlertThresholdPct: optInt('OPENAI_ALERT_THRESHOLD_PCT', 20),
     openaiPollMs: optInt('OPENAI_POLL_MS', 300_000),
+    openaiAuditMonitor: optBool('OPENAI_AUDIT_MONITOR', true),
+    openaiAuditPollMs: optInt('OPENAI_AUDIT_POLL_MS', 300_000),
     alertWebhookUrl: opt('ADMIN_ALERT_WEBHOOK_URL', ''),
+    /** Celular (DDD) ou grupo @g.us — alertas internos via Evolution */
+    alertWhatsapp: opt('ADMIN_ALERT_WHATSAPP', ''),
   },
 
   openai: {

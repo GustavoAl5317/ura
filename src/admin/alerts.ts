@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import axios from 'axios';
 import { config } from '../config';
+import { whatsapp } from '../integrations/whatsapp';
 import { logger } from '../logger';
 import type { AdminAlert } from './types';
 
@@ -38,14 +39,26 @@ export function markAlertRead(id: string): void {
 }
 
 async function dispatchAlert(alert: AdminAlert): Promise<void> {
+  const texto = `[URA ${alert.level.toUpperCase()}] ${alert.title}\n${alert.message}`;
+
+  const destino = config.admin.alertWhatsapp.trim();
+  if (destino) {
+    try {
+      const ok = destino.includes('@g.us')
+        ? await whatsapp.enviarGrupo(destino, texto)
+        : await whatsapp.enviarTexto(destino, texto);
+      if (!ok) logger.warn('Alerta WhatsApp não enviado', { destino: destino.slice(0, 12) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Falha ao enviar alerta WhatsApp', { err: msg });
+    }
+  }
+
   const url = config.admin.alertWebhookUrl;
   if (!url) return;
 
   try {
-    await axios.post(url, {
-      text: `[URA ${alert.level.toUpperCase()}] ${alert.title}\n${alert.message}`,
-      alert,
-    }, { timeout: 8_000 });
+    await axios.post(url, { text: texto, alert }, { timeout: 8_000 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Falha ao enviar alerta webhook', { err: msg });

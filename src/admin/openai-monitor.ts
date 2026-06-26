@@ -6,69 +6,122 @@ import type { OpenAiUsageSnapshot } from './types';
 let lastSnapshot: OpenAiUsageSnapshot | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
+interface CostBucket {
+  results?: Array<{ object?: string; amount?: { value?: number } }>;
+}
+
+function sumCostsFromBuckets(buckets: CostBucket[]): number {
+  let total = 0;
+  for (const bucket of buckets) {
+    for (const row of bucket.results ?? []) {
+      if (row.amount?.value != null) {
+        total += row.amount.value;
+      }
+    }
+  }
+  return total;
+}
+
+async function fetchOrganizationCosts(
+  startSec: number,
+  endSec: number,
+): Promise<{ spend: number }> {
+  const apiKey = config.admin.openaiAdminKey;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (config.admin.openaiOrgId) {
+    headers['OpenAI-Organization'] = config.admin.openaiOrgId;
+  }
+
+  // Uma única requisição (limit cobre o mês inteiro) — evita erro 400 na paginação
+  const res = await axios.get<{
+    data?: CostBucket[];
+  }>('https://api.openai.com/v1/organization/costs', {
+    headers,
+    params: {
+      start_time: startSec,
+      end_time: endSec,
+      bucket_width: '1d',
+      limit: 31,
+    },
+    timeout: 20_000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (res.status === 401) {
+    throw new Error(
+      'HTTP 401 — verifique OPENAI_ADMIN_KEY (Admin key read-only) e OPENAI_ORG_ID.',
+    );
+  }
+  if (res.status !== 200) {
+    const detail = res.data ? JSON.stringify(res.data).slice(0, 160) : '';
+    throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+  }
+
+  return { spend: sumCostsFromBuckets(res.data?.data ?? []) };
+}
+
 export function getOpenAiSnapshot(): OpenAiUsageSnapshot | null {
   return lastSnapshot;
 }
 
 export async function refreshOpenAiUsage(): Promise<OpenAiUsageSnapshot> {
-  const budget = config.admin.openaiBudgetUsd;
+  const alertBudget = config.admin.openaiBudgetUsd;
+  const prepaid = config.admin.openaiPrepaidUsd;
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const snapshot: OpenAiUsageSnapshot = {
     checkedAt: now.toISOString(),
     ok: false,
-    budgetUsd: budget > 0 ? budget : undefined,
+    alertBudgetUsd: alertBudget > 0 ? alertBudget : undefined,
+    budgetUsd: alertBudget > 0 ? alertBudget : undefined,
+    prepaidUsd: prepaid > 0 ? prepaid : undefined,
     periodStart: start.toISOString().slice(0, 10),
     periodEnd: now.toISOString().slice(0, 10),
   };
 
-  try {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${config.openai.apiKey}`,
-    };
-    if (config.admin.openaiOrgId) {
-      headers['OpenAI-Organization'] = config.admin.openaiOrgId;
-    }
+  if (!config.admin.openaiAdminKey) {
+    snapshot.error = 'OPENAI_ADMIN_KEY não configurada';
+    snapshot.note =
+      'A OPENAI_API_KEY (sk-proj) não lê custos — crie uma Admin key em platform.openai.com → ' +
+      'Organization settings → Admin keys → Create (Read only). Cole em OPENAI_ADMIN_KEY.';
+    lastSnapshot = snapshot;
+    return snapshot;
+  }
 
-    // Custos do mês (API Organization — requer chave com permissão de billing)
+  if (!config.admin.openaiOrgId) {
+    snapshot.error = 'OPENAI_ORG_ID não configurado';
+    snapshot.note =
+      'Para ver o gasto real: pegue o org ID em platform.openai.com → Settings → Organization. ' +
+      'Use OPENAI_ADMIN_KEY (chave Admin, read-only) em platform.openai.com → Admin keys. ' +
+      'OPENAI_PREPAID_USD = créditos que você comprou (para estimar saldo restante).';
+    lastSnapshot = snapshot;
+    return snapshot;
+  }
+
+  try {
     const startSec = Math.floor(start.getTime() / 1000);
     const endSec = Math.floor(now.getTime() / 1000);
+    const { spend } = await fetchOrganizationCosts(startSec, endSec);
+    const spendUsd = Math.round(spend * 100) / 100;
 
-    const res = await axios.get<{ data?: Array<{ amount?: { value?: number } }> }>(
-      'https://api.openai.com/v1/organization/costs',
-      {
-        headers,
-        params: {
-          start_time: startSec,
-          end_time: endSec,
-          bucket_width: '1d',
-        },
-        timeout: 15_000,
-        validateStatus: (s) => s < 500,
-      },
-    );
+    snapshot.ok = true;
+    snapshot.spendUsd = spendUsd;
+    snapshot.totalUsd = spendUsd;
+    snapshot.note = `Gasto do mês (API OpenAI). Saldo de créditos: veja em platform.openai.com → Billing.`;
 
-    if (res.status === 200 && res.data?.data) {
-      const total = res.data.data.reduce((sum, row) => sum + (row.amount?.value ?? 0), 0);
-      snapshot.ok = true;
-      snapshot.totalUsd = Math.round(total * 100) / 100;
-      if (budget > 0) {
-        snapshot.remainingUsd = Math.max(0, Math.round((budget - total) * 100) / 100);
-        snapshot.percentUsed = Math.min(100, Math.round((total / budget) * 100));
-      }
-      snapshot.note = 'Custos via API Organization (mês corrente).';
-    } else {
-      snapshot.ok = false;
-      snapshot.error = `API custos retornou HTTP ${res.status}`;
-      snapshot.note =
-        'Configure OPENAI_ORG_ID e uma chave com acesso a billing, ou informe OPENAI_BUDGET_USD para alertas manuais. ' +
-        'Acesso à conta platform.openai.com não é monitorável por esta API — use auditoria da OpenAI (plano Team/Enterprise).';
+    if (alertBudget > 0) {
+      snapshot.remainingUsd = Math.max(0, Math.round((alertBudget - spendUsd) * 100) / 100);
+      snapshot.percentUsed = Math.min(100, Math.round((spendUsd / alertBudget) * 100));
     }
   } catch (err: unknown) {
     snapshot.ok = false;
     snapshot.error = err instanceof Error ? err.message : String(err);
-    snapshot.note = 'Não foi possível consultar custos. Verifique OPENAI_ORG_ID e permissões da API key.';
+    snapshot.note =
+      'Falha ao consultar /v1/organization/costs. Crie uma Admin API key (read-only) em platform.openai.com ' +
+      'e defina OPENAI_ADMIN_KEY + OPENAI_ORG_ID no .env. OPENAI_BUDGET_USD é só limite de alerta, não saldo real.';
   }
 
   lastSnapshot = snapshot;
@@ -77,25 +130,27 @@ export async function refreshOpenAiUsage(): Promise<OpenAiUsageSnapshot> {
 }
 
 function checkThresholds(s: OpenAiUsageSnapshot): void {
-  if (!s.budgetUsd || !s.totalUsd) return;
+  const spend = s.spendUsd ?? s.totalUsd;
+  const limit = s.alertBudgetUsd ?? s.budgetUsd;
+  if (!limit || spend == null) return;
 
-  const remaining = s.remainingUsd ?? s.budgetUsd - s.totalUsd;
-  const pct = s.percentUsed ?? Math.round((s.totalUsd / s.budgetUsd) * 100);
+  const remaining = s.remainingUsd ?? limit - spend;
+  const pct = s.percentUsed ?? Math.round((spend / limit) * 100);
   const threshold = config.admin.openaiAlertThresholdPct;
 
   if (pct >= 100 - threshold) {
     addAlertOnce(
       'openai-low',
       'critical',
-      'Créditos OpenAI baixos',
-      `Uso do mês: $${s.totalUsd.toFixed(2)} de $${s.budgetUsd.toFixed(2)} (${pct}%). Restante: ~$${remaining.toFixed(2)}.`,
+      'Gasto OpenAI próximo do limite',
+      `Gasto no mês: $${spend.toFixed(2)} (limite de alerta $${limit.toFixed(2)}). Restante estimado: ~$${remaining.toFixed(2)}.`,
     );
   } else if (pct >= 70) {
     addAlertOnce(
       'openai-warn',
       'warn',
-      'Uso OpenAI elevado',
-      `Uso do mês: $${s.totalUsd.toFixed(2)} de $${s.budgetUsd.toFixed(2)} (${pct}%).`,
+      'Gasto OpenAI elevado',
+      `Gasto no mês: $${spend.toFixed(2)} de $${limit.toFixed(2)} (${pct}%).`,
     );
   }
 }

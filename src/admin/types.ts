@@ -42,9 +42,19 @@ export interface HistoryRecord {
 export interface OpenAiUsageSnapshot {
   checkedAt: string;
   ok: boolean;
+  /** Gasto real no mês (API Organization/costs) */
+  spendUsd?: number;
+  /** @deprecated alias de spendUsd */
   totalUsd?: number;
   periodStart?: string;
   periodEnd?: string;
+  /** Créditos que você carregou na conta (OPENAI_PREPAID_USD) */
+  prepaidUsd?: number;
+  /** Estimativa: prepaid - gasto (não é saldo oficial da OpenAI) */
+  creditsEstimatedUsd?: number;
+  /** Limite manual só para alertas (OPENAI_BUDGET_USD) — não é saldo real */
+  alertBudgetUsd?: number;
+  /** @deprecated */
   budgetUsd?: number;
   remainingUsd?: number;
   percentUsed?: number;

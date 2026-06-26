@@ -56,8 +56,13 @@ export class CallSession {
     this.socket = socket;
     this.pacer = new AudioPacer(
       (frame) => writeAudioSocketFrame(this.socket, frame),
-      config.audio.preBufferMs,
-      config.audio.inputMuteMs,
+      {
+        preBufferMs: config.audio.preBufferMs,
+        startBufferMs: config.audio.startBufferMs,
+        minBufferMs: config.audio.minBufferMs,
+        maxBufferMs: config.audio.maxBufferMs,
+        inputMuteMs: config.audio.inputMuteMs,
+      },
     );
     const ringBytes = Math.ceil(24_000 * 2 * (config.audio.inputRingMs / 1000));
     this.micRing = new MicRingBuffer(ringBytes);
@@ -363,6 +368,7 @@ export class CallSession {
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
+    this.stopTypingSound();
     try {
       const pcm8k = await synthesize(text);
       this.pacer.enqueue(pcm8k);

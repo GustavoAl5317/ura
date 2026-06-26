@@ -3,201 +3,730 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>URA AI — Painel</title>
+  <title>URA AI — Painel Aquitelecom</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
-      --border: #2d3a4f;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
+      --bg: #080b12;
+      --bg-elevated: #0e1219;
+      --surface: #131820;
+      --surface-hover: #1a2230;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-strong: rgba(255, 255, 255, 0.12);
+      --text: #f0f4fa;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
       --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.12);
+      --accent-glow: rgba(59, 130, 246, 0.25);
       --ok: #22c55e;
+      --ok-soft: rgba(34, 197, 94, 0.12);
       --warn: #f59e0b;
+      --warn-soft: rgba(245, 158, 11, 0.12);
       --danger: #ef4444;
+      --danger-soft: rgba(239, 68, 68, 0.12);
+      --purple: #a78bfa;
+      --purple-soft: rgba(167, 139, 250, 0.12);
+      --radius: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+      --font: 'DM Sans', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
     }
+
     * { box-sizing: border-box; margin: 0; }
+
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: var(--font);
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
-    header {
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.15), transparent),
+        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(167, 139, 250, 0.08), transparent);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── Header ── */
+    .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 1rem 1.5rem;
+      gap: 1rem;
+      padding: 0.875rem 1.75rem;
       border-bottom: 1px solid var(--border);
-      background: var(--card);
+      background: rgba(14, 18, 25, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
-    header h1 { font-size: 1.25rem; font-weight: 600; }
-    .badge {
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.875rem;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .brand-icon svg { width: 22px; height: 22px; color: #fff; }
+
+    .brand-text h1 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .brand-text span {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .status-pill.on {
+      background: var(--ok-soft);
+      color: #4ade80;
+      border-color: rgba(34, 197, 94, 0.25);
+    }
+
+    .status-pill.off {
+      background: var(--danger-soft);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-pill.on .status-dot {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+      50% { opacity: 0.85; box-shadow: 0 0 0 4px transparent; }
+    }
+
+    .auth-group {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+    }
+
+    .auth-group input {
+      width: 200px;
+      padding: 0.4rem 0;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.82rem;
+      outline: none;
+    }
+
+    .auth-group input::placeholder { color: var(--text-muted); }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      padding: 1.5rem 1.75rem 2.5rem;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+    button {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.35rem 0.75rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
+      padding: 0.55rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-family: var(--font);
+      font-size: 0.85rem;
       font-weight: 500;
+      transition: all 0.15s ease;
     }
-    .badge.on { background: #14532d; color: #86efac; }
-    .badge.off { background: #450a0a; color: #fca5a5; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-    main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
-    .grid {
+
+    button:hover {
+      background: var(--surface-hover);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    button:active { transform: scale(0.98); }
+
+    button svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.85; }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 12px var(--accent-glow);
+    }
+
+    button.primary:hover { background: #2563eb; border-color: #2563eb; }
+
+    button.success {
+      background: rgba(22, 163, 74, 0.9);
+      border-color: #16a34a;
+      color: #fff;
+    }
+
+    button.success:hover { background: #15803d; }
+
+    button.danger {
+      background: rgba(185, 28, 28, 0.85);
+      border-color: #b91c1c;
+      color: #fff;
+    }
+
+    button.danger:hover { background: #991b1b; }
+
+    button.ghost {
+      background: transparent;
+      border-color: var(--border);
+    }
+
+    /* ── Stats ── */
+    .stats {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
       margin-bottom: 1.5rem;
     }
-    .card {
-      background: var(--card);
+
+    @media (max-width: 768px) {
+      .stats { grid-template-columns: 1fr; }
+    }
+
+    .stat-card {
+      background: var(--surface);
       border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+      border-color: var(--border-strong);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-icon {
+      width: 44px;
+      height: 44px;
       border-radius: 12px;
-      padding: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
-    .card h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.5rem; }
-    .card .value { font-size: 2rem; font-weight: 700; }
-    .card .sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.25rem; }
-    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-    button {
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
+
+    .stat-icon svg { width: 22px; height: 22px; }
+
+    .stat-icon.calls { background: var(--accent-soft); color: var(--accent); }
+    .stat-icon.openai { background: var(--purple-soft); color: var(--purple); }
+    .stat-icon.uptime { background: var(--ok-soft); color: var(--ok); }
+
+    .stat-body { min-width: 0; flex: 1; }
+
+    .stat-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .stat-value {
+      font-size: 1.85rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .stat-sub {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      margin-top: 0.4rem;
+      line-height: 1.4;
+    }
+
+    .stat-sub.error { color: #fbbf24; }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel-card {
+      background: var(--surface);
       border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.9rem;
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      min-height: 460px;
+      overflow: hidden;
     }
-    button:hover { border-color: var(--accent); }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    button.danger { background: #7f1d1d; border-color: #991b1b; }
-    button.ok { background: #14532d; border-color: #166534; }
-    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-    .panel { min-height: 420px; display: flex; flex-direction: column; }
-    .panel h3 { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
-    .feed {
+
+    .panel-head {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .panel-head h3 {
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .panel-head .hint {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .panel-body {
       flex: 1;
       overflow-y: auto;
-      padding: 0.75rem;
-      font-size: 0.85rem;
-      max-height: 480px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-strong) transparent;
     }
-    .event {
-      padding: 0.5rem 0.6rem;
-      border-left: 3px solid var(--border);
-      margin-bottom: 0.4rem;
-      background: #121a24;
-      border-radius: 0 6px 6px 0;
+
+    .panel-body::-webkit-scrollbar { width: 6px; }
+    .panel-body::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 3px;
     }
-    .event.client { border-color: #60a5fa; }
-    .event.ana { border-color: #a78bfa; }
-    .event.tool { border-color: #fbbf24; }
-    .event .time { color: var(--muted); font-size: 0.75rem; }
+
+    .panel-foot {
+      padding: 0.65rem 1.25rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Sessions */
     .session-item {
-      padding: 0.75rem;
+      padding: 0.9rem 1.25rem;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
+      transition: background 0.15s;
     }
-    .session-item:hover, .session-item.active { background: #243044; }
-    .alert-item {
-      padding: 0.6rem 0.75rem;
-      border-radius: 8px;
-      margin-bottom: 0.5rem;
-      font-size: 0.85rem;
+
+    .session-item:hover { background: var(--surface-hover); }
+
+    .session-item.active {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      padding-left: calc(1.25rem - 3px);
     }
-    .alert-item.warn { background: #422006; border: 1px solid #92400e; }
-    .alert-item.critical { background: #450a0a; border: 1px solid #991b1b; }
-    .alert-item.info { background: #1e3a5f; border: 1px solid #1d4ed8; }
-    #auth-bar {
+
+    .session-number {
+      font-weight: 600;
+      font-size: 0.9rem;
+      font-family: var(--mono);
+      letter-spacing: -0.02em;
+    }
+
+    .session-name {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+
+    .session-meta {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
       display: flex;
       gap: 0.5rem;
       align-items: center;
-      margin-bottom: 1rem;
     }
-    #auth-bar input {
-      flex: 1;
-      max-width: 320px;
-      padding: 0.5rem 0.75rem;
-      border-radius: 8px;
+
+    .session-meta .tag {
+      background: var(--bg-elevated);
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+    }
+
+    .empty-state {
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .empty-state svg {
+      width: 40px;
+      height: 40px;
+      opacity: 0.35;
+      margin-bottom: 0.75rem;
+    }
+
+    /* Feed */
+    .feed { padding: 0.75rem; }
+
+    .event {
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 0.45rem;
+      background: var(--bg-elevated);
       border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
+      border-radius: var(--radius-sm);
+      font-size: 0.84rem;
+      line-height: 1.45;
+      animation: fadeIn 0.2s ease;
     }
-    .note { font-size: 0.8rem; color: var(--muted); padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .event.client { border-left: 3px solid #60a5fa; }
+    .event.ana { border-left: 3px solid var(--purple); }
+    .event.tool { border-left: 3px solid var(--warn); }
+
+    .event-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .event-who {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .event.client .event-who { color: #60a5fa; }
+    .event.ana .event-who { color: var(--purple); }
+    .event.tool .event-who { color: var(--warn); }
+
+    .event .time {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-family: var(--mono);
+    }
+
+    .event-msg { color: var(--text-secondary); }
+
+    /* Bottom sections */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    @media (max-width: 900px) {
+      .bottom-grid { grid-template-columns: 1fr; }
+    }
+
+    .bottom-grid .panel-card { min-height: 280px; }
+
+    .alert-item {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      margin: 0.5rem 0.75rem;
+      font-size: 0.84rem;
+      border: 1px solid;
+    }
+
+    .alert-item.warn {
+      background: var(--warn-soft);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .alert-item.critical {
+      background: var(--danger-soft);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .alert-item.info {
+      background: var(--accent-soft);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .alert-item strong {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .alert-item .time {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+      font-family: var(--mono);
+    }
+
+    .history-item {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.84rem;
+      transition: background 0.15s;
+    }
+
+    .history-item:hover { background: var(--surface-hover); }
+
+    .history-item .time {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      margin-bottom: 0.25rem;
+    }
+
+    .history-item .detail { color: var(--text-secondary); }
+
+    .footer-note {
+      margin-top: 1.5rem;
+      padding: 1rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .footer-note code {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      background: var(--bg-elevated);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 640px) {
+      .header { padding: 0.75rem 1rem; }
+      main { padding: 1rem; }
+      .auth-group input { width: 140px; }
+      .brand-text span { display: none; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>URA AI — Aquitelecom</h1>
-    <span id="ura-badge" class="badge on"><span class="dot"></span> URA ligada</span>
-  </header>
-
-  <main>
-    <div id="auth-bar">
-      <input type="password" id="api-key" placeholder="Chave API (ADMIN_API_KEY)" />
-      <button onclick="saveKey()">Salvar</button>
-    </div>
-
-    <div class="actions">
-      <button class="ok" onclick="setUra(true)">Ligar URA</button>
-      <button class="danger" onclick="setUra(false)">Desligar URA</button>
-      <button onclick="refresh()">Atualizar</button>
-      <button onclick="refreshOpenAi()">Atualizar créditos OpenAI</button>
-    </div>
-
-    <div class="grid">
-      <div class="card">
-        <h2>Ligações ativas</h2>
-        <div class="value" id="active-calls">—</div>
-        <div class="sub">chamadas em andamento</div>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" x2="12" y1="19" y2="22"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>URA AI</h1>
+          <span>Aquitelecom · Painel de operações</span>
+        </div>
       </div>
-      <div class="card">
-        <h2>OpenAI — uso do mês</h2>
-        <div class="value" id="openai-usage">—</div>
-        <div class="sub" id="openai-sub">—</div>
+      <div class="header-right">
+        <span id="ura-badge" class="status-pill on">
+          <span class="status-dot"></span>
+          URA ligada
+        </span>
+        <div class="auth-group">
+          <input type="password" id="api-key" placeholder="Chave API" />
+          <button class="ghost" onclick="saveKey()">Salvar</button>
+        </div>
       </div>
-      <div class="card">
-        <h2>Orçamento</h2>
-        <div class="value" id="openai-budget">—</div>
-        <div class="sub" id="openai-remaining">—</div>
-      </div>
-      <div class="card">
-        <h2>Uptime</h2>
-        <div class="value" id="uptime">—</div>
-        <div class="sub">processo ura-ai</div>
-      </div>
-    </div>
+    </header>
 
-    <div class="layout">
-      <div class="card panel">
-        <h3>Ligações ao vivo</h3>
-        <div id="sessions-list"></div>
-        <div class="note">Clique em uma ligação para ver o feed em tempo real</div>
+    <main>
+      <div class="toolbar">
+        <span class="toolbar-label">Controles</span>
+        <div class="btn-group">
+          <button class="success" onclick="setUra(true)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Ligar URA
+          </button>
+          <button class="danger" onclick="setUra(false)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
+            Desligar URA
+          </button>
+          <button onclick="refresh()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            Atualizar
+          </button>
+          <button class="primary" onclick="refreshOpenAi()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Gasto OpenAI
+          </button>
+        </div>
       </div>
-      <div class="card panel">
-        <h3 id="feed-title">Feed em tempo real</h3>
-        <div class="feed" id="live-feed"></div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-icon calls">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">Ligações ativas</div>
+            <div class="stat-value" id="active-calls">—</div>
+            <div class="stat-sub">chamadas em andamento agora</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon openai">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">Gasto OpenAI (mês)</div>
+            <div class="stat-value" id="openai-usage">—</div>
+            <div class="stat-sub" id="openai-sub">atualiza automaticamente</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon uptime">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" id="uptime">—</div>
+            <div class="stat-sub">processo ura-ai em execução</div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="card panel" style="margin-top:1rem">
-      <h3>Alertas</h3>
-      <div class="feed" id="alerts-list" style="max-height:200px"></div>
-    </div>
+      <div class="layout">
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>Ligações ao vivo</h3>
+            <span class="hint">clique para monitorar</span>
+          </div>
+          <div class="panel-body" id="sessions-list"></div>
+          <div class="panel-foot">Atualização em tempo real via SSE</div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3 id="feed-title">Feed em tempo real</h3>
+            <span class="hint">Ana · Cliente · Tools</span>
+          </div>
+          <div class="panel-body feed" id="live-feed"></div>
+          <div class="panel-foot">Últimos 150 eventos da ligação selecionada</div>
+        </div>
+      </div>
 
-    <div class="card panel" style="margin-top:1rem">
-      <h3>Histórico de chamadas</h3>
-      <div class="feed" id="history-list" style="max-height:320px"></div>
-    </div>
+      <div class="bottom-grid">
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>Alertas</h3>
+            <span class="hint">gasto · sistema</span>
+          </div>
+          <div class="panel-body" id="alerts-list"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>Histórico de chamadas</h3>
+            <span class="hint">últimas 30</span>
+          </div>
+          <div class="panel-body" id="history-list"></div>
+        </div>
+      </div>
 
-    <p class="note" style="margin-top:1rem;border:none;padding:0">
-      Acesso à conta platform.openai.com (login de pessoas) não é monitorável por API — use auditoria OpenAI Team/Enterprise.
-      Configure <code>ADMIN_ALERT_WEBHOOK_URL</code> para receber alertas no Slack/WhatsApp.
-    </p>
-  </main>
+      <p class="footer-note" id="audit-note">
+        Monitor de login OpenAI: ative Audit logging em platform.openai.com → Settings → Data controls.
+        Alertas no WhatsApp: <code>ADMIN_ALERT_WHATSAPP</code> (usa Evolution já configurada).
+      </p>
+    </main>
+  </div>
 
   <script>
     const API = '';
@@ -207,11 +736,13 @@
     function getKey() {
       return localStorage.getItem('ura_admin_key') || '';
     }
+
     function saveKey() {
       localStorage.setItem('ura_admin_key', document.getElementById('api-key').value.trim());
       connectStream();
       refresh();
     }
+
     document.getElementById('api-key').value = getKey();
 
     function headers() {
@@ -232,6 +763,14 @@
       try { return new Date(iso).toLocaleTimeString('pt-BR'); } catch { return iso; }
     }
 
+    function fmtUptime(sec) {
+      if (sec < 60) return sec + 's';
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      if (h > 0) return h + 'h ' + m + 'min';
+      return m + ' min';
+    }
+
     function eventClass(type) {
       if (type === 'client_speech') return 'client';
       if (type === 'assistant_text') return 'ana';
@@ -239,14 +778,24 @@
       return '';
     }
 
+    function eventWho(type) {
+      if (type === 'client_speech') return 'Cliente';
+      if (type === 'assistant_text') return 'Ana';
+      if (type.startsWith('tool')) return 'Ferramenta';
+      return 'Sistema';
+    }
+
     function appendEvent(ev, targetId = 'live-feed') {
       const el = document.getElementById(targetId);
       const div = document.createElement('div');
       div.className = 'event ' + eventClass(ev.type);
-      const who = ev.type === 'client_speech' ? '👤 Cliente' :
-        ev.type === 'assistant_text' ? '🤖 Ana' :
-        ev.type.startsWith('tool') ? '🔧' : '•';
-      div.innerHTML = `<div class="time">${fmtTime(ev.at)} · ${ev.callId?.slice(0,8) || ''}</div>${who} ${escapeHtml(ev.message)}`;
+      div.innerHTML = `
+        <div class="event-header">
+          <span class="event-who">${eventWho(ev.type)}</span>
+          <span class="time">${fmtTime(ev.at)} · ${ev.callId?.slice(0, 8) || ''}</span>
+        </div>
+        <div class="event-msg">${escapeHtml(ev.message)}</div>
+      `;
       el.prepend(div);
       while (el.children.length > 150) el.removeChild(el.lastChild);
     }
@@ -255,17 +804,27 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    const emptySessions = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <div>Nenhuma ligação ativa</div>
+      </div>
+    `;
+
     function renderSessions(sessions) {
       const el = document.getElementById('sessions-list');
       if (!sessions.length) {
-        el.innerHTML = '<div class="note">Nenhuma ligação ativa</div>';
+        el.innerHTML = emptySessions;
         return;
       }
       el.innerHTML = sessions.map(s => `
         <div class="session-item ${s.callId === selectedCallId ? 'active' : ''}" data-id="${s.callId}">
-          <strong>${escapeHtml(s.callerNumber || '?')}</strong>
-          ${s.clienteNome ? ' · ' + escapeHtml(s.clienteNome) : ''}
-          <div class="time">${fmtTime(s.startedAt)} · ${s.events?.length || 0} eventos</div>
+          <div class="session-number">${escapeHtml(s.callerNumber || 'Número desconhecido')}</div>
+          ${s.clienteNome ? '<div class="session-name">' + escapeHtml(s.clienteNome) + '</div>' : ''}
+          <div class="session-meta">
+            <span>${fmtTime(s.startedAt)}</span>
+            <span class="tag">${s.events?.length || 0} eventos</span>
+          </div>
         </div>
       `).join('');
       el.querySelectorAll('.session-item').forEach(item => {
@@ -299,38 +858,63 @@
       try {
         const data = await api('/api/status');
         document.getElementById('active-calls').textContent = data.activeCalls;
+
         const badge = document.getElementById('ura-badge');
         if (data.uraEnabled) {
-          badge.className = 'badge on';
-          badge.innerHTML = '<span class="dot"></span> URA ligada';
+          badge.className = 'status-pill on';
+          badge.innerHTML = '<span class="status-dot"></span> URA ligada';
         } else {
-          badge.className = 'badge off';
-          badge.innerHTML = '<span class="dot"></span> URA desligada';
+          badge.className = 'status-pill off';
+          badge.innerHTML = '<span class="status-dot"></span> URA desligada';
         }
+
         const oa = data.openai;
+        const subEl = document.getElementById('openai-sub');
         if (oa) {
-          document.getElementById('openai-usage').textContent = oa.totalUsd != null ? '$' + oa.totalUsd.toFixed(2) : '—';
-          document.getElementById('openai-sub').textContent = oa.note || oa.error || '';
-          document.getElementById('openai-budget').textContent = oa.budgetUsd ? '$' + oa.budgetUsd : '—';
-          document.getElementById('openai-remaining').textContent = oa.remainingUsd != null
-            ? 'Restante: $' + oa.remainingUsd + (oa.percentUsed != null ? ' (' + oa.percentUsed + '% usado)' : '')
-            : '';
+          const spend = oa.spendUsd ?? oa.totalUsd;
+          document.getElementById('openai-usage').textContent = spend != null ? '$' + spend.toFixed(2) : (oa.ok ? '$0.00' : '—');
+          let sub = oa.error ? ('⚠ ' + oa.error) : (oa.note || '');
+          if (!oa.error && oa.percentUsed != null && (oa.alertBudgetUsd ?? oa.budgetUsd)) {
+            sub += ' · ' + oa.percentUsed + '% do limite de alerta ($' + (oa.alertBudgetUsd ?? oa.budgetUsd) + ')';
+          }
+          subEl.textContent = sub;
+          subEl.className = 'stat-sub' + (oa.error ? ' error' : '');
         }
-        document.getElementById('uptime').textContent = Math.floor(data.uptimeSec / 60) + ' min';
+
+        document.getElementById('uptime').textContent = fmtUptime(data.uptimeSec);
+
+        const audit = data.openaiAudit;
+        const auditNote = document.getElementById('audit-note');
+        if (auditNote && audit) {
+          let txt = audit.ok
+            ? ('🔐 Login OpenAI: ' + (audit.note || 'monitorando'))
+            : ('⚠ Login OpenAI: ' + (audit.error || 'indisponível'));
+          if (audit.lastCheckAt) txt += ' · verificado ' + fmtTime(audit.lastCheckAt);
+          auditNote.textContent = txt;
+        }
+
         renderSessions(data.sessions || []);
 
         const alerts = data.alerts || [];
         document.getElementById('alerts-list').innerHTML = alerts.length
-          ? alerts.map(a => `<div class="alert-item ${a.level}"><strong>${escapeHtml(a.title)}</strong><br>${escapeHtml(a.message)}<div class="time">${fmtTime(a.at)}</div></div>`).join('')
-          : '<div class="note">Sem alertas</div>';
+          ? alerts.map(a => `
+            <div class="alert-item ${a.level}">
+              <strong>${escapeHtml(a.title)}</strong>
+              ${escapeHtml(a.message)}
+              <div class="time">${fmtTime(a.at)}</div>
+            </div>
+          `).join('')
+          : '<div class="empty-state"><div>Sem alertas no momento</div></div>';
 
         const hist = await api('/api/history?limit=30');
-        document.getElementById('history-list').innerHTML = (hist.records || []).map(r => `
-          <div class="event">
-            <div class="time">${fmtTime(r.startedAt)} · ${r.durationSec}s · ${escapeHtml(r.callerNumber)}</div>
-            ${r.clienteNome ? escapeHtml(r.clienteNome) + ' · ' : ''}${r.events?.length || 0} eventos
-          </div>
-        `).join('') || '<div class="note">Sem histórico ainda</div>';
+        document.getElementById('history-list').innerHTML = (hist.records || []).length
+          ? (hist.records || []).map(r => `
+            <div class="history-item">
+              <div class="time">${fmtTime(r.startedAt)} · ${r.durationSec}s · ${escapeHtml(r.callerNumber)}</div>
+              <div class="detail">${r.clienteNome ? escapeHtml(r.clienteNome) + ' · ' : ''}${r.events?.length || 0} eventos</div>
+            </div>
+          `).join('')
+          : '<div class="empty-state"><div>Sem histórico ainda</div></div>';
 
         if (selectedCallId) {
           const s = (data.sessions || []).find(x => x.callId === selectedCallId);

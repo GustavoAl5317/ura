@@ -7,6 +7,7 @@ import { sessionRegistry } from './registry';
 import { listHistory, getHistory } from './history';
 import { isUraEnabled, setUraEnabled, getUraState } from './ura-control';
 import { listAlerts, markAlertRead } from './alerts';
+import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor } from './openai-audit-monitor';
 import { getOpenAiSnapshot, refreshOpenAiUsage, startOpenAiMonitor } from './openai-monitor';
 
 const PANEL_DIR = path.join(process.cwd(), 'panel');
@@ -69,6 +70,7 @@ export function startAdminServer(): void {
   }
 
   startOpenAiMonitor();
+  startOpenAiAuditMonitor();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -100,6 +102,7 @@ export function startAdminServer(): void {
         activeCalls: sessionRegistry.activeCount(),
         sessions: sessionRegistry.getActive(),
         openai: getOpenAiSnapshot(),
+        openaiAudit: getOpenAiAuditStatus(),
         alerts: listAlerts(10),
         uptimeSec: Math.round(process.uptime()),
       });
@@ -161,6 +164,11 @@ export function startAdminServer(): void {
     }
 
     // ── OpenAI ───────────────────────────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/openai/audit') {
+      await refreshOpenAiAudit();
+      return json(res, 200, getOpenAiAuditStatus() ?? { ok: false });
+    }
+
     if (req.method === 'GET' && pathname === '/api/openai/usage') {
       const snap = await refreshOpenAiUsage();
       return json(res, 200, snap);
