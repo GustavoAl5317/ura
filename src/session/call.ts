@@ -242,8 +242,7 @@ export class CallSession {
   }
 
   private setupRealtimeEvents(callId: string): void {
-    const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
-    const useElevenLabsTts = config.tts.provider === 'elevenlabs' && !useNativeAudio;
+    const useElevenLabsTts = config.tts.provider === 'elevenlabs';
     this.useElevenLabsTts = useElevenLabsTts;
 
     this.rt.onToolPreamble((name) => this.runToolPreamble(callId, name, useElevenLabsTts));
@@ -302,7 +301,7 @@ export class CallSession {
           this.armTitularFollowUpWatchdog(callId);
         }
       }
-      if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
+      if (useElevenLabsTts && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
       this.textBuf = '';
