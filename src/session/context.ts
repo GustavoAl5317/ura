@@ -38,6 +38,9 @@ export interface CallContext {
     linhaDigitavel?: string | null;
   };
 
+  /** Termos OLT/CTO usados para cruzar com Zabbix */
+  infraTermos?: string[];
+
   // Log resumido do atendimento
   log: string[];
 

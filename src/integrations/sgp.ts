@@ -24,6 +24,8 @@ export interface SgpOnu {
   pon: number;
   olt_id: number;
   olt_nome: string;
+  cto_nome?: string;
+  caixa?: string;
   conexao: {
     status: 'online' | 'offline' | string;
     ip: string;
@@ -158,9 +160,35 @@ function firstContrato(c: SgpCliente): SgpContrato | undefined {
   ) ?? c.contratos[0];
 }
 
+function extrairCtoDeOnu(raw: Record<string, unknown>): string | undefined {
+  for (const key of [
+    'cto_nome', 'cto', 'nome_cto', 'caixa', 'caixa_nome', 'splitter',
+    'fttx_cto', 'tipo_codigo', 'descricao_cto', 'nome_caixa',
+  ]) {
+    const v = raw[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (v && typeof v === 'object' && 'nome' in v) {
+      const n = (v as { nome?: string }).nome;
+      if (typeof n === 'string' && n.trim()) return n.trim();
+    }
+  }
+  return undefined;
+}
+
+function normalizarOnu(raw: SgpOnu): SgpOnu {
+  const rec = raw as unknown as Record<string, unknown>;
+  const cto = extrairCtoDeOnu(rec);
+  return {
+    ...raw,
+    cto_nome: cto ?? raw.cto_nome,
+    caixa: cto ?? raw.caixa,
+  };
+}
+
 function firstOnu(c: SgpCliente): SgpOnu | undefined {
   const ct = firstContrato(c);
-  return ct?.servicos.find((s) => s.onu)?.onu;
+  const onu = ct?.servicos.find((s) => s.onu)?.onu;
+  return onu ? normalizarOnu(onu) : undefined;
 }
 
 function enrich(c: SgpCliente): SgpCliente {
@@ -381,10 +409,12 @@ export class SgpClient {
   // ─── ONU / FTTH ────────────────────────────────────────────────────────────
 
   // Busca status da ONU via endpoint de cliente (mais completo para a URA)
-  async onuDoContrato(contratoId: number): Promise<SgpOnu | null> {
+  async onuDoContrato(contratoId: number, opts?: { fullFttx?: boolean }): Promise<SgpOnu | null> {
+    const full = opts?.fullFttx === true;
     const r = await this.postForm<{ clientes?: SgpCliente[] }>('/api/ura/clientes/', {
       contrato: contratoId,
-      exibir_conexao: config.sgp.exibirConexao ? 1 : 0,
+      exibir_conexao: full || config.sgp.exibirConexao ? 1 : 0,
+      servicos_dados: full || config.sgp.servicosDados ? 1 : 0,
     });
     const cliente = r?.clientes?.[0];
     if (!cliente) return null;

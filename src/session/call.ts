@@ -26,6 +26,7 @@ const RESPONSE_STALL_MS = 12_000;
 const TOOL_PREAMBLES: Record<string, string> = {
   buscar_cliente_por_cpf: 'Vou buscar as informações do seu contrato, só um momentinho.',
   verificar_massiva: 'Vou verificar se tem algum problema na rede, aguarda um pouquinho.',
+  consultar_zabbix: 'Vou consultar o monitoramento da rede, só um instante.',
   consultar_financeiro: 'Vou consultar a situação financeira aqui, só um instante.',
   consultar_onu: 'Vou verificar o equipamento aqui, um momentinho.',
   reiniciar_onu: 'Vou reiniciar o equipamento remotamente, aguarda um pouquinho.',

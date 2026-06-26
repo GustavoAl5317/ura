@@ -1,5 +1,6 @@
 import { sgp, formatarEndereco } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
+import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
 import { config } from '../config';
 import { logger } from '../logger';
@@ -9,6 +10,84 @@ import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
+
+function termosInfraDoCliente(ctx: CallContext): string[] {
+  const termos: string[] = [];
+  const onu = ctx.onu;
+  if (onu?.olt_nome) termos.push(onu.olt_nome);
+  if (onu?.cto_nome) termos.push(onu.cto_nome);
+  if (onu?.caixa) termos.push(onu.caixa);
+  if (onu?.serial && onu.serial.length >= 6) termos.push(onu.serial);
+  if (ctx.infraTermos?.length) termos.push(...ctx.infraTermos);
+  return [...new Set(termos.map((t) => t.trim()).filter((t) => t.length >= 3))];
+}
+
+/** Carrega ONU do contrato para mapear OLT/CTO no Zabbix antes da massiva. */
+async function carregarOnuParaInfra(ctx: CallContext): Promise<void> {
+  if (ctx.onu || !ctx.contratoSelecionado) return;
+  const contratoId = ctx.cliente?.contratoId;
+  if (!contratoId) return;
+  const onu = await sgp.onuDoContrato(contratoId, { fullFttx: true });
+  if (onu) ctx.onu = onu;
+}
+
+/** Massiva SGP afeta este cliente? Cruza CTOs da manutenção com infra do cliente. */
+function massivaSgpAfetaCliente(
+  m: { ctos: Array<{ nome: string }>; olts: Array<{ nome: string }> },
+  termos: string[],
+): boolean {
+  if (!termos.length) return false;
+  const alvos = [
+    ...m.ctos.map((c) => c.nome),
+    ...m.olts.map((o) => o.nome),
+  ];
+  const lower = termos.map((t) => t.toLowerCase());
+  return alvos.some((nome) => {
+    const n = nome.toLowerCase();
+    return lower.some((t) => n.includes(t) || t.includes(n));
+  });
+}
+
+function orientacaoZabbix(tipo: ZabbixEventoTipo | null, afetaCliente: boolean): string {
+  if (!afetaCliente) {
+    return 'NÃO informe queda de CTO/POP/fibra neste cliente — o alerta não foi confirmado na infraestrutura dele. Siga diagnóstico financeiro e ONU normalmente.';
+  }
+  switch (tipo) {
+    case 'cto_off':
+      return 'Confirmado: alerta de queda na CTO deste cliente. Informe, peça desculpas e diga que a equipe já está atuando. NÃO reinicie ONU nem abra chamado individual.';
+    case 'pop_off':
+      return 'Confirmado: alerta no POP deste cliente. Informe o cliente; não reinicie equipamento.';
+    case 'fibra':
+      return 'Confirmado: queda de interface na infraestrutura deste cliente. Informe o problema de rede/fibra.';
+    case 'energia':
+      return 'Confirmado: alerta de energia/DSE na infraestrutura deste cliente.';
+    default:
+      return 'Incidente confirmado na infraestrutura deste cliente — informe com clareza.';
+  }
+}
+
+function mapZabbixParaTool(z: Awaited<ReturnType<typeof zabbix.diagnosticar>>) {
+  return {
+    tem_incidente: z.afetaCliente,
+    afeta_cliente: z.afetaCliente,
+    sem_mapeamento_infra: z.semMapeamentoInfra ?? false,
+    termos_consultados: z.hostsConsultados,
+    tipo_evento: z.tipoPrincipal,
+    resumo: z.afetaCliente ? z.resumo : null,
+    erro: z.erro ?? null,
+    incidentes: z.incidentes.slice(0, 5).map((i) => ({
+      tipo: i.tipo,
+      nome: i.nome,
+      host: i.hostVisivel || i.host,
+      desde: i.desde,
+    })),
+    orientacao: z.semMapeamentoInfra
+      ? 'Infraestrutura do cliente ainda não mapeada (OLT/CTO). NÃO cite queda de CTO/POP. Consulte ONU e siga o fluxo técnico.'
+      : z.afetaCliente
+        ? orientacaoZabbix(z.tipoPrincipal, true)
+        : 'Monitoramento sem alerta na infraestrutura deste cliente. Siga diagnóstico financeiro e ONU.',
+  };
+}
 
 // Classifica o sinal óptico (RX em dBm) conforme as faixas de qualidade da operação.
 // Mais negativo = pior. Usado principalmente no diagnóstico de lentidão.
@@ -358,7 +437,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     void Promise.all([
       sgp.titulos(contratoId, 'abertos').then((t) => { ctx.titulos = t; }),
       sgp.manutencoesAtivas().then((m) => { ctx.manutencoesAtivas = m; }),
-      sgp.onuDoContrato(contratoId).then((o) => { if (o) ctx.onu = o; }),
+      sgp.onuDoContrato(contratoId, { fullFttx: true }).then((o) => { if (o) ctx.onu = o; }),
     ]).catch((err) => logger.debug(`[${ctx.callId}] prefetch SGP`, { err: String(err) }));
   };
 
@@ -777,31 +856,93 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
+    await carregarOnuParaInfra(ctx);
+    const termos = termosInfraDoCliente(ctx);
+
     let manutencoes = ctx.manutencoesAtivas;
     if (!manutencoes) {
       manutencoes = await sgp.manutencoesAtivas();
       ctx.manutencoesAtivas = manutencoes;
     }
 
-    if (!manutencoes.length) {
-      return { tem_massiva: false };
+    const zbx = config.zabbix.enabled ? await zabbix.diagnosticar(termos) : null;
+
+    const manutencaoCliente = manutencoes.filter((m) =>
+      !m.ctos.length && !m.olts.length ? false : massivaSgpAfetaCliente(m, termos),
+    );
+    const sgpMassiva = termos.length
+      ? manutencaoCliente.length > 0
+      : false;
+    const manutencaoRegional = !sgpMassiva && manutencoes.length > 0;
+    const zabbixIncidente = zbx?.afetaCliente ?? false;
+
+    if (!sgpMassiva && !zabbixIncidente && !manutencaoRegional) {
+      return {
+        tem_massiva: false,
+        ...(zbx ? { zabbix: mapZabbixParaTool(zbx) } : {}),
+      };
+    }
+
+    if (!sgpMassiva && !zabbixIncidente && manutencaoRegional) {
+      return {
+        tem_massiva: false,
+        manutencao_regional_nao_confirmada: true,
+        total_manutencoes_rede: manutencoes.length,
+        orientacao:
+          'Há manutenção na rede, mas NÃO confirmada para a infraestrutura deste cliente. NÃO diga que a CTO dele caiu. Siga consulta financeira e ONU.',
+        ...(zbx ? { zabbix: mapZabbixParaTool(zbx) } : {}),
+      };
     }
 
     ctx.massivaAtiva = true;
-    const m = manutencoes[0];
-    ctx.log.push(`Massiva ativa: ${m.descricao}`);
 
+    if (sgpMassiva) {
+      const m = manutencaoCliente[0];
+      ctx.log.push(`Massiva SGP (cliente): ${m.descricao}`);
+      return {
+        tem_massiva: true,
+        afeta_cliente: true,
+        fonte: zabbixIncidente ? 'sgp_e_zabbix' : 'sgp',
+        descricao: m.descricao,
+        mensagem_ura: m.mensagem_ura || m.descricao,
+        severidade: m.severidade,
+        data_inicio: m.data_inicial,
+        data_previsao_fim: m.data_final,
+        olts_afetadas: m.olts.map((o) => o.nome),
+        ctos_afetadas: m.ctos.map((c) => c.nome),
+        termos_infra: termos,
+        ...(zbx ? { zabbix: mapZabbixParaTool(zbx) } : {}),
+      };
+    }
+
+    ctx.log.push(`Incidente Zabbix (cliente): ${zbx!.resumo}`);
     return {
       tem_massiva: true,
-      descricao: m.descricao,
-      mensagem_ura: m.mensagem_ura || m.descricao,
-      severidade: m.severidade,
-      data_inicio: m.data_inicial,
-      data_previsao_fim: m.data_final,
-      olts_afetadas: m.olts.map((o) => o.nome),
-      ctos_afetadas: m.ctos.map((c) => c.nome),
-      total_manutencoes: manutencoes.length,
+      afeta_cliente: true,
+      fonte: 'zabbix',
+      descricao: zbx!.resumo,
+      mensagem_ura: zbx!.resumo,
+      termos_infra: termos,
+      zabbix: mapZabbixParaTool(zbx!),
+      orientacao: orientacaoZabbix(zbx!.tipoPrincipal, true),
     };
+  });
+
+  client.registerTool('consultar_zabbix', async () => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    if (!config.zabbix.enabled) {
+      return { tem_incidente: false, mensagem: 'Monitoramento Zabbix não habilitado.' };
+    }
+
+    await carregarOnuParaInfra(ctx);
+    const diag = await zabbix.diagnosticar(termosInfraDoCliente(ctx));
+    if (diag.afetaCliente) {
+      ctx.massivaAtiva = true;
+      ctx.log.push(`Zabbix (cliente): ${diag.resumo}`);
+    }
+    return mapZabbixParaTool(diag);
   });
 
   // ── ONU ────────────────────────────────────────────────────────────────────
@@ -817,7 +958,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     // Usa ONU já carregada no contexto ou busca
     let onu = ctx.onu;
     if (!onu) {
-      onu = await sgp.onuDoContrato(contratoId) ?? undefined;
+      onu = await sgp.onuDoContrato(contratoId, { fullFttx: true }) ?? undefined;
       ctx.onu = onu;
     }
 
@@ -832,6 +973,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       status,
       serial: onu.serial,
       olt: onu.olt_nome,
+      cto: onu.cto_nome ?? onu.caixa ?? null,
+      pon: onu.pon,
+      slot: onu.slot,
       sinal_rx_dbm: onu.rx,
       sinal_tx_dbm: onu.tx,
       ip: onu.conexao?.ip ?? null,

@@ -106,7 +106,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'verificar_massiva',
     description:
-      'Verifica se há falha massiva ativa na rede. SEMPRE use isso PRIMEIRO quando o cliente relatar falta de internet ou lentidão.',
+      'Verifica falha massiva: manutenções ativas no SGP e incidentes no Zabbix (CTO off, POP, fibra, energia). SEMPRE use PRIMEIRO em problemas técnicos.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    type: 'function',
+    name: 'consultar_zabbix',
+    description:
+      'Consulta alertas ativos no Zabbix (CTO off, queda de POP, Queda da Interface, DSE/energia). Use após verificar_massiva se precisar detalhar o incidente de monitoramento.',
     parameters: {
       type: 'object',
       properties: {},

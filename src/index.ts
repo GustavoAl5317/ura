@@ -24,6 +24,9 @@ async function main() {
   logger.info(`  URA AI — ${config.company.name}`);
   logger.info(`  Agente : ${config.company.agentName}${config.tts.elevenlabs.alternateVoices ? ` / ${config.company.agentNameMale} (alternado)` : ''}`);
   logVoiceRotationConfig();
+  if (config.zabbix.enabled) {
+    logger.info(`  Zabbix : ${config.zabbix.baseUrl || '(URL não definida)'}`);
+  }
   logger.info(`  TTS    : ${config.tts.provider}`);
   logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness} | interrupt=${config.vad.interruptResponse ? 'on' : 'off'} | manual_response`);
   const bufStart = Math.max(config.audio.preBufferMs, config.audio.startBufferMs);

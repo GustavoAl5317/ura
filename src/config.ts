@@ -164,6 +164,22 @@ export const config = {
     max: optInt('PLANOS_MAX', 6),
   },
 
+  zabbix: {
+    enabled: optBool('ZABBIX_ENABLED', false),
+    /** Base sem path — ex: https://zabbix.aquitelecom.com */
+    baseUrl: opt('ZABBIX_URL', ''),
+    username: opt('ZABBIX_USER', ''),
+    password: opt('ZABBIX_PASSWORD', ''),
+    timeoutMs: optInt('ZABBIX_TIMEOUT_MS', 12_000),
+    problemLimit: optInt('ZABBIX_PROBLEM_LIMIT', 30),
+    /** Padrões de busca em problem.get (nome do trigger), separados por | */
+    searchPatterns: opt(
+      'ZABBIX_SEARCH_PATTERNS',
+      'ALERTA: cto off|Queda da Interface|POP',
+    ).split('|').map((s) => s.trim()).filter(Boolean),
+    includeOutros: optBool('ZABBIX_INCLUDE_OUTROS', false),
+  },
+
   features: {
     chamado: optBool('FEATURE_CHAMADO', true),
     chamadoOcorrenciaTipo: optInt('CHAMADO_OCORRENCIA_TIPO', 5),
