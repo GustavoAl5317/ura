@@ -67,6 +67,7 @@ export class CallSession {
   private interruptArmTimer: ReturnType<typeof setTimeout> | null = null;
   private responseStallTimer: ReturnType<typeof setTimeout> | null = null;
   private postToolSpeechTimer: ReturnType<typeof setTimeout> | null = null;
+  private titularFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
@@ -289,6 +290,9 @@ export class CallSession {
         this.waitingAnaAfterTool = false;
         logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
         sessionRegistry.emit(callId, 'assistant_text', text.trim());
+        if (this.ctx.precisaConsultarFinanceiro && /vou (consultar|verificar|checar|dar uma olhad)/i.test(text)) {
+          this.armTitularFollowUpWatchdog(callId);
+        }
       }
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
@@ -298,6 +302,7 @@ export class CallSession {
 
     this.rt.on('toolStart', (name: string) => {
       this.clearResponseStallWatchdog();
+      this.clearTitularFollowUpWatchdog();
       this.lastToolName = name;
       this.toolsInFlight++;
       this.waitingAnaAfterTool = false;
@@ -321,6 +326,9 @@ export class CallSession {
       }
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
+        if (this.lastToolName === 'confirmar_titular_contrato') {
+          this.armTitularFollowUpWatchdog(callId);
+        }
       }
     });
 
@@ -529,6 +537,32 @@ export class CallSession {
     if (this.postToolSpeechTimer) {
       clearTimeout(this.postToolSpeechTimer);
       this.postToolSpeechTimer = null;
+    }
+  }
+
+  /** Titular confirmado mas financeiro não consultado — força a próxima tool. */
+  private armTitularFollowUpWatchdog(callId: string): void {
+    this.clearTitularFollowUpWatchdog();
+    this.titularFollowUpTimer = setTimeout(() => {
+      this.titularFollowUpTimer = null;
+      if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
+      if (!this.ctx.precisaConsultarFinanceiro || this.ctx.consultaFinanceiraFeita) return;
+      if (this.toolsInFlight > 0 || this.rt.isResponseActive() || this.rt.isResponsePending()) {
+        this.armTitularFollowUpWatchdog(callId);
+        return;
+      }
+      logger.warn(`[${callId}] Titular confirmado sem consulta financeira — forçando`);
+      this.startTypingSound();
+      this.rt.injectSystemNote(
+        '[SISTEMA] Titular confirmado. Chame consultar_financeiro AGORA (e verificar_massiva se for suporte técnico). Não aguarde o cliente.',
+      );
+    }, 4_000);
+  }
+
+  private clearTitularFollowUpWatchdog(): void {
+    if (this.titularFollowUpTimer) {
+      clearTimeout(this.titularFollowUpTimer);
+      this.titularFollowUpTimer = null;
     }
   }
 
@@ -771,6 +805,7 @@ export class CallSession {
     if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
     if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
+    if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     const ended = sessionRegistry.end(this.ctx.callId);
@@ -790,6 +825,7 @@ export class CallSession {
     if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
     if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
+    if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     const ended = sessionRegistry.end(this.ctx.callId);

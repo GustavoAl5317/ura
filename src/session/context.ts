@@ -52,6 +52,10 @@ export interface CallContext {
 
   /** Última transcrição do cliente (validação de confirmações) */
   lastClientSpeech?: string;
+
+  /** Após titular confirmado: financeiro deve ser consultado sem esperar o cliente */
+  precisaConsultarFinanceiro?: boolean;
+  consultaFinanceiraFeita?: boolean;
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {
