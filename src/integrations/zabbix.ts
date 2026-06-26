@@ -108,13 +108,17 @@ export class ZabbixClient {
     throw lastErr ?? new Error('Zabbix login falhou');
   }
 
-  /** Classifica alerta pelo nome/descrição do trigger. */
-  static classificar(nome: string): ZabbixEventoTipo {
-    if (/alerta:\s*cto\s*off|queda de clientes na cto/i.test(nome)) return 'cto_off';
+  /** Classifica alerta pelo nome do trigger e host Zabbix. */
+  static classificar(nome: string, hostVisivel = ''): ZabbixEventoTipo {
+    const blob = `${nome} ${hostVisivel}`;
+    if (
+      /alerta:\s*cto\s*off|queda de clientes na cto|queda de sess[oõ]es na cto/i.test(blob)
+      || (/\bCTO\b/i.test(nome) && /\bOFFLINE\b/i.test(nome))
+    ) return 'cto_off';
     if (/queda da interface/i.test(nome)) return 'fibra';
-    if (/pppoe|sess[oõ]es pppoe/i.test(nome) && /queda/i.test(nome)) return 'pppoe_off';
-    if (/\bpop\b/i.test(nome) && /queda|off|down|indispon/i.test(nome)) return 'pop_off';
-    if (/\bdse\b|energia|power|ups|bateria/i.test(nome)) return 'energia';
+    if (/pppoe|sess[oõ]es pppoe/i.test(blob) && /queda/i.test(blob)) return 'pppoe_off';
+    if (/\bpop\b/i.test(blob) && /queda|off|down|indispon/i.test(blob)) return 'pop_off';
+    if (/\bdse\b|energia|power|ups|bateria/i.test(blob)) return 'energia';
     return 'outro';
   }
 
@@ -122,11 +126,18 @@ export class ZabbixClient {
     return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   }
 
-  /** Extrai nome da CTO entre aspas no alerta SGP SESSOES. */
+  /** Extrai nome da CTO do texto do trigger. */
   static extrairCtoDoAlerta(nome: string): string | null {
-    const m = nome.match(/na CTO\s+"([^"]+)"/i)
-      ?? nome.match(/CTO\s+"([^"]+)"/i);
-    return m?.[1]?.trim() ?? null;
+    const quoted = nome.match(/na CTO\s+"([^"]+)"/i) ?? nome.match(/CTO\s+"([^"]+)"/i);
+    if (quoted?.[1]) return quoted[1].trim();
+
+    const offline = nome.match(/^(.+?)\s+-\s+OFFLINE\s*$/i);
+    if (offline?.[1] && /\bCTO\b/i.test(offline[1])) return offline[1].trim();
+
+    const sessoes = nome.match(/queda de sess[oõ]es na CTO\s+(.+)$/i);
+    if (sessoes?.[1]) return sessoes[1].trim();
+
+    return null;
   }
 
   private static termoCoincide(termo: string, blob: string): boolean {
@@ -268,13 +279,14 @@ export class ZabbixClient {
 
     const incidentes: ZabbixIncidente[] = problemas.map((p) => {
       const host = p.hosts?.[0];
-      const tipo = ZabbixClient.classificar(p.name);
+      const hostVisivel = host?.name ?? host?.host ?? '';
+      const tipo = ZabbixClient.classificar(p.name, hostVisivel);
       return {
         eventid: p.eventid,
         nome: p.name,
         severidade: parseInt(p.severity, 10) || 0,
         host: host?.host ?? '',
-        hostVisivel: host?.name ?? host?.host ?? '',
+        hostVisivel,
         tipo,
         desde: ZabbixClient.formatarData(p.clock),
       };
