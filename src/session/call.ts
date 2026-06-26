@@ -5,7 +5,7 @@ import { upsample8to24, downsample24to8 } from '../audio/resampler';
 import { AudioPacer, SLIN_CHUNK_BYTES, writeAudioSocketFrame } from '../audio/pacer';
 import { MicRingBuffer } from '../audio/mic-ring';
 import { synthesize, synthesizeStream } from '../tts/elevenlabs';
-import { registerTools } from '../tools/handlers';
+import { registerTools, buildFinanceiroSpeech } from '../tools/handlers';
 import { createContext } from './context';
 import { assignAgentVoice } from './voice-rotation';
 import { buildSystemPrompt } from '../prompts/system';
@@ -71,6 +71,7 @@ export class CallSession {
   private falaObrigatoriaTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFalaObrigatoria: string | null = null;
   private autoFinanceiroTimer: ReturnType<typeof setTimeout> | null = null;
+  private financeiroTtsTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
@@ -319,7 +320,7 @@ export class CallSession {
       this.startTypingSound();
     });
 
-    this.rt.on('toolDone', (name?: string, result?: unknown) => {
+    this.rt.on('toolDone', (name?: string, result?: unknown, meta?: { serverSide?: boolean }) => {
       this.cancelTypingDelay();
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
@@ -333,10 +334,14 @@ export class CallSession {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
       }
       if (name === 'consultar_financeiro' && result && typeof result === 'object') {
-        const fala = (result as { fala_obrigatoria?: string | null }).fala_obrigatoria;
-        if (typeof fala === 'string' && fala.trim()) {
-          this.pendingFalaObrigatoria = fala.trim();
-          this.armFalaObrigatoriaFallback(callId, fala.trim());
+        const speech = buildFinanceiroSpeech(result as Parameters<typeof buildFinanceiroSpeech>[0]);
+        if (speech) {
+          this.pendingFalaObrigatoria = speech;
+          if (meta?.serverSide) {
+            this.scheduleFinanceiroTts(callId, speech);
+          } else {
+            this.armFalaObrigatoriaFallback(callId, speech);
+          }
         }
       }
       if (this.toolsInFlight === 0) {
@@ -564,6 +569,27 @@ export class CallSession {
         '[SISTEMA] Você não disse nada após a ferramenta. Fale com o cliente AGORA e dê andamento ao atendimento.',
       );
     }, 5_000);
+  }
+
+  /** TTS direto após consulta financeira pelo servidor (~1s após o preâmbulo). */
+  private scheduleFinanceiroTts(callId: string, speech: string): void {
+    if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
+    this.financeiroTtsTimer = setTimeout(() => {
+      this.financeiroTtsTimer = null;
+      if (this.tearing || this.socket.destroyed || this.assistantTextInResponse) return;
+      this.speakFinanceiroDirect(callId, speech);
+    }, 1_000);
+  }
+
+  private speakFinanceiroDirect(callId: string, speech: string): void {
+    this.clearFalaObrigatoriaFallback();
+    this.pendingFalaObrigatoria = null;
+    this.clearPostToolSpeechWatchdog();
+    this.assistantTextInResponse = true;
+    this.waitingAnaAfterTool = false;
+    logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
+    sessionRegistry.emit(callId, 'assistant_text', speech);
+    this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(speech));
   }
 
   private armFalaObrigatoriaFallback(callId: string, text: string): void {
@@ -911,6 +937,7 @@ export class CallSession {
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.autoFinanceiroTimer) clearTimeout(this.autoFinanceiroTimer);
+    if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
     if (this.falaObrigatoriaTimer) clearTimeout(this.falaObrigatoriaTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);

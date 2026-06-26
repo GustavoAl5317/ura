@@ -173,6 +173,32 @@ function mapFaturaResumo(t: SgpTitulo) {
 const FALA_SUSPENSAO_FINANCEIRA =
   'Sua internet está suspensa por pendência financeira. Após o pagamento, a conexão costuma voltar em alguns minutos.';
 
+export interface FinanceiroSpeechInput {
+  fala_obrigatoria?: string | null;
+  total_vencido?: string | null;
+  faturas_vencidas?: { valor?: string; vencimento?: string }[];
+}
+
+/** Texto completo para TTS quando o modelo fica mudo após consultar_financeiro. */
+export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string | null {
+  const parts: string[] = [];
+  if (result.fala_obrigatoria?.trim()) parts.push(result.fala_obrigatoria.trim());
+  const vencida = result.faturas_vencidas?.[0];
+  if (vencida?.valor) {
+    parts.push(`A fatura em aberto é de ${vencida.valor}.`);
+    if (vencida.vencimento) {
+      const [y, m, d] = vencida.vencimento.split('-');
+      if (d && m && y) parts.push(`O vencimento foi dia ${d} de ${m} de ${y}.`);
+    }
+  } else if (result.total_vencido) {
+    parts.push(`O total vencido é de ${result.total_vencido}.`);
+  }
+  if (parts.length > 0) {
+    parts.push('Posso enviar a segunda via ou o PIX por WhatsApp, se quiser.');
+  }
+  return parts.length ? parts.join(' ') : null;
+}
+
 function suspensoPorFinanceiro(contratoSuspenso: boolean, motivoStatus: string | null): boolean {
   return contratoSuspenso && /financ/i.test(motivoStatus ?? '');
 }
