@@ -21,8 +21,39 @@ function classificarSinalOptico(
   return { faixa: 'ruim', descricao: 'Sinal óptico ruim (abaixo de -24 dBm)' };
 }
 
+function hojeNoFuso(): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: config.tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const y = Number(parts.find((p) => p.type === 'year')!.value);
+  const m = Number(parts.find((p) => p.type === 'month')!.value);
+  const d = Number(parts.find((p) => p.type === 'day')!.value);
+  return new Date(y, m - 1, d);
+}
+
+function parseVencimento(dataVencimento: string): Date | null {
+  const s = dataVencimento.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1]));
+  return null;
+}
+
+/** SGP às vezes retorna diasAtraso=0 com vencimento já passado — usa a data como fallback. */
+function diasAtrasoEfetivo(t: SgpTitulo): number {
+  if (t.diasAtraso > 0) return t.diasAtraso;
+  const venc = parseVencimento(t.dataVencimento);
+  if (!venc) return 0;
+  const diff = Math.floor((hojeNoFuso().getTime() - venc.getTime()) / 86_400_000);
+  return diff > 0 ? diff : 0;
+}
+
 function tituloVencido(t: SgpTitulo): boolean {
-  return t.diasAtraso > 0;
+  return diasAtrasoEfetivo(t) > 0;
 }
 
 function separarTitulos(tits: SgpTitulo[]): { vencidas: SgpTitulo[]; aVencer: SgpTitulo[] } {
@@ -32,13 +63,15 @@ function separarTitulos(tits: SgpTitulo[]): { vencidas: SgpTitulo[]; aVencer: Sg
 }
 
 function mapFaturaResumo(t: SgpTitulo) {
+  const atraso = diasAtrasoEfetivo(t);
   return {
     id: t.id,
     numero_documento: t.numeroDocumento,
     valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
     vencimento: t.dataVencimento,
-    atraso_dias: t.diasAtraso,
-    vencida: tituloVencido(t),
+    atraso_dias: atraso,
+    atraso_dias_sgp: t.diasAtraso,
+    vencida: atraso > 0,
     status: t.status,
     tem_pix: !!t.codigoPix,
     tem_boleto: !!t.codigoBarras || !!t.link,
@@ -65,6 +98,13 @@ function orientacaoFinanceiro(params: {
     return (
       'Há fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ' +
       'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.'
+    );
+  }
+
+  if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
+    return (
+      'Contrato suspenso por financeiro com fatura(s) em aberto sem data vencida. ' +
+      'Explique a suspensão; se o cliente pedir boleto, liste faturas_a_vencer e use gerar_segunda_via com fatura_id.'
     );
   }
 
@@ -96,7 +136,7 @@ function resolverFaturaIdPriorizandoVencida(
   const titulos = ctx.titulos ?? [];
   const vencidas = titulos.filter(tituloVencido);
   if (vencidas.length > 0) {
-    const maisAtrasada = [...vencidas].sort((a, b) => b.diasAtraso - a.diasAtraso)[0];
+    const maisAtrasada = [...vencidas].sort((a, b) => diasAtrasoEfetivo(b) - diasAtrasoEfetivo(a))[0];
     return maisAtrasada.id ?? maisAtrasada.numeroDocumento;
   }
   return undefined;

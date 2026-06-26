@@ -109,8 +109,8 @@ APÓS CONSULTAS (massiva, financeiro, ONU):
 2. FINANCEIRO (consultar_financeiro) — OBRIGATÓRIO, NUNCA PULE:
    → Sempre consulte após a massiva, mesmo que o cliente pareça só ter problema técnico
    → Leia faturas_vencidas[] e faturas_a_vencer[] (NÃO liste todas as faturas ao cliente de uma vez)
-   → REGRA DE FATURA:
-     • Corte, suspensão ou bloqueio financeiro: ofereça/envie SOMENTE fatura VENCIDA (faturas_vencidas[])
+   → REGRA DE FATURA: vencida = atraso_dias > 0 (calculado pela data se o SGP vier zerado)
+     • Corte, suspensão ou bloqueio financeiro: ofereça/envie a fatura VENCIDA
      • NÃO ofereça faturas a vencer automaticamente em atendimento técnico
      • Cliente pediu boleto/fatura diretamente:
        1) Se há vencida → envie a vencida
