@@ -18,7 +18,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'consultar_financeiro',
     description:
-      'Consulta a situação financeira: separa faturas VENCIDAS (atraso_dias > 0) de faturas A VENCER. Só ofereça boleto automaticamente para vencidas em caso de corte/suspensão.',
+      'Consulta situação financeira do contrato. Só use APÓS buscar_cliente_por_cpf e confirmar_titular_contrato.',
     parameters: {
       type: 'object',
       properties: {
@@ -106,7 +106,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'verificar_massiva',
     description:
-      'Verifica falha massiva: manutenções ativas no SGP e incidentes no Zabbix (CTO off, POP, fibra, energia). SEMPRE use PRIMEIRO em problemas técnicos.',
+      'Verifica falha massiva (SGP + Zabbix). Só use APÓS identificar o cliente por CPF e confirmar o titular.',
     parameters: {
       type: 'object',
       properties: {},

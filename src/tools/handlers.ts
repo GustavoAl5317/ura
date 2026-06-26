@@ -307,6 +307,21 @@ async function enviarWhatsappAtendimento(
 }
 
 /** Bloqueia ferramentas sensíveis até o titular confirmar identidade (fluxo CPF). */
+function bloqueioSemCliente(ctx: CallContext): Record<string, unknown> | null {
+  if (ctx.cliente?.contratoId && ctx.clienteConfirmado) return null;
+  if (!ctx.cliente || !ctx.clienteIdentificado) {
+    return {
+      sucesso: false,
+      erro: 'cliente_nao_identificado',
+      mensagem: 'Cliente ainda não identificado.',
+      orientacao:
+        'PARE as consultas. Peça o CPF: "Para eu verificar aqui pra você, pode me informar seu CPF?" ' +
+        'Depois buscar_cliente_por_cpf → confirmar_titular_contrato → só então verificar_massiva e consultar_financeiro.',
+    };
+  }
+  return null;
+}
+
 function bloqueioSemConfirmacao(ctx: CallContext): Record<string, unknown> | null {
   if (ctx.cliente && ctx.clienteIdentificado && !ctx.clienteConfirmado) {
     return {
@@ -370,7 +385,7 @@ function bloqueioSemContrato(ctx: CallContext): Record<string, unknown> | null {
 }
 
 function bloqueioConsultas(ctx: CallContext): Record<string, unknown> | null {
-  return bloqueioSemConfirmacao(ctx) ?? bloqueioSemContrato(ctx);
+  return bloqueioSemCliente(ctx) ?? bloqueioSemConfirmacao(ctx) ?? bloqueioSemContrato(ctx);
 }
 
 /** cliente_id nas tools = contrato_id do SGP (retornado por buscar_cliente_por_cpf). */
