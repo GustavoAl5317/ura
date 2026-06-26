@@ -49,6 +49,9 @@ export interface CallContext {
   voiceId?: string;
   /** Gênero do agente para concordância no prompt e TTS */
   agentGender?: 'f' | 'm';
+
+  /** Última transcrição do cliente (validação de confirmações) */
+  lastClientSpeech?: string;
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {

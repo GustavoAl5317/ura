@@ -11,6 +11,14 @@ import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
 
+function pareceConfirmacaoTitular(text?: string): boolean {
+  if (!text?.trim()) return false;
+  const t = text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  if (/\b(see you|bye now|thank you|goodbye|next time|hello|english)\b/i.test(t)) return false;
+  if (/\b(nao|não|negativo|errado|nao sou|não sou)\b/i.test(t)) return false;
+  return /\b(sim|isso|sou eu|sou|confirmo|correto|positivo|pode ser|exato|certo|ok|isso mesmo|ele mesmo|ela mesma|sou sim|com certeza|pode|uhum|aham)\b/i.test(t);
+}
+
 function termosInfraDoCliente(ctx: CallContext): string[] {
   const termos: string[] = [];
   const onu = ctx.onu;
@@ -564,6 +572,18 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const nomeContrato = ctx.cliente.nome;
 
     if (confirmado) {
+      if (!pareceConfirmacaoTitular(ctx.lastClientSpeech)) {
+        return {
+          sucesso: false,
+          confirmado: false,
+          mensagem: 'Confirmação não reconhecida na última fala do cliente.',
+          ultima_fala_cliente: ctx.lastClientSpeech ?? null,
+          orientacao:
+            'Repita: "Confirma que estou falando com [nome]?" e AGUARDE sim ou não em português. ' +
+            'PROIBIDO confirmar com transcrição em inglês, ruído ou fala incompreensível.',
+        };
+      }
+
       ctx.clienteConfirmado = true;
       ctx.log.push(`Titular confirmado: ${nomeContrato}`);
 

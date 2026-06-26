@@ -66,6 +66,7 @@ export class CallSession {
   private typingDelayTimer: ReturnType<typeof setTimeout> | null = null;
   private interruptArmTimer: ReturnType<typeof setTimeout> | null = null;
   private responseStallTimer: ReturnType<typeof setTimeout> | null = null;
+  private postToolSpeechTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
@@ -280,6 +281,8 @@ export class CallSession {
       if (text.trim()) {
         this.assistantTextInResponse = true;
         this.clearResponseStallWatchdog();
+        this.clearPostToolSpeechWatchdog();
+        this.waitingAnaAfterTool = false;
         logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
         sessionRegistry.emit(callId, 'assistant_text', text.trim());
       }
@@ -317,6 +320,9 @@ export class CallSession {
       if (this.lastToolName) {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
       }
+      if (this.toolsInFlight === 0) {
+        this.armPostToolSpeechWatchdog(callId);
+      }
     });
 
     this.rt.on('speechStart', () => {
@@ -353,6 +359,10 @@ export class CallSession {
       const spokeMs = Date.now() - this.speechStartedAt;
       logger.info(`[${callId}] 🎤 Cliente parou de falar (${spokeMs}ms)`);
       this.clientSpeaking = false;
+      if (spokeMs < config.vad.minSpeechMs) {
+        logger.debug(`[${callId}] speechStop ignorado (${spokeMs}ms < ${config.vad.minSpeechMs}ms)`);
+        return;
+      }
       if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
         this.pendingSpeechStop = true;
         return;
@@ -362,6 +372,7 @@ export class CallSession {
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
+      this.ctx.lastClientSpeech = text;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 
@@ -442,7 +453,11 @@ export class CallSession {
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
           logger.warn(`[${callId}] Resposta vazia após consulta — reenviando`);
           if (!this.fillerLoopRunning) this.startTypingSound();
-          this.rt.createResponse(true);
+          setTimeout(() => {
+            if (!this.tearing && !this.socket.destroyed && this.waitingAnaAfterTool) {
+              this.rt.createResponse(true);
+            }
+          }, 200);
         }
       } else {
         scheduleHoldRelease();
@@ -494,6 +509,27 @@ export class CallSession {
     if (this.responseStallTimer) {
       clearTimeout(this.responseStallTimer);
       this.responseStallTimer = null;
+    }
+  }
+
+  /** Se Ana não falar em ~5s após tool, força nova resposta. */
+  private armPostToolSpeechWatchdog(callId: string): void {
+    this.clearPostToolSpeechWatchdog();
+    this.postToolSpeechTimer = setTimeout(() => {
+      this.postToolSpeechTimer = null;
+      if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
+      if (!this.waitingAnaAfterTool || this.assistantTextInResponse) return;
+      if (this.rt.isResponseActive() || this.rt.isResponsePending()) return;
+      logger.warn(`[${callId}] Ana sem fala após tool — forçando resposta`);
+      if (!this.fillerLoopRunning) this.startTypingSound();
+      this.rt.createResponse(true);
+    }, 5_000);
+  }
+
+  private clearPostToolSpeechWatchdog(): void {
+    if (this.postToolSpeechTimer) {
+      clearTimeout(this.postToolSpeechTimer);
+      this.postToolSpeechTimer = null;
     }
   }
 
@@ -728,6 +764,7 @@ export class CallSession {
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
     if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
+    if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     const ended = sessionRegistry.end(this.ctx.callId);
@@ -746,6 +783,7 @@ export class CallSession {
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
     if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
+    if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
     const ended = sessionRegistry.end(this.ctx.callId);
