@@ -18,6 +18,7 @@ export class RealtimeClient extends EventEmitter {
   private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
   private toolChain: Promise<void> = Promise.resolve();
   private pendingToolOutputs: Array<{ call_id: string; output: unknown }> = [];
+  private activeResponseId: string | null = null;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -198,6 +199,8 @@ export class RealtimeClient extends EventEmitter {
       this.clearPendingWatchdog();
     }
     this.responsePending = true;
+    this.activeResponseId = null;
+    this.pendingToolOutputs = [];
     this.armPendingWatchdog();
     this.send({ type: 'response.create' });
     return true;
@@ -232,6 +235,8 @@ export class RealtimeClient extends EventEmitter {
     this.clearPendingWatchdog();
     this.responseActive = false;
     this.responsePending = false;
+    this.activeResponseId = null;
+    this.pendingToolOutputs = [];
   }
 
   isResponseActive(): boolean {
@@ -269,6 +274,19 @@ export class RealtimeClient extends EventEmitter {
     }
 
     if (config.debug.tx) logger.debug(`[${this.callId}] ← ${event.type}`);
+
+    const respId = (event as any).response_id || (event as any).response?.id;
+    if (respId) {
+      if (event.type === 'response.created') {
+        this.activeResponseId = respId;
+      } else if (this.activeResponseId && respId !== this.activeResponseId) {
+        logger.debug(`[${this.callId}] Ignorando evento antigo ${event.type} (${respId})`);
+        return;
+      } else if (!this.activeResponseId) {
+        logger.debug(`[${this.callId}] Ignorando evento ${event.type} (${respId}) antes de response.created`);
+        return;
+      }
+    }
 
     this.emit('event', event);
 
@@ -326,6 +344,7 @@ export class RealtimeClient extends EventEmitter {
         break;
 
       case 'response.done': {
+        const respId = (event as any).response?.id;
         const expectedCalls = this.countFunctionCallsInResponse(event);
         for (let i = 0; i < 80 && expectedCalls > 0; i++) {
           await this.toolChain;
@@ -333,6 +352,12 @@ export class RealtimeClient extends EventEmitter {
           await new Promise((r) => setTimeout(r, 25));
         }
         await this.toolChain;
+        
+        if (this.activeResponseId && respId && respId !== this.activeResponseId) {
+          logger.debug(`[${this.callId}] Ignorando response.done antigo (${respId}) após await`);
+          break;
+        }
+
         this.flushPendingToolOutputs();
         this.clearPendingWatchdog();
         this.responseActive = false;
