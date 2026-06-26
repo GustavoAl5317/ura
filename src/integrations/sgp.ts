@@ -41,6 +41,15 @@ export interface SgpContrato {
   status: string;
   motivo_status: string;
   servicos: SgpServico[];
+  endereco?: {
+    logradouro: string;
+    numero: number;
+    bairro: string;
+    cidade: string;
+    uf: string;
+    cep: string;
+    complemento?: string;
+  };
 }
 
 export interface SgpTitulo {
@@ -150,10 +159,30 @@ function firstOnu(c: SgpCliente): SgpOnu | undefined {
 }
 
 function enrich(c: SgpCliente): SgpCliente {
-  c.contratoId = firstContrato(c)?.contrato;
+  if (c.contratos.length === 1) {
+    c.contratoId = c.contratos[0].contrato;
+    if (c.contratos[0].endereco) c.endereco = c.contratos[0].endereco;
+  } else if (c.contratos.length > 1) {
+    c.contratoId = undefined;
+  } else {
+    c.contratoId = firstContrato(c)?.contrato;
+  }
   const onu = firstOnu(c);
   c.onuId = onu?.id;
   return c;
+}
+
+export function formatarEndereco(
+  end?: SgpContrato['endereco'] | SgpCliente['endereco'],
+): string | null {
+  if (!end) return null;
+  const parts = [
+    end.logradouro,
+    end.numero ? String(end.numero) : '',
+    end.bairro,
+    end.cidade && end.uf ? `${end.cidade}/${end.uf}` : end.cidade,
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -259,14 +288,21 @@ export class SgpClient {
       }>;
     }>('/api/ura/consultacliente/', { cpfcnpj: c, servicos_dados: 1 });
 
-    const ct = r?.contratos?.[0];
-    if (!ct) return null;
+    const items = r?.contratos ?? [];
+    if (!items.length) return null;
 
-    // Monta um SgpCliente compatível com o formato do /api/ura/clientes/
-    const cliente: SgpCliente = {
-      nome: ct.razaoSocial,
-      cpfcnpj: ct.cpfCnpj,
-      telefones: ct.telefones ?? [],
+    const first = items[0];
+    const contratos: SgpContrato[] = items.map((ct) => ({
+      contrato: ct.contratoId,
+      dataCadastro: '',
+      status: ct.contratoStatusDisplay.trim(),
+      motivo_status: ct.motivo_status,
+      servicos: [{
+        id: ct.contratoId,
+        tipo: 'Internet',
+        plano: { id: 0, descricao: ct.planointernet },
+        login: '',
+      }],
       endereco: {
         logradouro: ct.endereco_logradouro,
         numero: ct.endereco_numero,
@@ -275,21 +311,17 @@ export class SgpClient {
         uf: ct.endereco_uf,
         cep: ct.endereco_cep,
       },
-      contratos: [{
-        contrato: ct.contratoId,
-        dataCadastro: '',
-        status: ct.contratoStatusDisplay.trim(),
-        motivo_status: ct.motivo_status,
-        servicos: [{
-          id: ct.contratoId,
-          tipo: 'Internet',
-          plano: { id: 0, descricao: ct.planointernet },
-          login: '',
-        }],
-      }],
+    }));
+
+    const cliente: SgpCliente = {
+      nome: first.razaoSocial,
+      cpfcnpj: first.cpfCnpj,
+      telefones: first.telefones ?? [],
+      endereco: contratos[0].endereco,
+      contratos,
       titulos: [],
-      clienteId: ct.clienteId,
-      contratoId: ct.contratoId,
+      clienteId: first.clienteId,
+      contratoId: items.length === 1 ? first.contratoId : undefined,
     };
 
     return cliente;

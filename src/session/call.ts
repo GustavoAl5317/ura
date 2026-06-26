@@ -15,6 +15,8 @@ import { getRegistration } from '../http/sidecar';
 import { config } from '../config';
 import { logger } from '../logger';
 import { KEYBOARD_TYPING } from '../audio/tone';
+import { sessionRegistry } from '../admin/registry';
+import { saveCallHistory } from '../admin/history';
 
 const FILLERS = [
   'Só um instante, estou consultando...',
@@ -45,6 +47,9 @@ export class CallSession {
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
+  private lastToolName = '';
+  private clientSpeaking = false;
+  private respondedSinceLastSpeech = false;
   private readonly micRing: MicRingBuffer;
 
   constructor(socket: net.Socket) {
@@ -96,6 +101,8 @@ export class CallSession {
       channel: reg?.channel || '(desconhecido)',
     });
 
+    sessionRegistry.register(uuid, { callerNumber, channel: reg?.channel });
+
     if (callerNumber) {
       try {
         const cliente = await sgp.buscarPorTelefone(callerNumber);
@@ -103,7 +110,13 @@ export class CallSession {
           this.ctx.cliente = cliente;
           this.ctx.clienteIdentificado = true;
           this.ctx.clienteConfirmado = true;
-          logger.info(`[${uuid}] Cliente identificado pelo telefone: ${cliente.nome}`);
+          this.ctx.contratoSelecionado = cliente.contratos.length === 1 && !!cliente.contratoId;
+          logger.info(`[${uuid}] Cliente identificado pelo telefone: ${cliente.nome}` +
+            (cliente.contratos.length > 1 ? ` (${cliente.contratos.length} contratos — aguardando seleção)` : ''));
+          sessionRegistry.updateMeta(uuid, {
+            clienteNome: cliente.nome,
+            contratoId: cliente.contratoId,
+          });
         }
       } catch (err: any) {
         logger.warn(`[${uuid}] Não foi possível identificar pelo telefone`, { err: err.message });
@@ -179,8 +192,9 @@ export class CallSession {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
       }
-      // Resposta já criada — cancela pendingSpeechStop para evitar resposta dupla
+      // Resposta já criada — cancela pending para evitar resposta dupla
       this.pendingSpeechStop = false;
+      this.respondedSinceLastSpeech = true;
       this.pacer.setHoldStream(true);
     });
 
@@ -201,7 +215,10 @@ export class CallSession {
     const useNativeAudio = config.openai.realtimeModel.startsWith('gpt-realtime');
 
     this.rt.on('textDone', (text: string) => {
-      if (text.trim()) logger.info(`[${callId}] 🤖 Ana (texto): ${text.trim()}`);
+      if (text.trim()) {
+        logger.info(`[${callId}] 🤖 Ana (texto): ${text.trim()}`);
+        sessionRegistry.emit(callId, 'assistant_text', text.trim());
+      }
       if (config.tts.provider === 'elevenlabs' && !useNativeAudio && text.trim()) {
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
@@ -217,10 +234,12 @@ export class CallSession {
       this.resetSilenceTimer();
     });
 
-    this.rt.on('toolStart', () => {
+    this.rt.on('toolStart', (name: string) => {
+      this.lastToolName = name;
       this.toolsInFlight++;
       this.waitingAnaAfterTool = false;
       this.startTypingSound();
+      sessionRegistry.emit(callId, 'tool_start', `Consulta: ${name}`, { tool: name });
     });
 
     this.rt.on('toolSlowdown', () => {
@@ -237,10 +256,15 @@ export class CallSession {
       if (this.toolsInFlight === 0) {
         this.waitingAnaAfterTool = true;
       }
+      if (this.lastToolName) {
+        sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
+      }
     });
 
     this.rt.on('speechStart', () => {
       logger.info(`[${callId}] 🎤 Cliente falando...`);
+      this.clientSpeaking = true;
+      this.respondedSinceLastSpeech = false;
       if (this.userResponseTimer) {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
@@ -249,9 +273,7 @@ export class CallSession {
 
     this.rt.on('speechStop', () => {
       logger.info(`[${callId}] 🎤 Cliente parou de falar`);
-      // Só adia se uma resposta já está sendo gerada pelo modelo
-      // Não checa isPlaying() pois o streaming/holdStream ficam true
-      // por centenas de ms extras e atrasam desnecessariamente
+      this.clientSpeaking = false;
       if (this.rt.isResponseActive()) {
         this.pendingSpeechStop = true;
         return;
@@ -261,12 +283,15 @@ export class CallSession {
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
+      sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 
-      // Fallback de segurança — NÃO sobrescreve timer do speechStop (caminho rápido)
-      // Só agenda se nenhum timer existe (ex: speechStop não disparou)
-      if (this.userResponseTimer) {
-        logger.debug(`[${callId}] Transcrição recebida, timer já ativo — mantendo`);
+      // Não cria fallback se:
+      // 1) Timer do speechStop já ativo (caminho rápido)
+      // 2) Já respondemos desde o último speechStop (transcrição tardia)
+      // 3) Cliente ainda está falando (não interromper)
+      if (this.userResponseTimer || this.respondedSinceLastSpeech || this.clientSpeaking) {
+        logger.debug(`[${callId}] Transcrição: skip fallback (timer=${!!this.userResponseTimer} responded=${this.respondedSinceLastSpeech} speaking=${this.clientSpeaking})`);
         return;
       }
 
@@ -275,9 +300,13 @@ export class CallSession {
         this.userResponseTimer = setTimeout(() => {
           this.userResponseTimer = null;
           if (this.tearing || this.socket.destroyed) return;
+          // Não responde se cliente voltou a falar
+          if (this.clientSpeaking) {
+            logger.debug(`[${callId}] Fallback cancelado — cliente falando`);
+            return;
+          }
           if (this.rt.isResponseActive()) {
             if (attempt < MAX_ATTEMPTS) {
-              logger.debug(`[${callId}] Fallback transcrição reagendado (attempt=${attempt + 1})`);
               scheduleTranscriptFallback(attempt + 1);
             } else {
               logger.warn(`[${callId}] Forçando resposta após ${MAX_ATTEMPTS} tentativas`);
@@ -437,6 +466,8 @@ export class CallSession {
     if (this.userResponseTimer) clearTimeout(this.userResponseTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);
+    const ended = sessionRegistry.end(this.ctx.callId);
+    if (ended) saveCallHistory(ended, [...this.ctx.log]);
     logger.info(`[${this.ctx.callId}] Chamada encerrada`);
     if (!this.socket.destroyed) {
       this.socket.write(AudioSocketProtocol.hangup());

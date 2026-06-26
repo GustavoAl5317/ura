@@ -10,46 +10,66 @@ export class AmiClient extends EventEmitter {
   private counter = 0;
   private connecting: Promise<void> | null = null;
 
+  constructor() {
+    super();
+    this.setMaxListeners(20);
+  }
+
   async connect(): Promise<void> {
     if (this.socket) return;
     if (this.connecting) return this.connecting;
 
+    this.removeAllListeners('_banner');
+
     this.connecting = new Promise<void>((resolve, reject) => {
       const sock = new net.Socket();
+      let settled = false;
+
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        this.connecting = null;
+        if (err) reject(err);
+        else resolve();
+      };
+
+      const onBanner = async () => {
+        this.removeListener('_banner', onBanner);
+        this.socket = sock;
+        try {
+          await this.action({ Action: 'Login', Username: config.ami.user, Secret: config.ami.password });
+          logger.info('AMI autenticado');
+          finish();
+        } catch (err) {
+          this.socket = null;
+          sock.destroy();
+          finish(err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+
+      this.once('_banner', onBanner);
 
       sock.connect(config.ami.port, config.ami.host);
 
       sock.on('data', (d) => this.onData(d.toString()));
       sock.on('error', (err) => {
         logger.error('AMI socket erro', { err: err.message });
+        this.removeListener('_banner', onBanner);
         this.socket = null;
-        this.connecting = null;
-        reject(err);
+        finish(err);
       });
       sock.on('close', () => {
+        this.removeListener('_banner', onBanner);
         this.socket = null;
         this.connecting = null;
         logger.info('AMI desconectado');
       });
 
-      this.once('_banner', async () => {
-        this.socket = sock;
-        try {
-          await this.action({ Action: 'Login', Username: config.ami.user, Secret: config.ami.password });
-          logger.info('AMI autenticado');
-          this.connecting = null;
-          resolve();
-        } catch (err) {
-          sock.destroy();
-          reject(err);
-        }
-      });
-
       setTimeout(() => {
         if (!this.socket) {
+          this.removeListener('_banner', onBanner);
           sock.destroy();
-          this.connecting = null;
-          reject(new Error('AMI connect timeout'));
+          finish(new Error('AMI connect timeout'));
         }
       }, 8_000);
     });

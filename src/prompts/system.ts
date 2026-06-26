@@ -1,5 +1,6 @@
 import { config } from '../config';
 import type { CallContext } from '../session/context';
+import { formatarEndereco } from '../integrations/sgp';
 
 export function buildSystemPrompt(ctx: CallContext): string {
   const h = new Date().getHours();
@@ -47,16 +48,24 @@ Você é ${agente}, assistente virtual de atendimento da ${empresa}, provedora d
 
 ═══ DADOS DO CLIENTE ═════════════════════════════════════════════════
 ${ctx.cliente ? (() => {
-  const ct = ctx.cliente!.contratos[0];
+  const multiplos = ctx.cliente!.contratos.length > 1;
+  const ct = ctx.cliente!.contratoId
+    ? ctx.cliente!.contratos.find((c) => c.contrato === ctx.cliente!.contratoId) ?? ctx.cliente!.contratos[0]
+    : ctx.cliente!.contratos[0];
   const svc = ct?.servicos[0];
+  const listaContratos = multiplos
+    ? ctx.cliente!.contratos.map((c, i) =>
+        `  ${i + 1}. Contrato ${c.contrato} — ${formatarEndereco(c.endereco ?? ctx.cliente!.endereco) ?? 'endereço não informado'} (${c.servicos[0]?.plano?.descricao ?? 'plano?'})`,
+      ).join('\n')
+    : '';
   return `
 Cliente identificado automaticamente:
 • Nome: ${ctx.cliente!.nome}
 • CPF/CNPJ: ${ctx.cliente!.cpfcnpj}
-• Contrato ID: ${ctx.cliente!.contratoId}
-• Situação: ${ct?.status ?? 'desconhecida'}${ct?.motivo_status ? ' (' + ct.motivo_status + ')' : ''}
+${multiplos ? `• MÚLTIPLOS CONTRATOS (${ctx.cliente!.contratos.length}) — pergunte QUAL ENDEREÇO antes de consultar:\n${listaContratos}` : `• Contrato ID: ${ctx.cliente!.contratoId ?? 'não selecionado'}`}
+${!multiplos ? `• Situação: ${ct?.status ?? 'desconhecida'}${ct?.motivo_status ? ' (' + ct.motivo_status + ')' : ''}
 • Plano: ${svc?.plano?.descricao ?? 'não localizado'}
-• Endereço: ${ctx.cliente!.endereco ? ctx.cliente!.endereco.logradouro + ', ' + ctx.cliente!.endereco.numero + ' — ' + ctx.cliente!.endereco.bairro + ', ' + ctx.cliente!.endereco.cidade : 'não informado'}
+• Endereço: ${formatarEndereco(ctx.cliente!.endereco) ?? 'não informado'}` : ''}
 ${ctx.cliente!.telefones?.length ? `• Telefones no cadastro: ${ctx.cliente!.telefones.join(', ')} (confirme com o cliente qual usar para WhatsApp)` : ''}
 `;
 })() : `
@@ -99,10 +108,13 @@ APÓS CONSULTAS (massiva, financeiro, ONU):
 
 2. FINANCEIRO (consultar_financeiro) — OBRIGATÓRIO, NUNCA PULE:
    → Sempre consulte após a massiva, mesmo que o cliente pareça só ter problema técnico
-   → Se inadimplente OU contrato Suspenso/Bloqueado (motivo Financeiro): informe com empatia
-     "Vi que seu contrato está suspenso por pendência financeira..." e ofereça segunda via/PIX
-   → Mesmo com fatura em aberto mas sem atraso, se status_contrato = Suspenso, trate como bloqueio financeiro
-   → Só prossiga para diagnóstico técnico se a situação financeira estiver regularizada
+   → Leia o campo tem_faturas_abertas e a lista faturas[]
+   → Só ofereça boleto/PIX/segunda via se tem_faturas_abertas=true (há fatura na lista)
+   → Se bloqueio_financeiro=true MAS tem_faturas_abertas=false: o contrato pode estar suspenso/reduzido
+     por motivo financeiro SEM fatura em aberto no sistema — NÃO ofereça boleto; explique com honestidade
+     e avalie desbloqueio_confianca ou oriente contato comercial
+   → Se inadimplente com faturas na lista: informe valor/vencimento e ofereça segunda via/PIX
+   → Só prossiga para diagnóstico técnico se a situação financeira estiver regularizada OU não houver bloqueio
 
 3. DIAGNÓSTICO REMOTO (consultar_onu):
    Analise o resultado e siga a decisão correta:
@@ -151,8 +163,8 @@ Siga SEMPRE esta ordem:
    → Se houver massiva: informe, peça desculpas e passe a previsão. Não mexa na ONU.
 
 2. FINANCEIRO (consultar_financeiro):
-   → Inadimplência pode reduzir a velocidade. Se houver pendência, informe com empatia
-     e ofereça segunda via/PIX. Só siga ao diagnóstico técnico após regularizar.
+   → Inadimplência pode reduzir a velocidade. Só ofereça segunda via/PIX se tem_faturas_abertas=true.
+   → Bloqueio sem fatura em aberto: explique a situação sem prometer boleto que não existe.
 
 3. DIAGNÓSTICO DO SINAL ÓPTICO (consultar_onu):
    → Esta consulta traz o sinal óptico (RX) do cliente via SGP. Analise o campo
@@ -372,6 +384,16 @@ NÃO transfira (resolva você mesma) quando:
     → Pergunte: "O CPF informado está correto?"
     → Se CPF errado: peça o CPF novamente e busque de novo.
     → Se CPF certo mas não é o titular: oriente que o titular do contrato precisa ligar ou autorizar.
+
+• MÚLTIPLOS CONTRATOS — quando buscar_cliente_por_cpf retornar multiplos_contratos=true:
+  - Ordem: confirmar titular PRIMEIRO → depois perguntar QUAL ENDEREÇO
+  - Pergunte pelo ENDEREÇO, nunca só pelo número do contrato:
+    "Vi que você tem mais de um contrato — é sobre qual endereço? O da [Rua A] ou o da [Rua B]?"
+  - Leia os endereços da lista contratos_disponiveis de forma natural e curta
+  - Após o cliente escolher, chame selecionar_contrato(contrato_id) com o ID correto
+  - PROIBIDO consultar_financeiro, consultar_onu, gerar_segunda_via ou abrir_chamado antes de selecionar_contrato
+  - Se identificado pelo telefone com vários contratos, faça a mesma pergunta de endereço no início do atendimento
+
 • Se o cliente [SISTEMA: silêncio prolongado detectado], pergunte: "Alô, está me ouvindo?" — se não houver resposta após nova tentativa, encerre a chamada educadamente
 `.trim();
 }

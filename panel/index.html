@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>URA AI — Painel</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+    .badge.on { background: #14532d; color: #86efac; }
+    .badge.off { background: #450a0a; color: #fca5a5; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .card h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.5rem; }
+    .card .value { font-size: 2rem; font-weight: 700; }
+    .card .sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.25rem; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    button {
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { background: #7f1d1d; border-color: #991b1b; }
+    button.ok { background: #14532d; border-color: #166534; }
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .panel { min-height: 420px; display: flex; flex-direction: column; }
+    .panel h3 { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+    .feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem;
+      font-size: 0.85rem;
+      max-height: 480px;
+    }
+    .event {
+      padding: 0.5rem 0.6rem;
+      border-left: 3px solid var(--border);
+      margin-bottom: 0.4rem;
+      background: #121a24;
+      border-radius: 0 6px 6px 0;
+    }
+    .event.client { border-color: #60a5fa; }
+    .event.ana { border-color: #a78bfa; }
+    .event.tool { border-color: #fbbf24; }
+    .event .time { color: var(--muted); font-size: 0.75rem; }
+    .session-item {
+      padding: 0.75rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .session-item:hover, .session-item.active { background: #243044; }
+    .alert-item {
+      padding: 0.6rem 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      font-size: 0.85rem;
+    }
+    .alert-item.warn { background: #422006; border: 1px solid #92400e; }
+    .alert-item.critical { background: #450a0a; border: 1px solid #991b1b; }
+    .alert-item.info { background: #1e3a5f; border: 1px solid #1d4ed8; }
+    #auth-bar {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    #auth-bar input {
+      flex: 1;
+      max-width: 320px;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+    }
+    .note { font-size: 0.8rem; color: var(--muted); padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>URA AI — Aquitelecom</h1>
+    <span id="ura-badge" class="badge on"><span class="dot"></span> URA ligada</span>
+  </header>
+
+  <main>
+    <div id="auth-bar">
+      <input type="password" id="api-key" placeholder="Chave API (ADMIN_API_KEY)" />
+      <button onclick="saveKey()">Salvar</button>
+    </div>
+
+    <div class="actions">
+      <button class="ok" onclick="setUra(true)">Ligar URA</button>
+      <button class="danger" onclick="setUra(false)">Desligar URA</button>
+      <button onclick="refresh()">Atualizar</button>
+      <button onclick="refreshOpenAi()">Atualizar créditos OpenAI</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Ligações ativas</h2>
+        <div class="value" id="active-calls">—</div>
+        <div class="sub">chamadas em andamento</div>
+      </div>
+      <div class="card">
+        <h2>OpenAI — uso do mês</h2>
+        <div class="value" id="openai-usage">—</div>
+        <div class="sub" id="openai-sub">—</div>
+      </div>
+      <div class="card">
+        <h2>Orçamento</h2>
+        <div class="value" id="openai-budget">—</div>
+        <div class="sub" id="openai-remaining">—</div>
+      </div>
+      <div class="card">
+        <h2>Uptime</h2>
+        <div class="value" id="uptime">—</div>
+        <div class="sub">processo ura-ai</div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="card panel">
+        <h3>Ligações ao vivo</h3>
+        <div id="sessions-list"></div>
+        <div class="note">Clique em uma ligação para ver o feed em tempo real</div>
+      </div>
+      <div class="card panel">
+        <h3 id="feed-title">Feed em tempo real</h3>
+        <div class="feed" id="live-feed"></div>
+      </div>
+    </div>
+
+    <div class="card panel" style="margin-top:1rem">
+      <h3>Alertas</h3>
+      <div class="feed" id="alerts-list" style="max-height:200px"></div>
+    </div>
+
+    <div class="card panel" style="margin-top:1rem">
+      <h3>Histórico de chamadas</h3>
+      <div class="feed" id="history-list" style="max-height:320px"></div>
+    </div>
+
+    <p class="note" style="margin-top:1rem;border:none;padding:0">
+      Acesso à conta platform.openai.com (login de pessoas) não é monitorável por API — use auditoria OpenAI Team/Enterprise.
+      Configure <code>ADMIN_ALERT_WEBHOOK_URL</code> para receber alertas no Slack/WhatsApp.
+    </p>
+  </main>
+
+  <script>
+    const API = '';
+    let selectedCallId = null;
+    let evtSource = null;
+
+    function getKey() {
+      return localStorage.getItem('ura_admin_key') || '';
+    }
+    function saveKey() {
+      localStorage.setItem('ura_admin_key', document.getElementById('api-key').value.trim());
+      connectStream();
+      refresh();
+    }
+    document.getElementById('api-key').value = getKey();
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      const k = getKey();
+      if (k) h['Authorization'] = 'Bearer ' + k;
+      return h;
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(API + path, { ...opts, headers: { ...headers(), ...opts.headers } });
+      if (res.status === 401) throw new Error('Não autorizado — informe ADMIN_API_KEY');
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function fmtTime(iso) {
+      try { return new Date(iso).toLocaleTimeString('pt-BR'); } catch { return iso; }
+    }
+
+    function eventClass(type) {
+      if (type === 'client_speech') return 'client';
+      if (type === 'assistant_text') return 'ana';
+      if (type.startsWith('tool')) return 'tool';
+      return '';
+    }
+
+    function appendEvent(ev, targetId = 'live-feed') {
+      const el = document.getElementById(targetId);
+      const div = document.createElement('div');
+      div.className = 'event ' + eventClass(ev.type);
+      const who = ev.type === 'client_speech' ? '👤 Cliente' :
+        ev.type === 'assistant_text' ? '🤖 Ana' :
+        ev.type.startsWith('tool') ? '🔧' : '•';
+      div.innerHTML = `<div class="time">${fmtTime(ev.at)} · ${ev.callId?.slice(0,8) || ''}</div>${who} ${escapeHtml(ev.message)}`;
+      el.prepend(div);
+      while (el.children.length > 150) el.removeChild(el.lastChild);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function renderSessions(sessions) {
+      const el = document.getElementById('sessions-list');
+      if (!sessions.length) {
+        el.innerHTML = '<div class="note">Nenhuma ligação ativa</div>';
+        return;
+      }
+      el.innerHTML = sessions.map(s => `
+        <div class="session-item ${s.callId === selectedCallId ? 'active' : ''}" data-id="${s.callId}">
+          <strong>${escapeHtml(s.callerNumber || '?')}</strong>
+          ${s.clienteNome ? ' · ' + escapeHtml(s.clienteNome) : ''}
+          <div class="time">${fmtTime(s.startedAt)} · ${s.events?.length || 0} eventos</div>
+        </div>
+      `).join('');
+      el.querySelectorAll('.session-item').forEach(item => {
+        item.onclick = () => selectSession(item.dataset.id);
+      });
+    }
+
+    function selectSession(id) {
+      selectedCallId = id;
+      document.getElementById('feed-title').textContent = 'Feed — ' + id.slice(0, 8);
+      document.getElementById('live-feed').innerHTML = '';
+      refresh();
+    }
+
+    function connectStream() {
+      if (evtSource) evtSource.close();
+      const k = getKey();
+      const url = '/api/events/stream' + (k ? '?key=' + encodeURIComponent(k) : '');
+      evtSource = new EventSource(url);
+      evtSource.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.type === 'event' && payload.event) appendEvent(payload.event);
+          if (payload.type === 'session_update' || payload.type === 'session_ended') refresh();
+        } catch {}
+      };
+      evtSource.onerror = () => {};
+    }
+
+    async function refresh() {
+      try {
+        const data = await api('/api/status');
+        document.getElementById('active-calls').textContent = data.activeCalls;
+        const badge = document.getElementById('ura-badge');
+        if (data.uraEnabled) {
+          badge.className = 'badge on';
+          badge.innerHTML = '<span class="dot"></span> URA ligada';
+        } else {
+          badge.className = 'badge off';
+          badge.innerHTML = '<span class="dot"></span> URA desligada';
+        }
+        const oa = data.openai;
+        if (oa) {
+          document.getElementById('openai-usage').textContent = oa.totalUsd != null ? '$' + oa.totalUsd.toFixed(2) : '—';
+          document.getElementById('openai-sub').textContent = oa.note || oa.error || '';
+          document.getElementById('openai-budget').textContent = oa.budgetUsd ? '$' + oa.budgetUsd : '—';
+          document.getElementById('openai-remaining').textContent = oa.remainingUsd != null
+            ? 'Restante: $' + oa.remainingUsd + (oa.percentUsed != null ? ' (' + oa.percentUsed + '% usado)' : '')
+            : '';
+        }
+        document.getElementById('uptime').textContent = Math.floor(data.uptimeSec / 60) + ' min';
+        renderSessions(data.sessions || []);
+
+        const alerts = data.alerts || [];
+        document.getElementById('alerts-list').innerHTML = alerts.length
+          ? alerts.map(a => `<div class="alert-item ${a.level}"><strong>${escapeHtml(a.title)}</strong><br>${escapeHtml(a.message)}<div class="time">${fmtTime(a.at)}</div></div>`).join('')
+          : '<div class="note">Sem alertas</div>';
+
+        const hist = await api('/api/history?limit=30');
+        document.getElementById('history-list').innerHTML = (hist.records || []).map(r => `
+          <div class="event">
+            <div class="time">${fmtTime(r.startedAt)} · ${r.durationSec}s · ${escapeHtml(r.callerNumber)}</div>
+            ${r.clienteNome ? escapeHtml(r.clienteNome) + ' · ' : ''}${r.events?.length || 0} eventos
+          </div>
+        `).join('') || '<div class="note">Sem histórico ainda</div>';
+
+        if (selectedCallId) {
+          const s = (data.sessions || []).find(x => x.callId === selectedCallId);
+          if (s?.events?.length) {
+            const feed = document.getElementById('live-feed');
+            if (!feed.children.length) s.events.forEach(ev => appendEvent(ev));
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function setUra(on) {
+      await api(on ? '/api/ura/enable' : '/api/ura/disable', { method: 'POST' });
+      refresh();
+    }
+
+    async function refreshOpenAi() {
+      await api('/api/openai/usage');
+      refresh();
+    }
+
+    connectStream();
+    refresh();
+    setInterval(refresh, 15000);
+  </script>
+</body>
+</html>

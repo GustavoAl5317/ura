@@ -33,6 +33,18 @@ export const config = {
     port: optInt('SIDECAR_PORT', 9020),
   },
 
+  admin: {
+    enabled: optBool('ADMIN_ENABLED', true),
+    port: optInt('ADMIN_PORT', 9021),
+    apiKey: opt('ADMIN_API_KEY', ''),
+    uraEnabledDefault: optBool('URA_ENABLED', true),
+    openaiOrgId: opt('OPENAI_ORG_ID', ''),
+    openaiBudgetUsd: optFloat('OPENAI_BUDGET_USD', 0),
+    openaiAlertThresholdPct: optInt('OPENAI_ALERT_THRESHOLD_PCT', 20),
+    openaiPollMs: optInt('OPENAI_POLL_MS', 300_000),
+    alertWebhookUrl: opt('ADMIN_ALERT_WEBHOOK_URL', ''),
+  },
+
   openai: {
     apiKey: req('OPENAI_API_KEY'),
     realtimeModel: opt('REALTIME_MODEL', 'gpt-4o-realtime-preview'),

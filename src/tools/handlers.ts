@@ -1,4 +1,4 @@
-import { sgp } from '../integrations/sgp';
+import { sgp, formatarEndereco } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
 import { whatsapp } from '../integrations/whatsapp';
 import { config } from '../config';
@@ -90,6 +90,97 @@ function bloqueioSemConfirmacao(ctx: CallContext): Record<string, unknown> | nul
   return null;
 }
 
+function listarContratos(ctx: CallContext) {
+  if (!ctx.cliente) return [];
+  return ctx.cliente.contratos.map((ct) => ({
+    contrato_id: ct.contrato,
+    endereco: formatarEndereco(ct.endereco ?? ctx.cliente!.endereco),
+    plano: ct.servicos[0]?.plano?.descricao ?? null,
+    status: ct.status,
+    motivo_status: ct.motivo_status,
+  }));
+}
+
+function aplicarSelecaoContrato(ctx: CallContext, contratoId: number): boolean {
+  if (!ctx.cliente) return false;
+  const ct = ctx.cliente.contratos.find((c) => c.contrato === contratoId);
+  if (!ct) return false;
+
+  ctx.cliente.contratoId = contratoId;
+  if (ct.endereco) ctx.cliente.endereco = ct.endereco;
+  ctx.contratoSelecionado = true;
+  ctx.titulos = undefined;
+  ctx.onu = undefined;
+  return true;
+}
+
+function syncContratoSelecionado(ctx: CallContext): void {
+  if (!ctx.cliente) return;
+  if (ctx.cliente.contratos.length <= 1 && ctx.cliente.contratos[0]) {
+    aplicarSelecaoContrato(ctx, ctx.cliente.contratos[0].contrato);
+  }
+}
+
+/** Bloqueia consultas até o cliente escolher o contrato (quando há mais de um). */
+function bloqueioSemContrato(ctx: CallContext): Record<string, unknown> | null {
+  if (!ctx.cliente || ctx.cliente.contratos.length <= 1) return null;
+  if (ctx.contratoSelecionado && ctx.cliente.contratoId) return null;
+
+  const contratos = listarContratos(ctx);
+  return {
+    erro: 'contrato_nao_selecionado',
+    quantidade_contratos: contratos.length,
+    contratos_disponiveis: contratos,
+    mensagem:
+      'Este cliente tem mais de um contrato. Pergunte QUAL ENDEREÇO ele quer tratar antes de consultar ou executar ações.',
+    orientacao:
+      'Leia os endereços de forma natural: "Vi que você tem contrato na Rua X e na Rua Y — é sobre qual endereço?" ' +
+      'Após a resposta, chame selecionar_contrato(contrato_id) com o ID correspondente.',
+  };
+}
+
+function bloqueioConsultas(ctx: CallContext): Record<string, unknown> | null {
+  return bloqueioSemConfirmacao(ctx) ?? bloqueioSemContrato(ctx);
+}
+
+/** cliente_id nas tools = contrato_id do SGP (retornado por buscar_cliente_por_cpf). */
+function resolverContratoId(
+  ctx: CallContext,
+  raw?: unknown,
+  toolName?: string,
+): { contratoId: number } | { erro: string; mensagem: string } {
+  const fromArgs = Number(raw);
+  const fromCtx = ctx.cliente?.contratoId;
+  const contratoId =
+    Number.isFinite(fromArgs) && fromArgs > 0 ? fromArgs : (fromCtx ?? 0);
+
+  if (!contratoId || contratoId <= 0) {
+    const multi = (ctx.cliente?.contratos.length ?? 0) > 1;
+    return {
+      erro: multi ? 'contrato_nao_selecionado' : 'contrato_nao_identificado',
+      mensagem: multi
+        ? 'Cliente tem mais de um contrato. Pergunte o ENDEREÇO e use selecionar_contrato antes.'
+        : 'Contrato não identificado. Busque o cliente por CPF e confirme o titular primeiro.',
+    };
+  }
+
+  if (raw !== undefined && Number(raw) !== contratoId && toolName) {
+    logger.warn(`[${ctx.callId}] ${toolName}: cliente_id=${raw} ignorado — usando contrato ${contratoId}`);
+  }
+
+  return { contratoId };
+}
+
+function resolverFaturaId(
+  ctx: CallContext,
+  raw?: unknown,
+): number | undefined {
+  const fromArgs = Number(raw);
+  if (Number.isFinite(fromArgs) && fromArgs > 0) return fromArgs;
+  const titulo = ctx.titulos?.[0];
+  return titulo?.id ?? titulo?.numeroDocumento ?? undefined;
+}
+
 /** Nome curto para fala (primeiro nome ou primeiras palavras). */
 function nomeParaConfirmacao(nome: string): { nomeContrato: string; nomeFalado: string } {
   const nomeContrato = nome.trim();
@@ -147,32 +238,86 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     ctx.cliente = cliente;
     ctx.clienteIdentificado = true;
     ctx.clienteConfirmado = false;
-    ctx.log.push(`Identificado por CPF: ${cliente.nome} (contrato ${cliente.contratoId}) — aguardando confirmação`);
-    logger.info(`[${ctx.callId}] Cliente identificado: ${cliente.nome}`);
+    ctx.contratoSelecionado = cliente.contratos.length === 1;
+    if (ctx.contratoSelecionado) syncContratoSelecionado(ctx);
+
+    const contratosLista = listarContratos(ctx);
+    const multiplos = contratosLista.length > 1;
+
+    ctx.log.push(
+      `Identificado por CPF: ${cliente.nome} (${contratosLista.length} contrato(s)) — aguardando confirmação`,
+    );
+    logger.info(`[${ctx.callId}] Cliente identificado: ${cliente.nome} (${contratosLista.length} contratos)`);
 
     const { nomeContrato, nomeFalado } = nomeParaConfirmacao(cliente.nome);
+
+    const orientacaoTitular =
+      `PARE aqui — não consulte financeiro nem técnico ainda. ` +
+      `Diga: "O nome que consta no contrato é ${nomeContrato}. ` +
+      `Confirma que estou falando com ${nomeFalado}?" ` +
+      `Se SIM → confirmar_titular_contrato(confirmado:true). ` +
+      `Se NÃO → confirmar_titular_contrato(confirmado:false) e verifique se o CPF está correto.`;
+
+    const orientacaoContratos = multiplos
+      ? ` Após confirmar o titular, pergunte QUAL ENDEREÇO o cliente quer tratar (leia os endereços) e use selecionar_contrato.`
+      : '';
 
     return {
       encontrado: true,
       titular_confirmado: false,
+      multiplos_contratos: multiplos,
       nome: cliente.nome,
       nome_contrato: nomeContrato,
       nome_para_confirmar: nomeFalado,
       cpf: cliente.cpfcnpj,
-      contrato_id: cliente.contratoId,
+      contrato_id: cliente.contratoId ?? null,
+      contratos_disponiveis: contratosLista,
       telefones_cadastro: cliente.telefones ?? [],
       status_contrato: cliente.contratos[0]?.status,
       motivo_status: cliente.contratos[0]?.motivo_status,
       plano: cliente.contratos[0]?.servicos[0]?.plano?.descricao,
-      endereco: cliente.endereco
-        ? `${cliente.endereco.logradouro}, ${cliente.endereco.numero} — ${cliente.endereco.bairro}, ${cliente.endereco.cidade}/${cliente.endereco.uf}`
-        : null,
-      orientacao:
-        `PARE aqui — não consulte financeiro nem técnico ainda. ` +
-        `Diga: "O nome que consta no contrato é ${nomeContrato}. ` +
-        `Confirma que estou falando com ${nomeFalado}?" ` +
-        `Se SIM → confirmar_titular_contrato(confirmado:true). ` +
-        `Se NÃO → confirmar_titular_contrato(confirmado:false) e verifique se o CPF está correto.`,
+      endereco: formatarEndereco(cliente.endereco),
+      orientacao: orientacaoTitular + orientacaoContratos,
+    };
+  });
+
+  client.registerTool('selecionar_contrato', async (args) => {
+    if (!ctx.cliente) {
+      return { sucesso: false, mensagem: 'Nenhum cliente identificado. Busque pelo CPF primeiro.' };
+    }
+
+    const bloqueio = bloqueioSemConfirmacao(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contratoId = Number(args.contrato_id);
+    if (!Number.isFinite(contratoId) || contratoId <= 0) {
+      return {
+        sucesso: false,
+        mensagem: 'contrato_id inválido.',
+        contratos_disponiveis: listarContratos(ctx),
+      };
+    }
+
+    if (!aplicarSelecaoContrato(ctx, contratoId)) {
+      return {
+        sucesso: false,
+        mensagem: 'Contrato não encontrado para este cliente.',
+        contratos_disponiveis: listarContratos(ctx),
+        orientacao: 'Confirme com o cliente qual ENDEREÇO e use o contrato_id correto da lista.',
+      };
+    }
+
+    const ct = ctx.cliente.contratos.find((c) => c.contrato === contratoId)!;
+    ctx.log.push(`Contrato selecionado: ${contratoId} — ${formatarEndereco(ct.endereco)}`);
+
+    return {
+      sucesso: true,
+      contrato_id: contratoId,
+      endereco: formatarEndereco(ct.endereco ?? ctx.cliente.endereco),
+      plano: ct.servicos[0]?.plano?.descricao ?? null,
+      status: ct.status,
+      motivo_status: ct.motivo_status,
+      mensagem: 'Contrato selecionado. Pode prosseguir com consultas e atendimento deste endereço.',
     };
   });
 
@@ -190,9 +335,30 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     if (confirmado) {
       ctx.clienteConfirmado = true;
       ctx.log.push(`Titular confirmado: ${nomeContrato}`);
+
+      const multiplos = (ctx.cliente.contratos.length > 1);
+      if (multiplos && !ctx.contratoSelecionado) {
+        const contratos = listarContratos(ctx);
+        return {
+          sucesso: true,
+          confirmado: true,
+          multiplos_contratos: true,
+          contratos_disponiveis: contratos,
+          mensagem: 'Identidade confirmada.',
+          orientacao:
+            'Agora pergunte QUAL ENDEREÇO o cliente quer tratar. Leia os endereços da lista: ' +
+            '"Vi que você tem mais de um contrato — é sobre qual endereço?" ' +
+            'Após a resposta, chame selecionar_contrato(contrato_id). ' +
+            'PROIBIDO consultar financeiro, massiva ou ONU antes de selecionar o contrato.',
+        };
+      }
+
+      syncContratoSelecionado(ctx);
       return {
         sucesso: true,
         confirmado: true,
+        contrato_id: ctx.cliente.contratoId,
+        endereco: formatarEndereco(ctx.cliente.endereco),
         mensagem: 'Identidade confirmada. Pode prosseguir com consultas e atendimento.',
       };
     }
@@ -200,7 +366,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     ctx.cliente = undefined;
     ctx.clienteIdentificado = false;
     ctx.clienteConfirmado = false;
+    ctx.contratoSelecionado = false;
     ctx.titulos = undefined;
+    ctx.contratoSelecionado = false;
     ctx.log.push(`Titular NÃO confirmado (cadastro: ${nomeContrato})`);
 
     return {
@@ -218,9 +386,12 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Financeiro ─────────────────────────────────────────────────────────────
 
   client.registerTool('consultar_financeiro', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
-    const contratoId = Number(args.cliente_id); // mantemos "cliente_id" por compatibilidade com a tool definition
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_financeiro');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
 
     const tits = await sgp.titulos(contratoId, 'abertos');
     ctx.titulos = tits;
@@ -231,16 +402,20 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const statusContrato = ct?.status ?? null;
     const motivoStatus = ct?.motivo_status ?? null;
     const contratoSuspenso = /suspens|bloquead|cancelad/i.test(statusContrato ?? '');
+    const temFaturasAbertas = tits.length > 0;
 
     return {
+      contrato_id: contratoId,
       inadimplente,
       contrato_suspenso: contratoSuspenso,
       status_contrato: statusContrato,
       motivo_status: motivoStatus,
       bloqueio_financeiro: inadimplente || (contratoSuspenso && /financ/i.test(motivoStatus ?? '')),
+      tem_faturas_abertas: temFaturasAbertas,
       total_em_aberto: `R$ ${valorTotal.toFixed(2).replace('.', ',')}`,
       faturas: tits.map((t) => ({
         id: t.id,
+        numero_documento: t.numeroDocumento,
         valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
         vencimento: t.dataVencimento,
         atraso_dias: t.diasAtraso,
@@ -248,20 +423,54 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         tem_pix: !!t.codigoPix,
         tem_boleto: !!t.codigoBarras || !!t.link,
       })),
+      orientacao: temFaturasAbertas
+        ? 'Há faturas em aberto — pode oferecer segunda via/PIX com gerar_segunda_via usando faturas[].id.'
+        : contratoSuspenso
+          ? 'Contrato suspenso/bloqueado MAS sem faturas em aberto no sistema. NÃO ofereça boleto. Explique a situação e avalie desbloqueio_confianca ou oriente contato comercial.'
+          : 'Situação financeira regular — sem faturas pendentes.',
     };
   });
 
   client.registerTool('gerar_segunda_via', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    const contratoId = Number(args.cliente_id);
-    const faturaId = args.fatura_id ? Number(args.fatura_id) : undefined;
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'gerar_segunda_via');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
+
+    let titulos = ctx.titulos;
+    if (!titulos?.length) {
+      titulos = await sgp.titulos(contratoId, 'abertos');
+      ctx.titulos = titulos;
+    }
+
+    if (!titulos.length) {
+      const ct = ctx.cliente?.contratos[0];
+      return {
+        sucesso: false,
+        mensagem: 'Não há faturas em aberto para gerar segunda via.',
+        tem_faturas_abertas: false,
+        status_contrato: ct?.status ?? null,
+        motivo_status: ct?.motivo_status ?? null,
+        orientacao:
+          'NÃO diga ao cliente que há boleto ou fatura disponível. ' +
+          'O contrato pode estar com redução de velocidade por motivo financeiro, mas o sistema não tem fatura em aberto. ' +
+          'Peça desculpas pela confusão se você ofereceu boleto antes. Avalie desbloqueio_confianca ou oriente contato comercial.',
+      };
+    }
+
+    const faturaId = resolverFaturaId(ctx, args.fatura_id);
     const enviarWpp = args.enviar_whatsapp !== false;
 
     const r = await sgp.fatura2via(contratoId);
     if (!r || !r.links?.length) {
-      return { sucesso: false, mensagem: 'Não há faturas em aberto ou não foi possível gerar segunda via.' };
+      return {
+        sucesso: false,
+        mensagem: 'Não foi possível gerar segunda via no momento. Tente novamente ou oriente o cliente a acessar o portal.',
+        tem_faturas_abertas: true,
+        contrato_id: contratoId,
+      };
     }
 
     // Pega a fatura específica ou a mais recente
@@ -270,11 +479,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       : r.links[0];
 
     // Garante que temos os títulos em aberto para localizar um PIX já emitido.
-    let titulos = ctx.titulos;
-    if (!titulos || !titulos.length) {
-      titulos = await sgp.titulos(contratoId, 'abertos');
-      ctx.titulos = titulos;
-    }
+    titulos = ctx.titulos ?? titulos;
 
     // O modelo pode passar o id do título OU o número da fatura — tenta os dois
     // (id e numeroDocumento) e, como último recurso, casa por valor.
@@ -346,10 +551,12 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('desbloqueio_confianca', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    const contratoId = Number(args.cliente_id);
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'desbloqueio_confianca');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
     const r = await sgp.desbloquearConfianca(contratoId);
 
     if (!r) return { sucesso: false, mensagem: 'Não foi possível realizar o desbloqueio agora.' };
@@ -368,7 +575,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Massiva ────────────────────────────────────────────────────────────────
 
   client.registerTool('verificar_massiva', async () => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
     const manutencoes = await sgp.manutencoesAtivas();
@@ -398,10 +605,12 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── ONU ────────────────────────────────────────────────────────────────────
 
   client.registerTool('consultar_onu', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    const contratoId = Number(args.cliente_id);
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_onu');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
 
     // Usa ONU já carregada no contexto ou busca
     let onu = ctx.onu;
@@ -439,10 +648,12 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('reiniciar_onu', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    const contratoId = Number(args.cliente_id);
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'reiniciar_onu');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
 
     // Precisa do ID interno da ONU (não o número na OLT)
     let onuId = ctx.onu?.id;
@@ -470,14 +681,16 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Chamado / OS ───────────────────────────────────────────────────────────
 
   client.registerTool('abrir_chamado', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
     if (!config.features.chamado) {
       return { sucesso: false, erro: 'Abertura de chamado desabilitada.' };
     }
 
-    const contratoId = Number(args.cliente_id);
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'abrir_chamado');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
     const r = await sgp.abrirChamado({
       contratoId,
       ocorrenciaTipo: config.features.chamadoOcorrenciaTipo,
@@ -522,7 +735,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('enviar_resumo_whatsapp', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
     const resultado = await enviarWhatsappAtendimento(ctx, {
@@ -552,11 +765,13 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('agendar_visita_tecnica', async (args) => {
-    const bloqueio = bloqueioSemConfirmacao(ctx);
+    const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
     // Agendamento de visita técnica é feito abrindo chamado com conteúdo específico
-    const contratoId = Number(args.cliente_id);
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'agendar_visita_tecnica');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
     const periodo = args.periodo_preferencia === 'TARDE' ? 'tarde' : 'manhã';
     const descricao = `Visita técnica solicitada via URA.\nDescrição: ${args.descricao}\nPeríodo de preferência: ${periodo}`;
 

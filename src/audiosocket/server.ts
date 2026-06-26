@@ -2,10 +2,18 @@ import net from 'net';
 import { CallSession } from '../session/call';
 import { config } from '../config';
 import { logger } from '../logger';
+import { isUraEnabled } from '../admin/ura-control';
 
 export function startAudioSocketServer(): net.Server {
   const server = net.createServer((socket) => {
     const addr = `${socket.remoteAddress}:${socket.remotePort}`;
+
+    if (!isUraEnabled()) {
+      logger.warn(`URA desligada — rejeitando conexão ${addr}`);
+      socket.end();
+      return;
+    }
+
     logger.info(`Nova conexão AudioSocket: ${addr}`);
 
     socket.setNoDelay(true);

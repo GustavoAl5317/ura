@@ -22,21 +22,30 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number', description: 'ID interno do cliente no SGP' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO no SGP (campo contrato_id retornado por buscar_cliente_por_cpf). Pode omitir se o cliente já foi identificado nesta chamada.',
+        },
       },
-      required: ['cliente_id'],
+      required: [],
     },
   },
   {
     type: 'function',
     name: 'gerar_segunda_via',
     description:
-      'Gera segunda via de boleto e/ou PIX Copia e Cola. Se enviar_whatsapp=true, envia mensagem completa com resumo do atendimento, resposta ao cliente, fatura/PIX e protocolos da chamada (se houver).',
+      'Gera segunda via de boleto e/ou PIX. Use SOMENTE se consultar_financeiro retornou tem_faturas_abertas=true. Se enviar_whatsapp=true, envia mensagem completa com resumo, resposta, fatura/PIX e protocolos.',
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
-        fatura_id: { type: 'number', description: 'ID da fatura a gerar segunda via' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
+        fatura_id: {
+          type: 'number',
+          description: 'ID da fatura (faturas[].id de consultar_financeiro). Opcional — usa a primeira em aberto.',
+        },
         enviar_whatsapp: {
           type: 'boolean',
           description: 'Se true, envia por WhatsApp (padrão: true)',
@@ -57,7 +66,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             'Resposta clara sobre o que o cliente questionou (ex.: motivo da suspensão, orientação técnica, próximos passos)',
         },
       },
-      required: ['cliente_id', 'fatura_id', 'celular_whatsapp', 'resumo_atendimento', 'resposta_cliente'],
+      required: ['celular_whatsapp', 'resumo_atendimento', 'resposta_cliente'],
     },
   },
   {
@@ -78,6 +87,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
+    name: 'selecionar_contrato',
+    description:
+      'Seleciona qual contrato atender quando o cliente tem mais de um. Use APÓS confirmar o titular e o cliente informar o ENDEREÇO desejado.',
+    parameters: {
+      type: 'object',
+      properties: {
+        contrato_id: {
+          type: 'number',
+          description: 'ID do contrato (contrato_id da lista contratos_disponiveis retornada por buscar_cliente_por_cpf)',
+        },
+      },
+      required: ['contrato_id'],
+    },
+  },
+  {
+    type: 'function',
     name: 'verificar_massiva',
     description:
       'Verifica se há falha massiva ativa na rede. SEMPRE use isso PRIMEIRO quando o cliente relatar falta de internet ou lentidão.',
@@ -94,9 +119,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
       },
-      required: ['cliente_id'],
+      required: [],
     },
   },
   {
@@ -107,9 +135,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
       },
-      required: ['cliente_id'],
+      required: [],
     },
   },
   {
@@ -120,7 +151,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
         titulo: { type: 'string', description: 'Título breve do problema' },
         descricao: {
           type: 'string',
@@ -144,7 +178,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'Resposta ao que o cliente questionou (ex.: situação da internet, o que será feito)',
         },
       },
-      required: ['cliente_id', 'titulo', 'descricao'],
+      required: ['titulo', 'descricao'],
     },
   },
   {
@@ -179,7 +213,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
         descricao: {
           type: 'string',
           description: 'Motivo da visita e detalhes do problema para o técnico',
@@ -190,7 +227,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'Período preferido pelo cliente',
         },
       },
-      required: ['cliente_id', 'descricao'],
+      required: ['descricao'],
     },
   },
   {
@@ -201,9 +238,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cliente_id: { type: 'number' },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
       },
-      required: ['cliente_id'],
+      required: [],
     },
   },
   {

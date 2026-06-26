@@ -15,6 +15,7 @@ export interface CallContext {
   // Flags de estado
   clienteIdentificado: boolean;
   clienteConfirmado: boolean;   // true após cliente confirmar titular (obrigatório após CPF)
+  contratoSelecionado: boolean; // true quando há 1 contrato ou cliente escolheu o endereço
   massivaAtiva: boolean;
   pendingTransfer: boolean;
   pendingHangup: boolean;
@@ -48,6 +49,7 @@ export function createContext(callId: string, callerNumber: string): CallContext
     startedAt: new Date(),
     clienteIdentificado: false,
     clienteConfirmado: false,
+    contratoSelecionado: false,
     massivaAtiva: false,
     pendingTransfer: false,
     pendingHangup: false,
