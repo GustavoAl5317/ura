@@ -4,6 +4,7 @@ import { logger } from './logger';
 import { startSidecar } from './http/sidecar';
 import { startAudioSocketServer } from './audiosocket/server';
 import { startAdminServer } from './admin/server';
+import { initWaitSound } from './audio/wait-sound';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -15,7 +16,9 @@ process.on('unhandledRejection', (reason) => {
   });
 });
 
-function main() {
+async function main() {
+  await initWaitSound();
+
   logger.info('══════════════════════════════════════════');
   logger.info(`  URA AI — ${config.company.name}`);
   logger.info(`  Agente : ${config.company.agentName}`);
@@ -33,4 +36,7 @@ function main() {
   startAdminServer();
 }
 
-main();
+main().catch((err) => {
+  logger.error('Falha ao iniciar URA', { err: err instanceof Error ? err.message : String(err) });
+  process.exit(1);
+});

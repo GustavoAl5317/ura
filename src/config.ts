@@ -82,6 +82,10 @@ export const config = {
     startBufferMs: optInt('START_BUFFER_MS', 0),
     targetBufferMs: optInt('TARGET_BUFFER_MS', 0),
     minBufferMs: optInt('MIN_BUFFER_MS', 0),
+    /** Caminho local para WAV de espera (PCM 16-bit). Ex.: assets/wait-typing.wav */
+    waitSoundPath: opt('WAIT_SOUND_PATH', ''),
+    /** URL de WAV para baixar na inicialização (alternativa ao arquivo local) */
+    waitSoundUrl: opt('WAIT_SOUND_URL', ''),
   },
 
   vad: {

@@ -9,32 +9,32 @@ export class AmiClient extends EventEmitter {
   private cbs = new Map<string, (r: Record<string, string>) => void>();
   private counter = 0;
   private connecting: Promise<void> | null = null;
-
-  constructor() {
-    super();
-    this.setMaxListeners(20);
-  }
+  private pendingBanner: (() => void) | null = null;
+  private activeSock: net.Socket | null = null;
 
   async connect(): Promise<void> {
     if (this.socket) return;
     if (this.connecting) return this.connecting;
 
-    this.removeAllListeners('_banner');
+    this.pendingBanner = null;
 
     this.connecting = new Promise<void>((resolve, reject) => {
       const sock = new net.Socket();
+      this.activeSock = sock;
       let settled = false;
 
       const finish = (err?: Error) => {
         if (settled) return;
         settled = true;
         this.connecting = null;
+        this.pendingBanner = null;
+        if (this.activeSock === sock) this.activeSock = null;
         if (err) reject(err);
         else resolve();
       };
 
       const onBanner = async () => {
-        this.removeListener('_banner', onBanner);
+        if (settled) return;
         this.socket = sock;
         try {
           await this.action({ Action: 'Login', Username: config.ami.user, Secret: config.ami.password });
@@ -47,27 +47,28 @@ export class AmiClient extends EventEmitter {
         }
       };
 
-      this.once('_banner', onBanner);
+      this.pendingBanner = onBanner;
 
       sock.connect(config.ami.port, config.ami.host);
 
-      sock.on('data', (d) => this.onData(d.toString()));
+      sock.on('data', (d) => this.onData(d.toString(), sock));
       sock.on('error', (err) => {
         logger.error('AMI socket erro', { err: err.message });
-        this.removeListener('_banner', onBanner);
-        this.socket = null;
+        if (this.pendingBanner === onBanner) this.pendingBanner = null;
+        if (this.socket === sock) this.socket = null;
         finish(err);
       });
       sock.on('close', () => {
-        this.removeListener('_banner', onBanner);
-        this.socket = null;
+        if (this.pendingBanner === onBanner) this.pendingBanner = null;
+        if (this.socket === sock) this.socket = null;
+        if (this.activeSock === sock) this.activeSock = null;
         this.connecting = null;
         logger.info('AMI desconectado');
       });
 
       setTimeout(() => {
-        if (!this.socket) {
-          this.removeListener('_banner', onBanner);
+        if (!settled && this.socket !== sock) {
+          if (this.pendingBanner === onBanner) this.pendingBanner = null;
           sock.destroy();
           finish(new Error('AMI connect timeout'));
         }
@@ -111,11 +112,17 @@ export class AmiClient extends EventEmitter {
   }
 
   disconnect(): void {
+    this.pendingBanner = null;
     this.socket?.destroy();
     this.socket = null;
+    this.activeSock?.destroy();
+    this.activeSock = null;
+    this.connecting = null;
   }
 
-  private onData(data: string): void {
+  private onData(data: string, sock: net.Socket): void {
+    if (sock !== this.activeSock && sock !== this.socket) return;
+
     this.buf += data;
     const blocks = this.buf.split('\r\n\r\n');
     this.buf = blocks.pop() ?? '';
@@ -124,7 +131,9 @@ export class AmiClient extends EventEmitter {
       if (!block.trim()) continue;
 
       if (block.startsWith('Asterisk Call Manager')) {
-        this.emit('_banner', block);
+        const handler = this.pendingBanner;
+        this.pendingBanner = null;
+        void handler?.();
         continue;
       }
 

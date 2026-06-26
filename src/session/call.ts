@@ -14,17 +14,9 @@ import { ami } from '../integrations/ami';
 import { getRegistration } from '../http/sidecar';
 import { config } from '../config';
 import { logger } from '../logger';
-import { KEYBOARD_TYPING } from '../audio/tone';
+import { getWaitSound } from '../audio/wait-sound';
 import { sessionRegistry } from '../admin/registry';
 import { saveCallHistory } from '../admin/history';
-
-const FILLERS = [
-  'Só um instante, estou consultando...',
-  'Aguarda um momentinho, já estou verificando...',
-  'Deixa eu ver aqui, me aguarda um pouquinho...',
-  'Um momentinho, estou checando pra você...',
-  'Estou consultando, aguarda só um instante...',
-];
 
 const SILENCE_WARN_MS  = 35_000;
 const SILENCE_HANGUP_MS = 20_000;
@@ -248,12 +240,8 @@ export class CallSession {
     });
 
     this.rt.on('toolSlowdown', () => {
-      const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)];
-      if (config.tts.provider === 'elevenlabs' && !useNativeAudio) {
-        this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(filler));
-      } else {
-        this.rt.injectSystemNote(`[SISTEMA: consulta em andamento, diga brevemente ao cliente: "${filler}"]`);
-      }
+      // Mantém som de digitação — não interrompe com fala da Ana
+      this.startTypingSound();
     });
 
     this.rt.on('toolDone', () => {
@@ -368,9 +356,17 @@ export class CallSession {
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
-    this.stopTypingSound();
+    this.startTypingSound();
     try {
-      await synthesizeStream(text, (pcm8k) => this.pacer.enqueue(pcm8k));
+      let firstChunk = true;
+      await synthesizeStream(text, (pcm8k) => {
+        if (firstChunk) {
+          this.stopTypingSound();
+          firstChunk = false;
+        }
+        this.pacer.enqueue(pcm8k);
+      });
+      this.stopTypingSound();
       await this.pacer.drain();
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
@@ -400,7 +396,7 @@ export class CallSession {
     if (this.fillerLoopRunning) return;
     this.fillerCancel = { cancelled: false };
     this.fillerLoopRunning = true;
-    void this.playFillerLoop(this.fillerCancel, KEYBOARD_TYPING);
+    void this.playFillerLoop(this.fillerCancel, getWaitSound());
   }
 
   private stopTypingSound(): void {
@@ -410,15 +406,16 @@ export class CallSession {
     this.toolsInFlight = 0;
   }
 
-  private async playFillerLoop(cancel: { cancelled: boolean }, sample: Buffer = KEYBOARD_TYPING): Promise<void> {
+  private async playFillerLoop(cancel: { cancelled: boolean }, sample?: Buffer): Promise<void> {
+    const loop = sample ?? getWaitSound();
     let pos = 0;
     while (!cancel.cancelled && !this.socket.destroyed && !this.tearing) {
-      const end = Math.min(pos + SLIN_CHUNK_BYTES, sample.length);
-      const slice = sample.subarray(pos, end);
-      if (slice.length === SLIN_CHUNK_BYTES) {
-        this.pacer.enqueue(slice);
+      const end = Math.min(pos + SLIN_CHUNK_BYTES, loop.length);
+      const slice = loop.subarray(pos, end);
+      if (slice.length > 0) {
+        this.pacer.enqueue(Buffer.from(slice));
       }
-      pos = end >= sample.length ? 0 : end;
+      pos = end >= loop.length ? 0 : end;
       await sleep(20);
     }
     this.fillerLoopRunning = false;

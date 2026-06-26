@@ -1,20 +1,6 @@
-// Gera buffer PCM 8kHz 16-bit mono para tocar enquanto a IA consulta APIs.
-// Tom suave tipo "processando" — um tique curto a cada segundo.
+// Sons de espera PCM 8 kHz 16-bit mono — otimizados para telefonia (AudioSocket/Asterisk).
 
 const SAMPLE_RATE = 8000;
-
-function sine(freq: number, durationMs: number, amplitude: number): Buffer {
-  const n = Math.floor(SAMPLE_RATE * durationMs / 1000);
-  const buf = Buffer.alloc(n * 2);
-  for (let i = 0; i < n; i++) {
-    const t = i / SAMPLE_RATE;
-    // Envelope: ataque rápido, decaimento suave
-    const env = Math.exp(-i / (SAMPLE_RATE * 0.05));
-    const v = Math.round(env * amplitude * Math.sin(2 * Math.PI * freq * t));
-    buf.writeInt16LE(Math.max(-32768, Math.min(32767, v)), i * 2);
-  }
-  return buf;
-}
 
 function silence(durationMs: number): Buffer {
   return Buffer.alloc(Math.floor(SAMPLE_RATE * durationMs / 1000) * 2);
@@ -24,17 +10,17 @@ function clamp(n: number): number {
   return n < -32768 ? -32768 : n > 32767 ? 32767 : n;
 }
 
-// Clique curto simulando tecla de teclado (40ms) — amplitude alta para ouvir bem no telefone
-function keyClick(amplitude = 6500): Buffer {
-  const n = Math.floor(SAMPLE_RATE * 0.04);
+// Clique de tecla — frequências altas cortam melhor em 8 kHz e soam como digitação
+function keyClick(amplitude = 9000): Buffer {
+  const n = Math.floor(SAMPLE_RATE * 0.035);
   const buf = Buffer.alloc(n * 2);
   for (let i = 0; i < n; i++) {
-    const env = Math.exp(-i / (SAMPLE_RATE * 0.005));
+    const env = Math.exp(-i / (SAMPLE_RATE * 0.004));
     const t = i / SAMPLE_RATE;
     const v = env * amplitude * (
-      Math.sin(2 * Math.PI * 1800 * t) * 0.55 +
-      Math.sin(2 * Math.PI * 3200 * t) * 0.35 +
-      Math.sin(2 * Math.PI * 5200 * t) * 0.1
+      Math.sin(2 * Math.PI * 2000 * t) * 0.5 +
+      Math.sin(2 * Math.PI * 3400 * t) * 0.35 +
+      (Math.random() * 2 - 1) * 0.08
     );
     buf.writeInt16LE(clamp(Math.round(v)), i * 2);
   }
@@ -42,21 +28,15 @@ function keyClick(amplitude = 6500): Buffer {
 }
 
 function buildKeyboardLoop(): Buffer {
-  // Padrão irregular de cliques + pausas — simula digitação humana (~2,5s por loop)
-  const gapsMs = [120, 90, 140, 320, 100, 110, 280, 85, 130, 380];
+  // Ritmo irregular — simula alguém digitando em sistema (~3s por loop)
+  const gapsMs = [80, 60, 95, 250, 70, 85, 220, 55, 90, 300, 75, 110, 280, 65, 100];
   const parts: Buffer[] = [];
   for (let i = 0; i < gapsMs.length; i++) {
-    parts.push(keyClick(i % 3 === 0 ? 8500 : 7000));
+    parts.push(keyClick(i % 4 === 0 ? 10_500 : i % 2 === 0 ? 9500 : 8500));
     parts.push(silence(gapsMs[i]));
   }
   return Buffer.concat(parts);
 }
 
-// Tique a 700Hz (50ms) + silêncio (950ms) = loop de 1 segundo
-export const PROCESSING_TONE: Buffer = Buffer.concat([
-  sine(700, 50, 4000),
-  silence(950),
-]);
-
-// Som de digitação em loop — toca enquanto a IA consulta ferramentas
+// Som de digitação em loop — toca enquanto a IA consulta ferramentas ou gera TTS
 export const KEYBOARD_TYPING: Buffer = buildKeyboardLoop();
