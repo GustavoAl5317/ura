@@ -175,6 +175,13 @@ export class RealtimeClient extends EventEmitter {
     this.send({ type: 'response.create' });
   }
 
+  cancelResponse(): void {
+    if (!this.responseActive && !this.responsePending) return;
+    this.send({ type: 'response.cancel' });
+    this.responseActive = false;
+    this.responsePending = false;
+  }
+
   isResponseActive(): boolean {
     return this.responseActive;
   }

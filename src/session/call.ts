@@ -39,6 +39,7 @@ export class CallSession {
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
+  private ttsGeneration = 0;
   private lastToolName = '';
   private clientSpeaking = false;
   private respondedSinceLastSpeech = false;
@@ -262,6 +263,9 @@ export class CallSession {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
       }
+      if (this.pacer.isPlaying() || this.rt.isResponseActive() || this.fillerLoopRunning) {
+        this.interruptAssistantSpeech(callId);
+      }
     });
 
     this.rt.on('speechStop', () => {
@@ -355,22 +359,43 @@ export class CallSession {
     });
   }
 
+  private interruptAssistantSpeech(callId: string): void {
+    this.ttsGeneration++;
+    this.stopTypingSound();
+    this.pacer.flush();
+    this.pacer.setHoldStream(false);
+    if (this.releaseHoldTimer) {
+      clearTimeout(this.releaseHoldTimer);
+      this.releaseHoldTimer = null;
+    }
+    if (this.rt.isResponseActive()) {
+      this.rt.cancelResponse();
+    }
+    logger.info(`[${callId}] Cliente interrompeu a fala da Ana`);
+  }
+
   private async synthesizeAndSend(text: string): Promise<void> {
+    const gen = this.ttsGeneration;
     this.startTypingSound();
     try {
       let firstChunk = true;
       await synthesizeStream(text, (pcm8k) => {
+        if (gen !== this.ttsGeneration) return;
         if (firstChunk) {
           this.stopTypingSound();
           firstChunk = false;
         }
         this.pacer.enqueue(pcm8k);
       });
+      if (gen !== this.ttsGeneration) return;
       this.stopTypingSound();
       await this.pacer.drain();
+      if (gen !== this.ttsGeneration) return;
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
-      logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message });
+      if (gen === this.ttsGeneration) {
+        logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message });
+      }
     }
   }
 
