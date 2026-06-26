@@ -273,6 +273,7 @@ export class CallSession {
     });
 
     this.rt.on('audio', (pcm24k: Buffer) => {
+      if (useElevenLabsTts) return;
       if (this.waitingAnaAfterTool && this.toolsInFlight === 0) {
         this.fillerCancel.cancelled = true;
         this.fillerLoopRunning = false;
@@ -292,6 +293,7 @@ export class CallSession {
         this.clearResponseStallWatchdog();
         this.clearPostToolSpeechWatchdog();
         this.clearFalaObrigatoriaFallback();
+        this.clearFinanceiroTts();
         this.pendingFalaObrigatoria = null;
         this.waitingAnaAfterTool = false;
         logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
@@ -337,11 +339,7 @@ export class CallSession {
         const speech = buildFinanceiroSpeech(result as Parameters<typeof buildFinanceiroSpeech>[0]);
         if (speech) {
           this.pendingFalaObrigatoria = speech;
-          if (meta?.serverSide) {
-            this.scheduleFinanceiroTts(callId, speech);
-          } else {
-            this.armFalaObrigatoriaFallback(callId, speech);
-          }
+          this.scheduleFinanceiroTts(callId, speech);
         }
       }
       if (this.toolsInFlight === 0) {
@@ -571,18 +569,18 @@ export class CallSession {
     }, 5_000);
   }
 
-  /** TTS direto após consulta financeira pelo servidor (~1s após o preâmbulo). */
+  /** TTS da fatura após consultar_financeiro — aguarda preâmbulo e fila liberarem. */
   private scheduleFinanceiroTts(callId: string, speech: string): void {
     if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
+    this.clearFalaObrigatoriaFallback();
     this.financeiroTtsTimer = setTimeout(() => {
       this.financeiroTtsTimer = null;
       if (this.tearing || this.socket.destroyed || this.assistantTextInResponse) return;
       this.speakFinanceiroDirect(callId, speech);
-    }, 1_000);
+    }, 2_000);
   }
 
   private speakFinanceiroDirect(callId: string, speech: string): void {
-    this.clearFalaObrigatoriaFallback();
     this.pendingFalaObrigatoria = null;
     this.clearPostToolSpeechWatchdog();
     this.assistantTextInResponse = true;
@@ -590,6 +588,13 @@ export class CallSession {
     logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
     sessionRegistry.emit(callId, 'assistant_text', speech);
     this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(speech));
+  }
+
+  private clearFinanceiroTts(): void {
+    if (this.financeiroTtsTimer) {
+      clearTimeout(this.financeiroTtsTimer);
+      this.financeiroTtsTimer = null;
+    }
   }
 
   private armFalaObrigatoriaFallback(callId: string, text: string): void {
@@ -690,40 +695,45 @@ export class CallSession {
     }
   }
 
-  /** Fala o início do preâmbulo e libera a consulta em paralelo com o restante do áudio. */
+  /** Fala preâmbulo na fila TTS — evita sobrepor com outro áudio ElevenLabs. */
   private async speakToolPreamble(text: string): Promise<void> {
     this.cancelTypingDelay();
-
     const gen = this.ttsGeneration;
+
     return new Promise<void>((resolve) => {
       let settled = false;
-      let firstChunk = true;
       const finish = () => {
         if (settled) return;
         settled = true;
         resolve();
       };
-      const maxWait = setTimeout(finish, 2500);
+      const maxWait = setTimeout(finish, 3_000);
 
-      void synthesizeStream(text, (pcm8k) => {
-        if (gen !== this.ttsGeneration) return;
-        if (firstChunk) {
-          this.stopTypingSound();
-          firstChunk = false;
+      this.ttsQueue = this.ttsQueue.then(async () => {
+        let firstChunk = true;
+        try {
+          await synthesizeStream(text, (pcm8k) => {
+            if (gen !== this.ttsGeneration) return;
+            if (firstChunk) {
+              this.stopTypingSound();
+              firstChunk = false;
+              clearTimeout(maxWait);
+              setTimeout(finish, 400);
+            }
+            this.pacer.enqueue(pcm8k);
+          }, this.ctx.voiceId);
+          if (gen === this.ttsGeneration) {
+            this.stopTypingSound();
+            await this.pacer.drain();
+          }
+        } catch {
+          finish();
         }
-        this.pacer.enqueue(pcm8k);
         if (!settled) {
           clearTimeout(maxWait);
-          setTimeout(finish, 600);
+          finish();
         }
-      }, this.ctx.voiceId)
-        .then(() => {
-          if (!settled) {
-            clearTimeout(maxWait);
-            setTimeout(finish, 300);
-          }
-        })
-        .catch(() => finish());
+      });
     });
   }
 

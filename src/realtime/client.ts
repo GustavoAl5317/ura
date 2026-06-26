@@ -68,6 +68,7 @@ export class RealtimeClient extends EventEmitter {
 
     const useAudio = config.tts.provider === 'openai';
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
+    const outputModalities: ('text' | 'audio')[] = useAudio ? ['audio'] : ['text'];
     const isNewSchema = model.startsWith('gpt-realtime');
 
     const turnFlags = {
@@ -88,7 +89,7 @@ export class RealtimeClient extends EventEmitter {
     const sessionCfg: RealtimeSessionConfig = isNewSchema
       ? {
           type: 'realtime',
-          output_modalities: ['audio'],
+          output_modalities: outputModalities,
           instructions,
           audio: {
             input: {
@@ -96,10 +97,14 @@ export class RealtimeClient extends EventEmitter {
               turn_detection: newTurnDetection,
               transcription: { model: 'whisper-1' },
             },
-            output: {
-              format: { type: 'audio/pcm', rate: 24000 },
-              voice: config.openai.voice,
-            },
+            ...(useAudio
+              ? {
+                  output: {
+                    format: { type: 'audio/pcm', rate: 24000 },
+                    voice: config.openai.voice,
+                  },
+                }
+              : {}),
           },
           tools: toolDefs,
           tool_choice: 'auto',
