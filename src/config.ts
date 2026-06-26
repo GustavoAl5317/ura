@@ -86,7 +86,7 @@ export const config = {
     minBufferMs: optInt('MIN_BUFFER_MS', 0),
     /** Caminho local para WAV de espera (PCM 16-bit). Ex.: assets/wait-typing.wav */
     waitSoundPath: opt('WAIT_SOUND_PATH', ''),
-    /** Só toca teclado se a consulta demorar mais que isso (ms) */
+    /** 0 = teclado imediato ao consultar; >0 atrasa o início */
     toolTypingDelayMs: optInt('TOOL_TYPING_DELAY_MS', 0),
     /** URL de WAV para baixar na inicialização (alternativa ao arquivo local) */
     waitSoundUrl: opt('WAIT_SOUND_URL', ''),

@@ -220,6 +220,7 @@ export class CallSession {
         return;
       }
       logger.info(`[${callId}] Gerando resposta após fala do cliente`);
+      if (this.useElevenLabsTts) this.startTypingSound();
       if (!this.rt.createResponse()) {
         if (retries < MAX_RETRIES) {
           this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
@@ -257,6 +258,9 @@ export class CallSession {
       }
       this.pendingSpeechStop = false;
       this.respondedSinceLastSpeech = true;
+      if (useElevenLabsTts) {
+        this.startTypingSound();
+      }
       // Com ElevenLabs o áudio é local — holdStream bloqueava o mic por 15s sem TTS da OpenAI
       if (!useElevenLabsTts) {
         this.pacer.setHoldStream(true);
@@ -297,7 +301,7 @@ export class CallSession {
       this.lastToolName = name;
       this.toolsInFlight++;
       this.waitingAnaAfterTool = false;
-      this.scheduleTypingSound();
+      this.startTypingSound();
       sessionRegistry.emit(callId, 'tool_start', `Consulta: ${name}`, { tool: name });
     });
 
@@ -310,12 +314,7 @@ export class CallSession {
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
         this.waitingAnaAfterTool = true;
-        // Com ElevenLabs: mantém teclado até o próximo TTS (evita silêncio após consulta rápida)
-        if (useElevenLabsTts) {
-          if (!this.fillerLoopRunning) this.startTypingSound();
-        } else {
-          this.stopWaitSound();
-        }
+        this.startTypingSound();
       }
       if (this.lastToolName) {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
@@ -543,17 +542,18 @@ export class CallSession {
 
     if (useElevenLabsTts) {
       await this.speakToolPreamble(phrase);
+      if (this.toolsInFlight > 0) this.startTypingSound();
     }
   }
 
   /** Fala o início do preâmbulo e libera a consulta em paralelo com o restante do áudio. */
   private async speakToolPreamble(text: string): Promise<void> {
     this.cancelTypingDelay();
-    this.stopWaitSound();
 
     const gen = this.ttsGeneration;
     return new Promise<void>((resolve) => {
       let settled = false;
+      let firstChunk = true;
       const finish = () => {
         if (settled) return;
         settled = true;
@@ -563,6 +563,10 @@ export class CallSession {
 
       void synthesizeStream(text, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
+        if (firstChunk) {
+          this.stopTypingSound();
+          firstChunk = false;
+        }
         this.pacer.enqueue(pcm8k);
         if (!settled) {
           clearTimeout(maxWait);
@@ -581,6 +585,7 @@ export class CallSession {
 
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
+    this.startTypingSound();
     try {
       let firstChunk = true;
       await synthesizeStream(text, (pcm8k) => {
@@ -685,6 +690,7 @@ export class CallSession {
 
   private startTypingSound(): void {
     if (this.fillerLoopRunning) return;
+    if (!this.useElevenLabsTts) return;
     this.fillerCancel = { cancelled: false };
     this.fillerLoopRunning = true;
     void this.playFillerLoop(this.fillerCancel, getWaitSound());
