@@ -68,6 +68,8 @@ export class CallSession {
   private responseStallTimer: ReturnType<typeof setTimeout> | null = null;
   private postToolSpeechTimer: ReturnType<typeof setTimeout> | null = null;
   private titularFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
+  private falaObrigatoriaTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingFalaObrigatoria: string | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
@@ -140,7 +142,7 @@ export class CallSession {
         if (cliente) {
           this.ctx.cliente = cliente;
           this.ctx.clienteIdentificado = true;
-          this.ctx.clienteConfirmado = true;
+          this.ctx.clienteConfirmado = false;
           this.ctx.contratoSelecionado = cliente.contratos.length === 1 && !!cliente.contratoId;
           logger.info(`[${uuid}] Cliente identificado pelo telefone: ${cliente.nome}` +
             (cliente.contratos.length > 1 ? ` (${cliente.contratos.length} contratos — aguardando seleção)` : ''));
@@ -287,6 +289,8 @@ export class CallSession {
         this.assistantTextInResponse = true;
         this.clearResponseStallWatchdog();
         this.clearPostToolSpeechWatchdog();
+        this.clearFalaObrigatoriaFallback();
+        this.pendingFalaObrigatoria = null;
         this.waitingAnaAfterTool = false;
         logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
         sessionRegistry.emit(callId, 'assistant_text', text.trim());
@@ -314,15 +318,25 @@ export class CallSession {
       this.startTypingSound();
     });
 
-    this.rt.on('toolDone', () => {
+    this.rt.on('toolDone', (name?: string, result?: unknown) => {
       this.cancelTypingDelay();
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
         this.waitingAnaAfterTool = true;
         this.startTypingSound();
       }
-      if (this.lastToolName) {
+      if (name) {
+        this.lastToolName = name;
+        sessionRegistry.emit(callId, 'tool_done', `Concluído: ${name}`, { tool: name });
+      } else if (this.lastToolName) {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
+      }
+      if (name === 'consultar_financeiro' && result && typeof result === 'object') {
+        const fala = (result as { fala_obrigatoria?: string | null }).fala_obrigatoria;
+        if (typeof fala === 'string' && fala.trim()) {
+          this.pendingFalaObrigatoria = fala.trim();
+          this.armFalaObrigatoriaFallback(callId, fala.trim());
+        }
       }
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
@@ -528,9 +542,48 @@ export class CallSession {
       if (!this.waitingAnaAfterTool || this.assistantTextInResponse) return;
       if (this.rt.isResponseActive() || this.rt.isResponsePending()) return;
       logger.warn(`[${callId}] Ana sem fala após tool — forçando resposta`);
-      if (!this.fillerLoopRunning) this.startTypingSound();
-      this.rt.createResponse(true);
+      this.startTypingSound();
+      if (this.pendingFalaObrigatoria) {
+        const text = this.pendingFalaObrigatoria;
+        this.pendingFalaObrigatoria = null;
+        this.clearFalaObrigatoriaFallback();
+        this.assistantTextInResponse = true;
+        this.waitingAnaAfterTool = false;
+        logger.warn(`[${callId}] Falando fala_obrigatoria via TTS (fallback)`);
+        this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
+        return;
+      }
+      this.rt.injectSystemNote(
+        '[SISTEMA] Você não disse nada após a ferramenta. Fale com o cliente AGORA e dê andamento ao atendimento.',
+      );
     }, 5_000);
+  }
+
+  private armFalaObrigatoriaFallback(callId: string, text: string): void {
+    this.clearFalaObrigatoriaFallback();
+    this.falaObrigatoriaTimer = setTimeout(() => {
+      this.falaObrigatoriaTimer = null;
+      if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
+      if (this.assistantTextInResponse || !this.pendingFalaObrigatoria) return;
+      if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
+        this.armFalaObrigatoriaFallback(callId, text);
+        return;
+      }
+      const fala = this.pendingFalaObrigatoria;
+      this.pendingFalaObrigatoria = null;
+      this.assistantTextInResponse = true;
+      this.waitingAnaAfterTool = false;
+      this.clearPostToolSpeechWatchdog();
+      logger.warn(`[${callId}] Modelo silencioso — TTS com fala_obrigatoria`);
+      this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(fala));
+    }, 3_000);
+  }
+
+  private clearFalaObrigatoriaFallback(): void {
+    if (this.falaObrigatoriaTimer) {
+      clearTimeout(this.falaObrigatoriaTimer);
+      this.falaObrigatoriaTimer = null;
+    }
   }
 
   private clearPostToolSpeechWatchdog(): void {
@@ -723,8 +776,8 @@ export class CallSession {
   }
 
   private startTypingSound(): void {
-    if (this.fillerLoopRunning) return;
     if (!this.useElevenLabsTts) return;
+    this.stopWaitSound();
     this.fillerCancel = { cancelled: false };
     this.fillerLoopRunning = true;
     void this.playFillerLoop(this.fillerCancel, getWaitSound());

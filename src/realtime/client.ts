@@ -16,6 +16,8 @@ export class RealtimeClient extends EventEmitter {
   private pendingWatchdog: ReturnType<typeof setTimeout> | null = null;
   private static readonly PENDING_TIMEOUT_MS = 6_000;
   private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
+  private toolChain: Promise<void> = Promise.resolve();
+  private pendingToolOutputs: Array<{ call_id: string; output: unknown }> = [];
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -139,6 +141,11 @@ export class RealtimeClient extends EventEmitter {
   }
 
   sendFunctionResult(callId: string, result: unknown): void {
+    this.sendToolOutput(callId, result);
+    this.createResponse(true);
+  }
+
+  private sendToolOutput(callId: string, result: unknown): void {
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -147,7 +154,19 @@ export class RealtimeClient extends EventEmitter {
         output: typeof result === 'string' ? result : JSON.stringify(result),
       },
     });
-    this.createResponse(true);
+  }
+
+  /** Envia todos os resultados de tools da mesma resposta e pede UMA continuação. */
+  private flushPendingToolOutputs(): void {
+    if (!this.pendingToolOutputs.length) return;
+    const batch = this.pendingToolOutputs.splice(0);
+    for (const { call_id, output } of batch) {
+      this.sendToolOutput(call_id, output);
+    }
+    logger.info(`[${this.callId}] ${batch.length} tool(s) — resultados enviados, continuando resposta`);
+    setTimeout(() => {
+      this.createResponse(true);
+    }, 250);
   }
 
   private clearToolTimer(callId: string): void {
@@ -160,11 +179,11 @@ export class RealtimeClient extends EventEmitter {
       type: 'conversation.item.create',
       item: {
         type: 'message',
-        role: 'user',
+        role: 'system',
         content: [{ type: 'input_text', text }],
       },
     });
-    this.send({ type: 'response.create' });
+    setTimeout(() => this.createResponse(true), 250);
   }
 
   createResponse(force = false): boolean {
@@ -291,55 +310,9 @@ export class RealtimeClient extends EventEmitter {
         this.emit('speechStop');
         break;
 
-      case 'response.function_call_arguments.done': {
-        const { call_id, name, arguments: argsStr } = event;
-        let args: Record<string, unknown> = {};
-        try { args = JSON.parse(argsStr); } catch { /* empty */ }
-
-        logger.info(`[${this.callId}] Tool: ${name}`, args);
-
-        const handler = this.tools.get(name);
-        if (!handler) {
-          logger.warn(`[${this.callId}] Tool desconhecida: ${name}`);
-          this.sendFunctionResult(call_id, { error: `Tool '${name}' não registrada` });
-          return;
-        }
-
-        this.emit('toolStart', name);
-
-        if (this.toolPreambleHook) {
-          try {
-            await this.toolPreambleHook(name);
-          } catch (err: any) {
-            logger.warn(`[${this.callId}] Falha no preâmbulo da tool ${name}`, { err: err.message });
-          }
-        }
-
-        // Timer de lentidão: emite evento se a tool demorar demais
-        const slowTimer = setTimeout(() => {
-          this.emit('toolSlowdown');
-          this.toolTimers.delete(call_id);
-        }, config.sgp.toolSlowdownMs);
-        this.toolTimers.set(call_id, slowTimer);
-
-        try {
-          const result = await handler(args);
-          this.clearToolTimer(call_id);
-          this.emit('toolDone');
-          logger.info(`[${this.callId}] Tool ${name} resultado`, result);
-          // Aguarda response.done antes de enviar o resultado da tool,
-          // caso o modelo ainda não tenha encerrado a resposta anterior
-          await this.waitResponseDone();
-          this.sendFunctionResult(call_id, result);
-        } catch (err: any) {
-          this.clearToolTimer(call_id);
-          this.emit('toolDone');
-          logger.error(`[${this.callId}] Erro na tool ${name}`, { err: err.message });
-          await this.waitResponseDone();
-          this.sendFunctionResult(call_id, { error: err.message });
-        }
+      case 'response.function_call_arguments.done':
+        void this.handleToolCall(event);
         break;
-      }
 
       case 'session.updated':
         this.emit('sessionReady');
@@ -352,12 +325,21 @@ export class RealtimeClient extends EventEmitter {
         this.emit('responseCreated');
         break;
 
-      case 'response.done':
+      case 'response.done': {
+        const expectedCalls = this.countFunctionCallsInResponse(event);
+        for (let i = 0; i < 80 && expectedCalls > 0; i++) {
+          await this.toolChain;
+          if (this.pendingToolOutputs.length >= expectedCalls) break;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        await this.toolChain;
+        this.flushPendingToolOutputs();
         this.clearPendingWatchdog();
         this.responseActive = false;
         this.responsePending = false;
         this.emit('responseDone');
         break;
+      }
 
       case 'conversation.item.input_audio_transcription.completed':
       case 'input_audio_buffer.transcript':
@@ -368,5 +350,64 @@ export class RealtimeClient extends EventEmitter {
         logger.error(`[${this.callId}] Realtime error`, event.error);
         break;
     }
+  }
+
+  private handleToolCall(event: RealtimeEvent & { call_id?: string; name?: string; arguments?: string }): void {
+    const run = async () => {
+      const call_id = event.call_id!;
+      const name = event.name!;
+      const argsStr = event.arguments ?? '{}';
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(argsStr); } catch { /* empty */ }
+
+      logger.info(`[${this.callId}] Tool: ${name}`, args);
+
+      const handler = this.tools.get(name);
+      if (!handler) {
+        logger.warn(`[${this.callId}] Tool desconhecida: ${name}`);
+        this.pendingToolOutputs.push({ call_id, output: { error: `Tool '${name}' não registrada` } });
+        return;
+      }
+
+      this.emit('toolStart', name);
+
+      if (this.toolPreambleHook) {
+        try {
+          await this.toolPreambleHook(name);
+        } catch (err: any) {
+          logger.warn(`[${this.callId}] Falha no preâmbulo da tool ${name}`, { err: err.message });
+        }
+      }
+
+      const slowTimer = setTimeout(() => {
+        this.emit('toolSlowdown');
+        this.toolTimers.delete(call_id);
+      }, config.sgp.toolSlowdownMs);
+      this.toolTimers.set(call_id, slowTimer);
+
+      try {
+        const result = await handler(args);
+        this.clearToolTimer(call_id);
+        logger.info(`[${this.callId}] Tool ${name} resultado`, result);
+        this.pendingToolOutputs.push({ call_id, output: result });
+        this.emit('toolDone', name, result);
+      } catch (err: any) {
+        this.clearToolTimer(call_id);
+        logger.error(`[${this.callId}] Erro na tool ${name}`, { err: err.message });
+        this.pendingToolOutputs.push({ call_id, output: { error: err.message } });
+        this.emit('toolDone', name, { error: err.message });
+      }
+    };
+
+    this.toolChain = this.toolChain.then(run).catch((err) => {
+      logger.error(`[${this.callId}] Falha na cadeia de tools`, { err: String(err) });
+    });
+  }
+
+  private countFunctionCallsInResponse(event: RealtimeEvent): number {
+    const response = (event as { response?: { output?: { type?: string }[] } }).response;
+    const output = response?.output;
+    if (!Array.isArray(output)) return 0;
+    return output.filter((o) => o.type === 'function_call').length;
   }
 }

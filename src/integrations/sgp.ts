@@ -293,6 +293,7 @@ export class SgpClient {
     const r = await this.postForm<{ clientes?: SgpCliente[] }>('/api/ura/clientes/', {
       telefone: tel,
       exibir_conexao: config.sgp.exibirConexao ? 1 : 0,
+      servicos_dados: 1,
     });
     const c = r?.clientes?.[0] ?? null;
     return c ? enrich(c) : null;
