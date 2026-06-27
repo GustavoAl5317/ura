@@ -184,7 +184,7 @@ export class ZabbixClient {
         search: { name: padrao },
         searchWildcardsEnabled: true,
         suppressed: false,
-        sortfield: 'clock',
+        sortfield: 'eventid',
         sortorder: 'DESC',
         limit: config.zabbix.problemLimit,
       };
