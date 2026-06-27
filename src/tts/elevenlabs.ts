@@ -48,11 +48,10 @@ export async function synthesizeStream(
   const t0 = Date.now();
 
   const res = await axios.post(
-    `https://api.elevenlabs.io/v1/text-to-speech/${vid}/stream`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${vid}/stream?output_format=${fmt}`,
     {
       text,
       model_id: config.tts.elevenlabs.modelId,
-      output_format: fmt,
       voice_settings: {
         stability: config.tts.elevenlabs.stability,
         similarity_boost: config.tts.elevenlabs.similarityBoost,
