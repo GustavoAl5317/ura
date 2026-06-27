@@ -21,6 +21,65 @@ function pareceConfirmacaoTitular(text?: string): boolean {
   return true;
 }
 
+function valorPorExtenso(valor: number): string {
+  if (valor === 0) return 'zero reais';
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
+  const dezenas = ['', 'dez', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'catorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+
+  function converter(n: number): string {
+    if (n === 100) return 'cem';
+    let res = '';
+    const c = Math.floor(n / 100);
+    const d = Math.floor((n % 100) / 10);
+    const u = n % 10;
+    if (c > 0) res += centenas[c];
+    if (d === 1) {
+      if (res) res += ' e ';
+      res += especiais[u];
+    } else {
+      if (d > 1) {
+        if (res) res += ' e ';
+        res += dezenas[d];
+      }
+      if (u > 0) {
+        if (res) res += ' e ';
+        res += unidades[u];
+      }
+    }
+    return res;
+  }
+
+  const inteiros = Math.floor(valor);
+  const centavos = Math.round((valor - inteiros) * 100);
+
+  let strInteiros = '';
+  if (inteiros > 0) {
+    if (inteiros >= 1000) {
+      const m = Math.floor(inteiros / 1000);
+      const resto = inteiros % 1000;
+      strInteiros += (m === 1 ? 'mil' : converter(m) + ' mil');
+      if (resto > 0) {
+        strInteiros += ((resto < 100 || resto % 100 === 0) ? ' e ' : ' ') + converter(resto);
+      }
+    } else {
+      strInteiros += converter(inteiros);
+    }
+    strInteiros += (inteiros === 1 ? ' real' : ' reais');
+  }
+
+  let strCentavos = '';
+  if (centavos > 0) {
+    strCentavos += converter(centavos);
+    strCentavos += (centavos === 1 ? ' centavo' : ' centavos');
+  }
+
+  if (strInteiros && strCentavos) return `${strInteiros} e ${strCentavos}`;
+  if (strInteiros) return strInteiros;
+  return strCentavos;
+}
+
 function termosInfraDoCliente(ctx: CallContext): string[] {
   const termos: string[] = [];
   const onu = ctx.onu;
@@ -162,6 +221,7 @@ function mapFaturaResumo(t: SgpTitulo) {
     id: t.id,
     numero_documento: t.numeroDocumento,
     valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
+    valor_falado: valorPorExtenso(t.valorCorrigido),
     vencimento: t.dataVencimento,
     atraso_dias: atraso,
     atraso_dias_sgp: t.diasAtraso,
@@ -186,8 +246,9 @@ export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string | n
   const parts: string[] = [];
   if (result.fala_obrigatoria?.trim()) parts.push(result.fala_obrigatoria.trim());
   const vencida = result.faturas_vencidas?.[0];
-  if (vencida?.valor) {
-    parts.push(`A fatura em aberto é de ${vencida.valor}.`);
+  if (vencida?.valor_falado || vencida?.valor) {
+    const val = vencida.valor_falado || vencida.valor;
+    parts.push(`A fatura em aberto é de ${val}.`);
     if (vencida.vencimento) {
       const [y, m, d] = vencida.vencimento.split('-');
       if (d && m && y) parts.push(`O vencimento foi dia ${d} de ${m} de ${y}.`);
@@ -728,8 +789,14 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       total_vencido: temFaturasVencidas
         ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}`
         : null,
+      total_vencido_falado: temFaturasVencidas
+        ? valorPorExtenso(valorTotalVencido)
+        : null,
       total_a_vencer: aVencer.length > 0
         ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}`
+        : null,
+      total_a_vencer_falado: aVencer.length > 0
+        ? valorPorExtenso(valorTotalAVencer)
         : null,
       faturas_vencidas: vencidas.map(mapFaturaResumo),
       faturas_a_vencer: aVencer.map(mapFaturaResumo),
@@ -893,6 +960,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       sucesso: true,
       fatura_id: linkObj.fatura,
       valor: valorFmt,
+      valor_falado: valorPorExtenso(linkObj.valor),
       vencimento: linkObj.vencimento,
       pix_copia_cola: pixCola || null,
       link_boleto: linkBoleto,
@@ -1351,11 +1419,15 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const planos = filtrarPlanosComerciais(todos);
     logger.info(`[${ctx.callId}] Planos: ${todos.length} no SGP, ${planos.length} comerciais`);
     return {
-      planos: planos.map((p) => ({
-        id: p.id,
-        nome: p.descricao,
-        preco: `R$ ${parseFloat(p.preco).toFixed(2).replace('.', ',')}`,
-      })),
+      planos: planos.map((p) => {
+        const num = parseFloat(p.preco);
+        return {
+          id: p.id,
+          nome: p.descricao,
+          preco: `R$ ${num.toFixed(2).replace('.', ',')}`,
+          preco_falado: valorPorExtenso(num),
+        };
+      }),
     };
   });
 
