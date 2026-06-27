@@ -165,10 +165,14 @@ export class AudioPacer {
     return Date.now() < this.micMuteUntil;
   }
 
-  /** Aguarda a fila esvaziar (útil após TTS em streaming). */
   async drain(timeoutMs = 120_000): Promise<void> {
+    if (this.remainder.length > 0) {
+      const pad = Buffer.alloc(SLIN_CHUNK_BYTES - this.remainder.length);
+      this.queue.push(Buffer.concat([this.remainder, pad]));
+      this.remainder = Buffer.alloc(0);
+    }
     const deadline = Date.now() + timeoutMs;
-    while (this.queue.length > 0 || this.remainder.length > 0) {
+    while (this.queue.length > 0) {
       if (Date.now() > deadline) return;
       await new Promise((r) => setTimeout(r, 40));
     }
