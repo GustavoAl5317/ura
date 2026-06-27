@@ -17,6 +17,7 @@ export class RealtimeClient extends EventEmitter {
   private static readonly PENDING_TIMEOUT_MS = 6_000;
   private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
   private toolChain: Promise<void> = Promise.resolve();
+  private responseTextEmitted = false;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -300,6 +301,7 @@ export class RealtimeClient extends EventEmitter {
     switch (event.type) {
       case 'response.audio.delta':
       case 'response.output_audio.delta': {
+        if (config.tts.provider !== 'openai') break;
         const buf = Buffer.from(event.delta, 'base64');
         logger.debug(`[${this.callId}] audio chunk bytes=${buf.length}`);
         this.emit('audio', buf);
@@ -307,24 +309,34 @@ export class RealtimeClient extends EventEmitter {
       }
 
       case 'response.output_audio.done':
-        this.emit('audioOutputDone');
+        if (config.tts.provider === 'openai') this.emit('audioOutputDone');
         break;
 
       case 'response.text.delta':
+      case 'response.output_text.delta':
       case 'response.output_audio_transcript.delta':
         this.emit('textDelta', event.delta);
         break;
 
       case 'response.text.done':
-        this.emit('textDone', event.text);
+        if (!this.responseTextEmitted) {
+          this.responseTextEmitted = true;
+          this.emit('textDone', event.text);
+        }
         break;
 
       case 'response.output_text.done':
-        this.emit('textDone', event.text);
+        if (!this.responseTextEmitted) {
+          this.responseTextEmitted = true;
+          this.emit('textDone', event.text);
+        }
         break;
 
       case 'response.output_audio_transcript.done':
-        this.emit('textDone', event.transcript);
+        if (!this.responseTextEmitted) {
+          this.responseTextEmitted = true;
+          this.emit('textDone', event.transcript);
+        }
         break;
 
       case 'input_audio_buffer.speech_started':
@@ -347,15 +359,24 @@ export class RealtimeClient extends EventEmitter {
         this.clearPendingWatchdog();
         this.responsePending = false;
         this.responseActive = true;
+        this.responseTextEmitted = false;
         this.emit('responseCreated');
         break;
 
-      case 'response.done':
+      case 'response.done': {
         this.clearPendingWatchdog();
         this.responseActive = false;
         this.responsePending = false;
+        if (!this.responseTextEmitted) {
+          const text = extractResponseText(event.response);
+          if (text) {
+            this.responseTextEmitted = true;
+            this.emit('textDone', text);
+          }
+        }
         this.emit('responseDone');
         break;
+      }
 
       case 'conversation.item.input_audio_transcription.completed':
       case 'input_audio_buffer.transcript':
@@ -422,4 +443,27 @@ export class RealtimeClient extends EventEmitter {
       logger.error(`[${this.callId}] Falha na cadeia de tools`, { err: String(err) });
     });
   }
+}
+
+function extractResponseText(response: unknown): string {
+  if (!response || typeof response !== 'object') return '';
+  const output = (response as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return '';
+
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as { type?: string; content?: unknown[] };
+    if (row.type !== 'message') continue;
+    for (const part of row.content ?? []) {
+      if (!part || typeof part !== 'object') continue;
+      const p = part as { type?: string; text?: string; transcript?: string };
+      if ((p.type === 'output_text' || p.type === 'text') && p.text?.trim()) {
+        parts.push(p.text.trim());
+      } else if (p.transcript?.trim()) {
+        parts.push(p.transcript.trim());
+      }
+    }
+  }
+  return parts.join('\n').trim();
 }

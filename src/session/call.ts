@@ -225,7 +225,6 @@ export class CallSession {
         return;
       }
       logger.info(`[${callId}] Gerando resposta após fala do cliente`);
-      if (this.useElevenLabsTts) this.startTypingSound();
       if (!this.rt.createResponse()) {
         if (retries < MAX_RETRIES) {
           this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
@@ -244,6 +243,7 @@ export class CallSession {
   private setupRealtimeEvents(callId: string): void {
     const useElevenLabsTts = config.tts.provider === 'elevenlabs';
     this.useElevenLabsTts = useElevenLabsTts;
+    logger.info(`[${callId}] Pipeline áudio: ${useElevenLabsTts ? 'OpenAI texto → ElevenLabs voz' : 'OpenAI áudio nativo'}`);
 
     this.rt.onToolPreamble((name) => this.runToolPreamble(callId, name, useElevenLabsTts));
 
@@ -262,9 +262,6 @@ export class CallSession {
       }
       this.pendingSpeechStop = false;
       this.respondedSinceLastSpeech = true;
-      if (useElevenLabsTts && this.toolsInFlight > 0) {
-        this.startTypingSound();
-      }
       // Com ElevenLabs o áudio é local — holdStream bloqueava o mic por 15s sem TTS da OpenAI
       if (!useElevenLabsTts) {
         this.pacer.setHoldStream(true);
@@ -301,7 +298,7 @@ export class CallSession {
           this.armTitularFollowUpWatchdog(callId);
         }
       }
-      if (useElevenLabsTts && text.trim()) {
+      if (this.useElevenLabsTts && text.trim()) {
         this.stopTypingSound();
         this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
       }
@@ -314,7 +311,6 @@ export class CallSession {
       this.lastToolName = name;
       this.toolsInFlight++;
       this.waitingAnaAfterTool = false;
-      this.startTypingSound();
       sessionRegistry.emit(callId, 'tool_start', `Consulta: ${name}`, { tool: name });
     });
 
@@ -327,7 +323,6 @@ export class CallSession {
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
         this.waitingAnaAfterTool = true;
-        this.startTypingSound();
       }
       if (name) {
         this.lastToolName = name;
@@ -364,9 +359,9 @@ export class CallSession {
         this.userResponseTimer = null;
       }
 
+      // ElevenLabs: só interrompe com áudio real na linha — ruído no início não pode cancelar texto/TTS
       const anaAudivel = this.pacer.isPlaying() || this.fillerLoopRunning;
-      const anaGerando = this.useElevenLabsTts && (this.rt.isResponseActive() || this.rt.isResponsePending());
-      if (!anaAudivel && !anaGerando) return;
+      if (!anaAudivel) return;
 
       const armMs = config.vad.interruptArmMs;
       if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
@@ -478,6 +473,18 @@ export class CallSession {
           clearTimeout(this.releaseHoldTimer);
           this.releaseHoldTimer = null;
         }
+        const buffered = this.textBuf.trim();
+        if (buffered && !this.assistantTextInResponse) {
+          this.assistantTextInResponse = true;
+          this.clearPostToolSpeechWatchdog();
+          this.clearFalaObrigatoriaFallback();
+          this.pendingFalaObrigatoria = null;
+          this.waitingAnaAfterTool = false;
+          this.stopTypingSound();
+          logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto, fallback): ${buffered}`);
+          sessionRegistry.emit(callId, 'assistant_text', buffered);
+          this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(buffered));
+        }
         // Modelo encerrou sem texto após tool — reenvia e mantém teclado
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
           logger.warn(`[${callId}] Resposta vazia após consulta — injetando instrução e reenviando`);
@@ -493,6 +500,7 @@ export class CallSession {
       } else {
         scheduleHoldRelease();
       }
+      this.textBuf = '';
       void this.onAssistantResponseDone(callId);
     });
 
@@ -696,51 +704,40 @@ export class CallSession {
     }
   }
 
-  /** Fala preâmbulo na fila TTS — evita sobrepor com outro áudio ElevenLabs. */
+  /** Fala preâmbulo na fila TTS — termina antes de ligar o som de consulta. */
   private async speakToolPreamble(text: string): Promise<void> {
     this.cancelTypingDelay();
     const gen = this.ttsGeneration;
-
-    return new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
-      const maxWait = setTimeout(finish, 3_000);
-
-      this.ttsQueue = this.ttsQueue.then(async () => {
-        let firstChunk = true;
-        try {
-          await synthesizeStream(text, (pcm8k) => {
-            if (gen !== this.ttsGeneration) return;
-            if (firstChunk) {
-              this.stopTypingSound();
-              firstChunk = false;
-              clearTimeout(maxWait);
-              setTimeout(finish, 400);
-            }
-            this.pacer.enqueue(pcm8k);
-          }, this.ctx.voiceId);
-          if (gen === this.ttsGeneration) {
-            this.stopTypingSound();
-            await this.pacer.drain();
-          }
-        } catch {
-          finish();
+    const task = this.ttsQueue.then(async () => {
+      this.pacer.setHoldStream(true);
+      try {
+        await synthesizeStream(text, (pcm8k) => {
+          if (gen !== this.ttsGeneration) return;
+          this.stopTypingSound();
+          this.pacer.enqueue(pcm8k);
+        }, this.ctx.voiceId);
+        if (gen === this.ttsGeneration) {
+          this.stopTypingSound();
+          await this.pacer.drain();
         }
-        if (!settled) {
-          clearTimeout(maxWait);
-          finish();
+      } catch {
+        /* preâmbulo opcional */
+      } finally {
+        if (gen === this.ttsGeneration) {
+          this.pacer.setHoldStream(false);
         }
-      });
+      }
     });
+    this.ttsQueue = task;
+    await task;
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
     this.stopTypingSound();
+    const fmt = config.tts.elevenlabs.outputFormat;
+    logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${text.length} chars, ${fmt})`);
+    this.pacer.setHoldStream(true);
     try {
       await synthesizeStream(text, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
@@ -752,7 +749,11 @@ export class CallSession {
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
       if (gen === this.ttsGeneration) {
-        logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message });
+        logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message, format: fmt });
+      }
+    } finally {
+      if (gen === this.ttsGeneration) {
+        this.pacer.setHoldStream(false);
       }
     }
   }
@@ -839,6 +840,7 @@ export class CallSession {
 
   private startTypingSound(): void {
     if (!this.useElevenLabsTts) return;
+    if (this.toolsInFlight <= 0 && !this.waitingAnaAfterTool) return;
     this.stopWaitSound();
     this.fillerCancel = { cancelled: false };
     this.fillerLoopRunning = true;
@@ -862,8 +864,12 @@ export class CallSession {
     while (!cancel.cancelled && !this.socket.destroyed && !this.tearing) {
       const end = Math.min(pos + SLIN_CHUNK_BYTES, loop.length);
       const slice = loop.subarray(pos, end);
-      if (slice.length > 0) {
+      if (slice.length === SLIN_CHUNK_BYTES) {
         this.pacer.enqueue(Buffer.from(slice));
+      } else if (slice.length > 0) {
+        const pad = Buffer.alloc(SLIN_CHUNK_BYTES);
+        slice.copy(pad);
+        this.pacer.enqueue(pad);
       }
       pos = end >= loop.length ? 0 : end;
       await sleep(20);

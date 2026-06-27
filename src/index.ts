@@ -7,6 +7,7 @@ import { startAdminServer } from './admin/server';
 import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
 import { BUILD_ID } from './build';
+import { isUraEnabled } from './admin/ura-control';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -28,7 +29,8 @@ async function main() {
   if (config.zabbix.enabled) {
     logger.info(`  Zabbix : ${config.zabbix.baseUrl || '(URL não definida)'}`);
   }
-  logger.info(`  TTS    : ${config.tts.provider}`);
+  logger.info(`  TTS    : ${config.tts.provider}${config.tts.provider === 'elevenlabs' ? ` (voice ${config.tts.elevenlabs.voiceId?.slice(0, 6) || '?'}…, fmt ${config.tts.elevenlabs.outputFormat})` : ''}`);
+  logger.info(`  URA    : ${isUraEnabled() ? 'LIGADA' : 'DESLIGADA (chamadas → dialplan atendente)'}`);
   logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness} | interrupt=${config.vad.interruptResponse ? 'on' : 'off'} | manual_response`);
   const bufStart = Math.max(config.audio.preBufferMs, config.audio.startBufferMs);
   logger.info(

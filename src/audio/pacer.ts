@@ -227,7 +227,9 @@ export class AudioPacer {
       } else {
         this.underrun = true;
         this.underrunTicks++;
-        const hold = this.holdStream && this.hasLastFrame && this.underrunTicks <= 2;
+        // Durante TTS (holdStream), repete último frame em gaps do ElevenLabs — evita chiado
+        const maxHold = this.holdStream ? 150 : 2;
+        const hold = this.holdStream && this.hasLastFrame && this.underrunTicks <= maxHold;
         out = hold ? this.lastFrame : SILENCE_CHUNK;
       }
     }
