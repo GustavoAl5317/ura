@@ -315,6 +315,11 @@ export class CallSession {
     });
 
     this.rt.on('toolSlowdown', () => {
+      logger.info(`[${callId}] 🤖 ${this.agentLabel()} (lentidão na consulta): Só mais um minutinho tá? Estou terminando.`);
+      sessionRegistry.emit(callId, 'assistant_text', 'Só mais um minutinho tá? Estou terminando.');
+      if (this.useElevenLabsTts) {
+        this.enqueueTTS(() => this.synthesizeAndSend('Só mais um minutinho tá? Estou terminando.'));
+      }
       this.startTypingSound();
     });
 
