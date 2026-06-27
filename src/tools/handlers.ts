@@ -16,7 +16,9 @@ function pareceConfirmacaoTitular(text?: string): boolean {
   const t = text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
   if (/\b(see you|bye now|thank you|goodbye|next time|hello|english)\b/i.test(t)) return false;
   if (/\b(nao|não|negativo|errado|nao sou|não sou)\b/i.test(t)) return false;
-  return /\b(sim|isso|sou eu|sou|confirmo|correto|positivo|pode ser|exato|certo|ok|isso mesmo|ele mesmo|ela mesma|sou sim|com certeza|pode|uhum|aham)\b/i.test(t);
+  // Confia na decisão do modelo LLM para outras palavras ou transcrições com ruído
+  // como "시" ou "등" que ocorrem quando o cliente fala "sim" muito rápido.
+  return true;
 }
 
 function termosInfraDoCliente(ctx: CallContext): string[] {
