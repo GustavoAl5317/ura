@@ -238,7 +238,7 @@ const FALA_SUSPENSAO_FINANCEIRA =
 export interface FinanceiroSpeechInput {
   fala_obrigatoria?: string | null;
   total_vencido?: string | null;
-  faturas_vencidas?: { valor?: string; vencimento?: string }[];
+  faturas_vencidas?: { valor?: string; valor_falado?: string; vencimento?: string }[];
 }
 
 /** Texto completo para TTS quando o modelo fica mudo após consultar_financeiro. */
