@@ -300,7 +300,7 @@ export class CallSession {
       }
       if (this.useElevenLabsTts && text.trim()) {
         this.stopTypingSound();
-        this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
+        this.enqueueTTS(() => this.synthesizeAndSend(text));
       }
       this.textBuf = '';
     });
@@ -483,7 +483,7 @@ export class CallSession {
           this.stopTypingSound();
           logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto, fallback): ${buffered}`);
           sessionRegistry.emit(callId, 'assistant_text', buffered);
-          this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(buffered));
+          this.enqueueTTS(() => this.synthesizeAndSend(buffered));
         }
         // Modelo encerrou sem texto após tool — reenvia e mantém teclado
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
@@ -568,7 +568,7 @@ export class CallSession {
         this.assistantTextInResponse = true;
         this.waitingAnaAfterTool = false;
         logger.warn(`[${callId}] Falando fala_obrigatoria via TTS (fallback)`);
-        this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(text));
+        this.enqueueTTS(() => this.synthesizeAndSend(text));
         return;
       }
       this.rt.injectSystemNote(
@@ -596,7 +596,7 @@ export class CallSession {
     this.stopTypingSound();
     logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
     sessionRegistry.emit(callId, 'assistant_text', speech);
-    this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(speech));
+    this.enqueueTTS(() => this.synthesizeAndSend(speech));
   }
 
   private clearFinanceiroTts(): void {
@@ -622,7 +622,7 @@ export class CallSession {
       this.waitingAnaAfterTool = false;
       this.clearPostToolSpeechWatchdog();
       logger.warn(`[${callId}] Modelo silencioso — TTS com fala_obrigatoria`);
-      this.ttsQueue = this.ttsQueue.then(() => this.synthesizeAndSend(fala));
+      this.enqueueTTS(() => this.synthesizeAndSend(fala));
     }, 3_000);
   }
 
@@ -728,8 +728,16 @@ export class CallSession {
         }
       }
     });
-    this.ttsQueue = task;
+    this.ttsQueue = task.catch((err: any) => {
+      logger.error(`[${this.ctx.callId}] Erro no preâmbulo TTS (ignorado para não travar)`, { err: err?.message || String(err) });
+    });
     await task;
+  }
+
+  private enqueueTTS(task: () => Promise<void>): void {
+    this.ttsQueue = this.ttsQueue.then(task).catch((err: any) => {
+      logger.error(`[${this.ctx.callId}] Erro na fila TTS (ignorado para evitar travamento)`, { err: err?.message || String(err) });
+    });
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
@@ -762,7 +770,7 @@ export class CallSession {
     if (this.ctx.pendingTransfer) {
       this.ctx.pendingTransfer = false;
       if (!this.assistantTextInResponse) {
-        this.ttsQueue = this.ttsQueue.then(() =>
+        this.enqueueTTS(() =>
           this.synthesizeAndSend('Vou te transferir para um de nossos atendentes. Um momento, por favor.'),
         );
       }
@@ -773,7 +781,7 @@ export class CallSession {
         if (ok) {
           setTimeout(() => this.teardownForTransfer(), 300);
         } else {
-          this.ttsQueue = this.ttsQueue.then(() =>
+          this.enqueueTTS(() =>
             this.synthesizeAndSend(
               'Não consegui completar a transferência agora. Aguarde um instante ou ligue novamente.',
             ),
