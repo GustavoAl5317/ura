@@ -1,4 +1,5 @@
 import { AudioSocketProtocol } from '../audiosocket/protocol';
+import { logger } from '../logger';
 
 export const SLIN_CHUNK_BYTES = 320; // 20 ms @ 8 kHz 16-bit mono
 export const SLIN_TICK_MS = 20;
@@ -33,6 +34,8 @@ export class AudioPacer {
   private micMuteUntil = 0;
   private lastFrame = SILENCE_CHUNK;
   private hasLastFrame = false;
+  private loggedFirstEnqueue = false;
+  private loggedFirstPlay = false;
   private readonly startBufferChunks: number;
   private readonly minBufferChunks: number;
   private readonly maxBufferChunks: number;
@@ -69,6 +72,8 @@ export class AudioPacer {
     this.underrunTicks = 0;
     this.idleTicks = 0;
     this.micMuteUntil = 0;
+    this.loggedFirstEnqueue = false;
+    this.loggedFirstPlay = false;
     this.lastFrame = SILENCE_CHUNK;
     this.hasLastFrame = false;
   }
@@ -84,6 +89,8 @@ export class AudioPacer {
     this.micMuteUntil = 0;
     this.lastFrame = SILENCE_CHUNK;
     this.hasLastFrame = false;
+    this.loggedFirstEnqueue = false;
+    this.loggedFirstPlay = false;
   }
 
   isPlaying(): boolean {
@@ -122,6 +129,11 @@ export class AudioPacer {
 
     if (this.underrun && this.primed) {
       this.primed = false;
+    }
+
+    if (!this.loggedFirstEnqueue && fullChunks > 0) {
+      this.loggedFirstEnqueue = true;
+      logger.info('Pacer: first enqueue', { chunks: fullChunks, queueLen: this.queue.length, primed: this.primed });
     }
 
     this.streaming = true;
@@ -221,6 +233,10 @@ export class AudioPacer {
         this.hasLastFrame = true;
         this.underrun = false;
         this.underrunTicks = 0;
+        if (!this.loggedFirstPlay) {
+          this.loggedFirstPlay = true;
+          logger.info('Pacer: first play', { queueLen: this.queue.length });
+        }
         if (hadQueuedAudio && this.queue.length === 0) {
           this.armMicMute();
         }

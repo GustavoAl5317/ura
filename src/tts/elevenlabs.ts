@@ -42,7 +42,10 @@ export async function synthesizeStream(
 
   const fmt = config.tts.elevenlabs.outputFormat;
   const downsample = fmt === 'pcm_16000' ? downsample16to8 : downsample24to8;
+  // pcm_16/24k mono = 2 bytes/sample; downsample precisa de N amostras de entrada
   const alignBytes = fmt === 'pcm_16000' ? 4 : 6;
+
+  const t0 = Date.now();
 
   const res = await axios.post(
     `https://api.elevenlabs.io/v1/text-to-speech/${vid}/stream`,
@@ -67,20 +70,30 @@ export async function synthesizeStream(
     },
   );
 
+  logger.info('TTS HTTP ok', { elapsedMs: Date.now() - t0 });
+
   let bytesIn = 0;
+  let firstChunk = true;
   const { push, flush } = createStreamProcessor(onPcm8k, downsample, alignBytes);
 
   await new Promise<void>((resolve, reject) => {
     res.data.on('data', (chunk: Buffer) => {
+      if (firstChunk) {
+        firstChunk = false;
+        logger.info('TTS first chunk', { bytes: chunk.length, latencyMs: Date.now() - t0 });
+      }
       bytesIn += chunk.length;
       push(chunk);
     });
     res.data.on('end', () => {
       flush();
-      logger.debug('ElevenLabs TTS stream', { chars: text.length, bytesIn, format: fmt });
+      logger.info('TTS stream done', { chars: text.length, bytesIn, format: fmt, totalMs: Date.now() - t0 });
       resolve();
     });
-    res.data.on('error', reject);
+    res.data.on('error', (err: Error) => {
+      logger.error('TTS stream error', { err: err.message, bytesIn, elapsedMs: Date.now() - t0 });
+      reject(err);
+    });
   });
 }
 
