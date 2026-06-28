@@ -68,7 +68,7 @@ export const config = {
       voiceIdMale: opt('ELEVENLABS_VOICE_ID_MALE'),
       alternateVoices: optBool('VOICE_ALTERNATE', false),
       modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_flash_v2_5'),
-      outputFormat: opt('ELEVENLABS_OUTPUT_FORMAT', 'pcm_24000'),
+      outputFormat: opt('ELEVENLABS_OUTPUT_FORMAT', 'pcm_16000'),
       stability: optFloat('ELEVENLABS_STABILITY', 0.68),
       similarityBoost: optFloat('ELEVENLABS_SIMILARITY', 0.68),
       speakerBoost: optBool('ELEVENLABS_SPEAKER_BOOST', false),
@@ -93,13 +93,13 @@ export const config = {
   },
 
   vad: {
-    type: opt('TURN_DETECTION_TYPE', 'semantic_vad') as 'semantic_vad' | 'server_vad',
+    type: opt('TURN_DETECTION_TYPE', 'server_vad') as 'semantic_vad' | 'server_vad',
     eagerness: opt('TURN_DETECTION_EAGERNESS', 'low') as 'low' | 'medium' | 'high',
-    threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.65),
-    silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 700),
-    speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 900),
+    threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.8),
+    silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 1000),
+    speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 300),
     /** Mais longo enquanto coleta CPF (cliente pausa entre grupos de dígitos) */
-    speechStopDelayCollectingMs: optInt('SPEECH_STOP_DELAY_COLLECTING_MS', 1600),
+    speechStopDelayCollectingMs: optInt('SPEECH_STOP_DELAY_COLLECTING_MS', 800),
     /** Ignora speechStop mais curto que isso (ruído de linha / eco) */
     minSpeechMs: optInt('MIN_SPEECH_MS', 450),
     /** Só interrompe a Ana após o cliente falar por esse tempo (evita ruído) */
