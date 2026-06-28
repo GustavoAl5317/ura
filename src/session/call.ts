@@ -492,15 +492,31 @@ export class CallSession {
         }
         // Modelo encerrou sem texto após tool — reenvia e mantém teclado
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
-          logger.warn(`[${callId}] Resposta vazia após consulta — injetando instrução e reenviando`);
           if (!this.fillerLoopRunning) this.startTypingSound();
           setTimeout(() => {
             if (!this.tearing && !this.socket.destroyed && this.waitingAnaAfterTool) {
+              if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
+                // A resposta para o tool output já começou, ignora o watchdog
+                return;
+              }
+              
+              const retries = (this as any).emptyResponseRetries || 0;
+              if (retries >= 2) {
+                logger.error(`[${callId}] Falha contínua do modelo em responder após tool. Acionando fallback de voz.`);
+                (this as any).emptyResponseRetries = 0;
+                this.waitingAnaAfterTool = false;
+                this.stopTypingSound();
+                this.enqueueTTS(() => this.synthesizeAndSend('Deu um pequeno erro na consulta, mas me diga, o que mais eu posso te ajudar?'));
+                return;
+              }
+              
+              (this as any).emptyResponseRetries = retries + 1;
+              logger.warn(`[${callId}] Resposta vazia após consulta (tentativa ${retries + 1}) — injetando instrução e reenviando`);
               this.rt.injectSystemNote(
                 '[SISTEMA] Você recebeu o resultado da ferramenta mas não respondeu ao cliente. Por favor, dê a resposta adequada com base nos dados que acabou de receber.'
               );
             }
-          }, 200);
+          }, 400);
         }
       } else {
         scheduleHoldRelease();
