@@ -41,7 +41,7 @@ export interface RealtimeSessionConfig {
   voice?: string;
   input_audio_format?: 'pcm16' | 'g711_ulaw' | 'g711_alaw';
   output_audio_format?: 'pcm16' | 'g711_ulaw' | 'g711_alaw';
-  input_audio_transcription?: { model: string } | null;
+  input_audio_transcription?: { model: string; language?: string; prompt?: string } | null;
   turn_detection?: TurnDetectionConfig | null;
   tools?: ToolDefinition[];
   tool_choice?: 'auto' | 'none' | 'required';
