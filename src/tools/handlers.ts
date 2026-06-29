@@ -99,8 +99,43 @@ async function carregarOnuParaInfra(ctx: CallContext): Promise<void> {
   if (ctx.onu || !ctx.contratoSelecionado) return;
   const contratoId = ctx.cliente?.contratoId;
   if (!contratoId) return;
-  const onu = await sgp.onuDoContrato(contratoId, { fullFttx: true });
-  if (onu) ctx.onu = onu;
+  
+  try {
+    const onu = await sgp.onuDoContrato(contratoId, { fullFttx: true });
+    if (onu) {
+      ctx.onu = onu;
+      
+      // FALLBACK GEOSITE: Se o técnico não preencheu a CTO no SGP, tentamos adivinhar por proximidade
+      if (!onu.cto_nome && !onu.caixa && config.geosite.enabled) {
+        let viabilidade;
+        const end = ctx.cliente?.endereco;
+        if (end?.latitude && end?.longitude) {
+          viabilidade = await geosite.viabilidadePorCoordenadas(
+            parseFloat(end.latitude),
+            parseFloat(end.longitude)
+          );
+        } else {
+          const endStr = formatarEndereco(end);
+          if (endStr) {
+            viabilidade = await geosite.viabilidadePorEndereco(endStr);
+          }
+        }
+        
+        if (viabilidade?.caixasCobrindo?.length) {
+          ctx.infraTermos = ctx.infraTermos || [];
+          for (const cx of viabilidade.caixasCobrindo) {
+            if (cx.tipoCodigo) ctx.infraTermos.push(cx.tipoCodigo);
+          }
+          logger.info(`Fallback Geosite acionado para contrato ${contratoId}: adicionadas ${viabilidade.caixasCobrindo.length} CTO(s) próximas.`);
+        }
+      }
+    }
+  } catch (err: any) {
+    logger.warn('Falha ao carregar ONU pré-diagnóstico técnico', {
+      contratoId,
+      err: err.message,
+    });
+  }
 }
 
 /** Massiva SGP afeta este cliente? Cruza CTOs da manutenção com infra do cliente. */

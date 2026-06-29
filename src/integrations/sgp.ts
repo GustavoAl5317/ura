@@ -56,6 +56,8 @@ export interface SgpContrato {
     uf: string;
     cep: string;
     complemento?: string;
+    latitude?: string;
+    longitude?: string;
   };
 }
 
@@ -91,6 +93,8 @@ export interface SgpCliente {
     uf: string;
     cep: string;
     complemento?: string;
+    latitude?: string;
+    longitude?: string;
   };
   contratos: SgpContrato[];
   titulos: SgpTitulo[];
