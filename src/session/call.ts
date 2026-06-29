@@ -19,7 +19,7 @@ import { getWaitSound } from '../audio/wait-sound';
 import { sessionRegistry } from '../admin/registry';
 import { saveCallHistory } from '../admin/history';
 
-const SILENCE_WARN_MS  = 90_000;
+const SILENCE_WARN_MS  = 12_000;
 const RESPONSE_STALL_MS = 12_000;
 
 /** Frase falada antes da consulta quando o modelo chama a tool sem avisar o cliente. */
@@ -49,6 +49,7 @@ export class CallSession {
   private textBuf = '';
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private hangupTimer: ReturnType<typeof setTimeout> | null = null;
+  private silenceWarningsCount = 0;
   private tearing = false;
   private fillerCancel = { cancelled: false };
   private toolsInFlight = 0;
@@ -356,6 +357,7 @@ export class CallSession {
 
     this.rt.on('speechStart', () => {
       logger.info(`[${callId}] 🎤 Cliente falando...`);
+      this.silenceWarningsCount = 0;
       this.clientSpeaking = true;
       this.speechStartedAt = Date.now();
       this.respondedSinceLastSpeech = false;
@@ -921,7 +923,22 @@ export class CallSession {
       this.rt.createResponse(true);
       return;
     }
-    logger.warn(`[${this.ctx.callId}] Silêncio prolongado (sem encerrar automaticamente)`);
+    this.silenceWarningsCount++;
+    if (this.silenceWarningsCount === 1) {
+      logger.warn(`[${this.ctx.callId}] Silêncio prolongado — perguntando se cliente ainda está na linha`);
+      this.rt.injectSystemNote('O cliente está em silêncio absoluto. Pergunte de forma breve e direta se ele ainda está na linha e aguarde a resposta.');
+      this.resetSilenceTimer();
+    } else {
+      logger.warn(`[${this.ctx.callId}] Silêncio prolongado (segunda vez) — encerrando ligação por inatividade`);
+      if (this.useElevenLabsTts) {
+        this.enqueueTTS(() =>
+          this.synthesizeAndSend('Como não estou te ouvindo, vou encerrar a ligação. Se precisar, é só retornar. Tchau tchau!'),
+        );
+        this.ttsQueue.finally(() => setTimeout(() => this.teardown(), 1_000));
+      } else {
+        setTimeout(() => this.teardown(), 1_000);
+      }
+    }
   }
 
   private async handleRealtimeDisconnect(callId: string): Promise<void> {
