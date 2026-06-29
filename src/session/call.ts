@@ -683,7 +683,7 @@ export class CallSession {
     }, 4_000);
   }
 
-  /** Se o modelo não chamar financeiro em ~4s após titular, o servidor chama como fallback. */
+  /** Se o modelo não chamar financeiro após titular, o servidor chama imediatamente para evitar bug de resposta vazia. */
   private armAutoFinanceiro(callId: string): void {
     this.clearAutoFinanceiro();
     this.autoFinanceiroTimer = setTimeout(() => {
@@ -697,7 +697,7 @@ export class CallSession {
       void this.rt.runServerTool('consultar_financeiro', {
         cliente_id: this.ctx.cliente?.contratoId,
       });
-    }, 4_000);
+    }, 100);
   }
 
   private clearAutoFinanceiro(): void {
