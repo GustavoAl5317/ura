@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
 
-export type ZabbixEventoTipo = 'cto_off' | 'pop_off' | 'fibra' | 'energia' | 'pppoe_off' | 'outro';
+export type ZabbixEventoTipo = 'cto_off' | 'pop_off' | 'fibra' | 'energia' | 'pppoe_off' | 'equipamento_cliente' | 'energia_cliente' | 'link' | 'poe' | 'outro';
 
 export interface ZabbixIncidente {
   eventid: string;
@@ -108,7 +108,6 @@ export class ZabbixClient {
     throw lastErr ?? new Error('Zabbix login falhou');
   }
 
-  /** Classifica alerta pelo nome do trigger e host Zabbix. */
   static classificar(nome: string, hostVisivel = ''): ZabbixEventoTipo {
     const blob = `${nome} ${hostVisivel}`;
     if (
@@ -118,6 +117,12 @@ export class ZabbixClient {
     if (/queda da interface/i.test(nome)) return 'fibra';
     if (/pppoe|sess[oõ]es pppoe/i.test(blob) && /queda/i.test(blob)) return 'pppoe_off';
     if (/\bpop\b/i.test(blob) && /queda|off|down|indispon/i.test(blob)) return 'pop_off';
+    if (/\bpoe\b/i.test(blob) && /falha|desligado|off|down/i.test(blob)) return 'poe';
+    if (/\blink\b/i.test(blob) && /queda|rompimento|down|fora/i.test(blob)) return 'link';
+    if (/\b(onu|roteador|equipamento)\b/i.test(blob)) {
+      if (/energia|power|desligad/i.test(blob)) return 'energia_cliente';
+      if (/offline|down|falha|los|sinal/i.test(blob)) return 'equipamento_cliente';
+    }
     if (/\bdse\b|energia|power|ups|bateria/i.test(blob)) return 'energia';
     return 'outro';
   }
@@ -160,6 +165,10 @@ export class ZabbixClient {
       case 'pop_off': return 'queda de POP';
       case 'fibra': return 'rompimento/queda de interface';
       case 'energia': return 'falta de energia na infraestrutura';
+      case 'poe': return 'falha de energia no PoE';
+      case 'link': return 'rompimento de link';
+      case 'equipamento_cliente': return 'equipamento do cliente indisponível (ONU/Roteador)';
+      case 'energia_cliente': return 'falta de energia no equipamento do cliente';
       default: return 'incidente de rede';
     }
   }
