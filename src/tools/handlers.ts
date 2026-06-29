@@ -752,9 +752,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         contrato_id: ctx.cliente.contratoId,
         endereco: formatarEndereco(ctx.cliente.endereco),
         mensagem: 'Identidade confirmada. Pode prosseguir com consultas e atendimento.',
-        orientacao:
-          'AGORA chame consultar_financeiro (e verificar_massiva se for caso técnico) — ' +
-          'no mesmo turno ou no imediato seguinte. PROIBIDO só avisar que vai consultar e parar em silêncio.',
+        orientacao: 'Identidade confirmada. O sistema já está consultando o financeiro automaticamente em segundo plano. Aguarde o resultado sem dizer nada.',
       };
     }
 
