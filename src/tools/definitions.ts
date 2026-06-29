@@ -350,4 +350,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['motivo'],
     },
   },
+  {
+    type: 'function',
+    name: 'ignorar_ruido',
+    description: 'Chame esta ferramenta quando a fala captada do cliente for um ruído de fundo ou palavras isoladas em inglês (ex: "Thank you", "They see you going", "Bye"). Isso impede que você responda a alucinações do microfone.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];

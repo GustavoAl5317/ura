@@ -1493,4 +1493,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     ctx.log.push(`Encerrado: ${motivo}`);
     return { sucesso: true };
   });
+  client.registerTool('ignorar_ruido', async () => {
+    logger.debug(`[${ctx.callId}] AI escolheu ignorar ruído em inglês/incompreensível.`);
+    return { ignorado: true };
+  });
 }
