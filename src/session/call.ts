@@ -925,10 +925,13 @@ export class CallSession {
 
   private onSilenceWarning(): void {
     if (this.tearing || this.socket.destroyed || this.ctx.pendingTransfer) return;
-    if (this.pacer.isEchoGated() || this.toolsInFlight > 0) return;
-    if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
-      logger.warn(`[${this.ctx.callId}] Silêncio com resposta pendente — forçando nova tentativa`);
-      this.rt.createResponse(true);
+    if (
+      this.pacer.isEchoGated() ||
+      this.pacer.isPlaying() ||
+      this.toolsInFlight > 0 ||
+      this.rt.isResponseActive() ||
+      this.rt.isResponsePending()
+    ) {
       return;
     }
     this.silenceWarningsCount++;
