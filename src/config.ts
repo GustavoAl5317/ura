@@ -67,7 +67,7 @@ export const config = {
       voiceId: opt('ELEVENLABS_VOICE_ID'),
       voiceIdMale: opt('ELEVENLABS_VOICE_ID_MALE'),
       alternateVoices: optBool('VOICE_ALTERNATE', false),
-      modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_flash_v2_5'),
+      modelId: opt('ELEVENLABS_MODEL_ID', 'eleven_multilingual_v2'),
       outputFormat: opt('ELEVENLABS_OUTPUT_FORMAT', 'pcm_16000'),
       stability: optFloat('ELEVENLABS_STABILITY', 0.68),
       similarityBoost: optFloat('ELEVENLABS_SIMILARITY', 0.68),
