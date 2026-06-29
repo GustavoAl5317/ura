@@ -361,6 +361,7 @@ export class CallSession {
       this.clientSpeaking = true;
       this.speechStartedAt = Date.now();
       this.respondedSinceLastSpeech = false;
+      this.clearSilenceTimer();
       if (this.userResponseTimer) {
         clearTimeout(this.userResponseTimer);
         this.userResponseTimer = null;
@@ -906,6 +907,13 @@ export class CallSession {
       await sleep(20);
     }
     this.fillerLoopRunning = false;
+  }
+
+  private clearSilenceTimer(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
   }
 
   private resetSilenceTimer(): void {
