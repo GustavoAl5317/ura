@@ -117,7 +117,11 @@ export class RealtimeClient extends EventEmitter {
           voice: config.openai.voice,
           input_audio_format: 'pcm16',
           output_audio_format: 'pcm16',
-          input_audio_transcription: { model: 'whisper-1' },
+          input_audio_transcription: { 
+            model: 'whisper-1',
+            language: 'pt',
+            prompt: 'O cliente está falando em português do Brasil. Ele vai dizer números como CPF, telefone, e responder perguntas. Zero, um, dois, três, quatro, cinco, seis, sete, oito, nove, dez.'
+          },
           turn_detection: config.vad.type === 'semantic_vad'
             ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: false, interrupt_response: config.vad.interruptResponse }
             : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: false, interrupt_response: config.vad.interruptResponse },
