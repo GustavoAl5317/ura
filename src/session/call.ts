@@ -683,7 +683,7 @@ export class CallSession {
     }, 4_000);
   }
 
-  /** Se o modelo não chamar financeiro após titular, o servidor chama imediatamente. */
+  /** Se o modelo não chamar financeiro em ~4s após titular, o servidor chama como fallback. */
   private armAutoFinanceiro(callId: string): void {
     this.clearAutoFinanceiro();
     this.autoFinanceiroTimer = setTimeout(() => {
@@ -697,7 +697,7 @@ export class CallSession {
       void this.rt.runServerTool('consultar_financeiro', {
         cliente_id: this.ctx.cliente?.contratoId,
       });
-    }, 100);
+    }, 4_000);
   }
 
   private clearAutoFinanceiro(): void {
@@ -715,7 +715,7 @@ export class CallSession {
   }
 
   private async runToolPreamble(callId: string, name: string, useElevenLabsTts: boolean): Promise<void> {
-    if (this.assistantTextInResponse) return;
+    if (this.assistantTextInResponse || this.textBuf.trim().length > 0) return;
     const phrase = TOOL_PREAMBLES[name];
     if (!phrase) return;
 
