@@ -292,7 +292,7 @@ export class ZabbixClient {
           temIncidente: true,
           afetaCliente: true,
           incidentes: [mockIncidente],
-          resumo: mockIncidente.resumo,
+          resumo: (mockIncidente as any).resumo || mockIncidente.nome,
           tipoPrincipal: mockIncidente.tipo,
         };
       }
