@@ -7,7 +7,7 @@ import { sessionRegistry } from './registry';
 import { listHistory, getHistory } from './history';
 import { isUraEnabled, setUraEnabled, getUraState } from './ura-control';
 import { listAlerts, markAlertRead } from './alerts';
-import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor } from './openai-audit-monitor';
+import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor, getAuditHistory } from './openai-audit-monitor';
 import { getOpenAiSnapshot, refreshOpenAiUsage, startOpenAiMonitor } from './openai-monitor';
 import { getAllEvents, setEvents, UraEvent } from './events';
 
@@ -133,6 +133,10 @@ export function startAdminServer(): void {
       const body = JSON.parse(await readBody(req)) as { events?: UraEvent[] };
       setEvents(body.events || []);
       return json(res, 200, { ok: true, events: getAllEvents() });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/openai/audit/history') {
+      return json(res, 200, { history: getAuditHistory() });
     }
 
     // ── Sessões ativas ───────────────────────────────────────────────────

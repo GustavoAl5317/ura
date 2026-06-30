@@ -73,6 +73,33 @@ function saveState(state: AuditState): void {
   fs.writeFileSync(STATE_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
 }
 
+const HISTORY_FILE = path.join(DATA_DIR, 'openai-audit-history.json');
+let auditHistory: AuditLogEntry[] = [];
+
+function loadAuditHistory(): void {
+  ensureDir();
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+      if (Array.isArray(raw)) auditHistory = raw;
+    }
+  } catch {
+    auditHistory = [];
+  }
+}
+
+function saveAuditHistory(): void {
+  ensureDir();
+  if (auditHistory.length > 500) auditHistory = auditHistory.slice(-500);
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(auditHistory, null, 2), 'utf8');
+}
+
+loadAuditHistory();
+
+export function getAuditHistory(): AuditLogEntry[] {
+  return auditHistory;
+}
+
 function actorEmail(entry: AuditLogEntry): string | undefined {
   return entry.actor?.session?.user?.email ?? entry.actor?.api_key?.user?.email;
 }
@@ -196,6 +223,7 @@ export async function refreshOpenAiAudit(): Promise<void> {
     const seen = new Set(state.seenIds);
     const sorted = [...entries].sort((a, b) => a.effective_at - b.effective_at);
 
+    let addedNew = false;
     for (const entry of sorted) {
       if (seen.has(entry.id)) continue;
       if (entry.effective_at < state.watermarkSec) continue;
@@ -203,9 +231,16 @@ export async function refreshOpenAiAudit(): Promise<void> {
       const { level, title, message } = formatEvent(entry);
       addAlert(level, title, message);
       seen.add(entry.id);
+      
+      // Salva no histórico de auditoria
+      auditHistory.unshift(entry);
+      addedNew = true;
+
       state.watermarkSec = Math.max(state.watermarkSec, entry.effective_at);
       state.lastEventAt = new Date(entry.effective_at * 1000).toISOString();
     }
+
+    if (addedNew) saveAuditHistory();
 
     state.seenIds = [...seen];
     state.lastCheckAt = new Date().toISOString();
