@@ -277,6 +277,30 @@ export class ZabbixClient {
 
     const padroes = config.zabbix.searchPatterns;
 
+    // --- MOCK INJECTION PARA TESTES LOCAIS ---
+    try {
+      const fs = require('fs/promises');
+      const mockPath = require('path').join(process.cwd(), 'zabbix-mock.json');
+      const mockData = await fs.readFile(mockPath, 'utf8');
+      const mockIncidente = JSON.parse(mockData) as ZabbixIncidente;
+      
+      // Se o mock_host bater com algum termo do cliente, forçamos o incidente
+      if (hosts.some((h) => mockIncidente.host.includes(h) || mockIncidente.nome.includes(h))) {
+        logger.warn('⚠️ Alerta MOCK do Zabbix injetado', { nome: mockIncidente.nome });
+        return {
+          ...base,
+          temIncidente: true,
+          afetaCliente: true,
+          incidentes: [mockIncidente],
+          resumo: mockIncidente.resumo,
+          tipoPrincipal: mockIncidente.tipo,
+        };
+      }
+    } catch {
+      // Ignora silenciosamente se o arquivo não existir
+    }
+    // -----------------------------------------
+
     let problemas: ZabbixProblem[];
     try {
       // Alertas SGP SESSOES ficam no host "SGP SESSOES" — CTO/OLT vêm no NOME do trigger
