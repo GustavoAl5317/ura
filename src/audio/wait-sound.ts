@@ -148,6 +148,15 @@ export async function initWaitSound(): Promise<void> {
       throw new Error('Áudio muito curto após conversão');
     }
 
+    const vol = config.audio.waitSoundVolume;
+    if (vol !== 1.0) {
+      for (let i = 0; i < pcm8k.length; i += 2) {
+        let sample = pcm8k.readInt16LE(i);
+        sample = clamp(Math.round(sample * vol));
+        pcm8k.writeInt16LE(sample, i);
+      }
+    }
+
     waitSound = pcm8k;
     const ms = Math.round(pcm8k.length / 160);
     logger.info(`Som de espera pronto (${ms} ms, loop na consulta)`);

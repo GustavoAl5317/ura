@@ -90,6 +90,8 @@ export const config = {
     toolTypingDelayMs: optInt('TOOL_TYPING_DELAY_MS', 0),
     /** URL de WAV para baixar na inicialização (alternativa ao arquivo local) */
     waitSoundUrl: opt('WAIT_SOUND_URL', ''),
+    /** Volume do som de espera (1.0 = normal, 0.3 = 30% do original) */
+    waitSoundVolume: optFloat('WAIT_SOUND_VOLUME', 0.3),
   },
 
   vad: {
