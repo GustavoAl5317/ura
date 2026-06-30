@@ -632,28 +632,52 @@
       <main id="tab-events" class="tab-pane">
         <div class="toolbar">
           <span class="toolbar-label">Configuração de Eventos</span>
+          <button class="primary" onclick="showAddEventModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            Novo Aviso
+          </button>
         </div>
         
-        <div class="panel-card auto-height" style="max-width: 800px;">
+        <div id="events-container" style="display: flex; flex-direction: column; gap: 1rem; max-width: 800px;">
+          <!-- A lista de eventos será renderizada aqui -->
+        </div>
+
+        <div id="event-modal" class="panel-card auto-height" style="max-width: 800px; display: none; margin-top: 1rem; border-color: var(--accent);">
           <div class="panel-head">
-            <h3>Mensagem Programada da IA</h3>
+            <h3 id="event-modal-title">Adicionar Novo Aviso</h3>
             <span class="hint">O que a IA deve falar para os clientes</span>
           </div>
           <div class="panel-body" style="padding: 1.5rem;">
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
               Configure uma mensagem global que a URA deve informar a todos os clientes que ligarem.
-              Por exemplo, use para avisos de feriados, promoções (ex: <i>"Feliz dia dos pais! Estamos com uma promoção no plano de 1GB"</i>), 
-              ou informações gerais.
             </p>
+            
+            <input type="hidden" id="event-id" />
             
             <div class="form-group">
               <label class="form-label" for="event-text">Texto da Mensagem</label>
-              <textarea id="event-text" class="form-textarea" placeholder="Digite aqui a mensagem que a URA deve falar..."></textarea>
+              <textarea id="event-text" class="form-textarea" placeholder="Ex: Feliz dia dos pais! Estamos com promoção..."></textarea>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="event-start">Início (Opcional)</label>
+                <input type="datetime-local" id="event-start" style="width: 100%; padding: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font);" />
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="event-end">Fim (Opcional)</label>
+                <input type="datetime-local" id="event-end" style="width: 100%; padding: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font);" />
+              </div>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+              <input type="checkbox" id="event-active" checked style="width: 16px; height: 16px;" />
+              <label class="form-label" for="event-active" style="margin-bottom: 0; cursor: pointer;">Aviso Ativo (Ligado)</label>
             </div>
             
             <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
-              <button class="danger" onclick="clearEvent()">Limpar Aviso</button>
-              <button class="primary" onclick="saveEvent()">Salvar Mensagem</button>
+              <button class="ghost" onclick="hideAddEventModal()">Cancelar</button>
+              <button class="primary" onclick="saveEvent()">Salvar Aviso</button>
             </div>
           </div>
         </div>
@@ -695,31 +719,103 @@
     }
 
     // Events API
+    let globalEvents = [];
+
+    function renderEvents() {
+      const container = document.getElementById('events-container');
+      if (!globalEvents || globalEvents.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhum aviso configurado.</div>';
+        return;
+      }
+      container.innerHTML = globalEvents.map(e => `
+        <div class="panel-card auto-height" style="padding: 1.25rem; border-left: 4px solid ${e.active ? 'var(--ok)' : 'var(--text-muted)'};">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+            <div style="flex: 1;">
+              <p style="font-size: 0.95rem; line-height: 1.5; margin-bottom: 0.75rem;">"${escapeHtml(e.message)}"</p>
+              <div style="display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono);">
+                <span>Início: ${e.startTime ? new Date(e.startTime).toLocaleString('pt-BR') : 'Imediato'}</span>
+                <span>Fim: ${e.endTime ? new Date(e.endTime).toLocaleString('pt-BR') : 'Sempre'}</span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <button class="${e.active ? 'danger' : 'success'}" onclick="toggleEventActive('${e.id}')" style="padding: 0.4rem 0.75rem; font-size: 0.75rem;">
+                ${e.active ? 'Desativar' : 'Ativar'}
+              </button>
+              <button class="ghost" onclick="deleteEvent('${e.id}')" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; color: var(--danger);">Excluir</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
     async function loadEvent() {
       try {
-        const data = await api('/api/event');
-        document.getElementById('event-text').value = data.message || '';
+        const data = await api('/api/events');
+        globalEvents = data.events || [];
+        renderEvents();
       } catch (err) {
-        console.error('Erro ao carregar evento:', err);
+        console.error('Erro ao carregar eventos:', err);
       }
     }
     
+    function showAddEventModal() {
+      document.getElementById('event-id').value = '';
+      document.getElementById('event-text').value = '';
+      document.getElementById('event-start').value = '';
+      document.getElementById('event-end').value = '';
+      document.getElementById('event-active').checked = true;
+      document.getElementById('event-modal').style.display = 'block';
+    }
+
+    function hideAddEventModal() {
+      document.getElementById('event-modal').style.display = 'none';
+    }
+
     async function saveEvent() {
       try {
-        const text = document.getElementById('event-text').value;
-        await api('/api/event', { 
-          method: 'POST', 
-          body: JSON.stringify({ message: text }) 
-        });
-        showToast('Mensagem configurada com sucesso!');
+        const id = document.getElementById('event-id').value || Math.random().toString(36).substring(2, 9);
+        const text = document.getElementById('event-text').value.trim();
+        const start = document.getElementById('event-start').value;
+        const end = document.getElementById('event-end').value;
+        const active = document.getElementById('event-active').checked;
+        
+        if (!text) return alert('A mensagem não pode estar vazia.');
+
+        const newEvent = {
+          id,
+          message: text,
+          startTime: start ? new Date(start).toISOString() : null,
+          endTime: end ? new Date(end).toISOString() : null,
+          active
+        };
+
+        const existingIdx = globalEvents.findIndex(e => e.id === id);
+        if (existingIdx >= 0) globalEvents[existingIdx] = newEvent;
+        else globalEvents.push(newEvent);
+
+        await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+        hideAddEventModal();
+        renderEvents();
+        showToast('Aviso salvo com sucesso!');
       } catch (err) {
         alert('Erro ao salvar: ' + err.message);
       }
     }
-    
-    async function clearEvent() {
-      document.getElementById('event-text').value = '';
-      await saveEvent();
+
+    async function toggleEventActive(id) {
+      const evt = globalEvents.find(e => e.id === id);
+      if (evt) evt.active = !evt.active;
+      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+      renderEvents();
+      showToast(evt.active ? 'Aviso ativado' : 'Aviso desativado');
+    }
+
+    async function deleteEvent(id) {
+      if (!confirm('Tem certeza que deseja excluir este aviso?')) return;
+      globalEvents = globalEvents.filter(e => e.id !== id);
+      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+      renderEvents();
+      showToast('Aviso excluído');
     }
 
     // Existing App Logic

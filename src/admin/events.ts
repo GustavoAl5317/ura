@@ -2,35 +2,64 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from '../logger';
 
-const STATE_FILE = path.join(process.cwd(), 'data', 'ura-event.json');
+export interface UraEvent {
+  id: string;
+  message: string;
+  startTime: string | null;
+  endTime: string | null;
+  active: boolean;
+}
 
-let eventMessage = '';
+const STATE_FILE = path.join(process.cwd(), 'data', 'ura-events.json');
 
-function loadEvent(): void {
+let events: UraEvent[] = [];
+
+function loadEvents(): void {
   try {
     if (fs.existsSync(STATE_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as { message?: string };
-      if (typeof raw.message === 'string') eventMessage = raw.message;
+      const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as { events?: UraEvent[] };
+      if (Array.isArray(raw.events)) {
+        events = raw.events;
+      }
     }
-  } catch {
-    // defaults to empty
+  } catch (err) {
+    logger.error('Erro ao carregar ura-events.json', err);
   }
 }
 
-function persistEvent(): void {
+function persistEvents(): void {
   const dir = path.dirname(STATE_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ message: eventMessage, updatedAt: new Date().toISOString() }), 'utf8');
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ events, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
 }
 
-loadEvent();
+loadEvents();
 
-export function getEventMessage(): string {
-  return eventMessage;
+export function getAllEvents(): UraEvent[] {
+  return events;
 }
 
-export function setEventMessage(msg: string): void {
-  eventMessage = msg.trim();
-  persistEvent();
-  logger.info(`Mensagem de evento atualizada: "${eventMessage}"`);
+export function getActiveEvents(): UraEvent[] {
+  const now = new Date();
+  return events.filter(e => {
+    if (!e.active) return false;
+    
+    if (e.startTime) {
+      const start = new Date(e.startTime);
+      if (now < start) return false;
+    }
+    
+    if (e.endTime) {
+      const end = new Date(e.endTime);
+      if (now > end) return false;
+    }
+    
+    return true;
+  });
+}
+
+export function setEvents(newEvents: UraEvent[]): void {
+  events = newEvents;
+  persistEvents();
+  logger.info(`Lista de eventos atualizada: ${events.length} evento(s) configurado(s).`);
 }

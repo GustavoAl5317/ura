@@ -9,7 +9,7 @@ import { isUraEnabled, setUraEnabled, getUraState } from './ura-control';
 import { listAlerts, markAlertRead } from './alerts';
 import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor } from './openai-audit-monitor';
 import { getOpenAiSnapshot, refreshOpenAiUsage, startOpenAiMonitor } from './openai-monitor';
-import { getEventMessage, setEventMessage } from './events';
+import { getAllEvents, setEvents, UraEvent } from './events';
 
 const PANEL_DIR = path.join(process.cwd(), 'panel');
 
@@ -124,15 +124,15 @@ export function startAdminServer(): void {
       return json(res, 200, { enabled: false });
     }
 
-    // ── Mensagem de Evento ───────────────────────────────────────────────
-    if (req.method === 'GET' && pathname === '/api/event') {
-      return json(res, 200, { message: getEventMessage() });
+    // ── Eventos / Avisos ─────────────────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/events') {
+      return json(res, 200, { events: getAllEvents() });
     }
 
-    if (req.method === 'POST' && pathname === '/api/event') {
-      const body = JSON.parse(await readBody(req)) as { message?: string };
-      setEventMessage(body.message || '');
-      return json(res, 200, { ok: true, message: getEventMessage() });
+    if (req.method === 'POST' && pathname === '/api/events') {
+      const body = JSON.parse(await readBody(req)) as { events?: UraEvent[] };
+      setEvents(body.events || []);
+      return json(res, 200, { ok: true, events: getAllEvents() });
     }
 
     // ── Sessões ativas ───────────────────────────────────────────────────

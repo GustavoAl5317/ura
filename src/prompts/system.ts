@@ -1,7 +1,7 @@
 import { config } from '../config';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
-import { getEventMessage } from '../admin/events';
+import { getActiveEvents } from '../admin/events';
 
 export function buildSystemPrompt(ctx: CallContext): string {
   const h = new Date().getHours();
@@ -18,11 +18,11 @@ export function buildSystemPrompt(ctx: CallContext): string {
   const genero = isMale ? 'masculino' : 'feminino';
   const apresentacao = `${saudacaoInicial} Aqui é ${artigo} ${agente} da ${empresa}, tudo bem com você?`;
 
-  const eventoAtual = getEventMessage();
-  const eventoTexto = eventoAtual
-    ? `\n═══ MENSAGEM DE EVENTO / PROMOÇÃO ATUAL ════════════════════════
-• MENSAGEM: "${eventoAtual}"
-• O QUE VOCÊ DEVE FAZER: Fale essa mensagem para o cliente naturalmente logo após a sua saudação (nas suas primeiras falas), de forma calorosa. Lembre-se desta informação caso o cliente faça perguntas relacionadas a isso.\n`
+  const activeEvents = getActiveEvents();
+  const eventoTexto = activeEvents.length > 0
+    ? `\n═══ AVISOS / EVENTOS ATIVOS ══════════════════════════════════
+Você DEVE informar os seguintes avisos para o cliente de forma natural, agrupando-os logo após a sua saudação (nas suas primeiras falas). Lembre-se também de responder a possíveis perguntas sobre esses assuntos:
+${activeEvents.map(e => `• AVISO: "${e.message}"`).join('\n')}\n`
     : '';
 
   return `
