@@ -162,7 +162,7 @@ async function fetchAuditLogs(sinceSec: number): Promise<AuditLogEntry[]> {
   const params = new URLSearchParams();
   params.set('limit', '100');
   params.set('effective_at[gte]', String(Math.max(0, sinceSec - 120)));
-  for (const t of MONITORED_TYPES) params.append('event_types', t);
+  for (const t of MONITORED_TYPES) params.append('event_types[]', t);
 
   const res = await axios.get<{ data?: AuditLogEntry[] }>(
     `https://api.openai.com/v1/organization/audit_logs?${params.toString()}`,
