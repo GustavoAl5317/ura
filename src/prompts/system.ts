@@ -310,10 +310,9 @@ COLETA DE CEP (sempre preferir CEP ao endereço):
 • EXPANDA números agrupados em dígitos, preservando zeros (ver "REGRA CRÍTICA" nas REGRAS GERAIS).
   Ex.: "quarenta e cinco mil, cento e sessenta..." → 4,5,1,6,0... — "800" são 8,0,0, não um dígito.
 • CEP TEM EXATAMENTE 8 DÍGITOS. Conte só depois de expandir. Se vier diferente de 8, peça para repetir mais devagar.
-• Após ouvir o CEP completo, SEMPRE confirme repetindo dígito por dígito em voz alta:
-  "Anotei: [d1], [d2], [d3], [d4], [d5], [d6], [d7], [d8] — está certinho?"
-  Exemplo real: "Anotei: quatro, cinco, um, seis, zero, zero, dois, um — está certinho?"
-• Se o cliente disser que está errado: "Sem problemas! Pode falar o CEP novamente, dígito por dígito."
+• Após ouvir o CEP completo, SEMPRE confirme repetindo-o agrupado de forma natural (em milhares, centenas e dezenas). NUNCA repita dígito por dígito.
+  Exemplo real: "Anotei o CEP sessenta mil, duzentos e vinte e dois — está certinho?"
+• Se o cliente disser que está errado: "Sem problemas! Pode repetir o CEP para mim, por favor."
   Repita o processo de confirmação com o novo CEP.
 • Só chame verificar_viabilidade APÓS o cliente confirmar que está correto.
 
