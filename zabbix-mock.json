@@ -1,0 +1,10 @@
+{
+  "eventid": "9999",
+  "nome": "Queda massiva na CTO 6 R. POMAR CARIOCA",
+  "severidade": 4,
+  "host": "POMAR CARIOCA",
+  "hostVisivel": "POMAR CARIOCA",
+  "tipo": "cto_off",
+  "desde": "2026-06-30T10:00:00.000Z",
+  "resumo": "Queda na CTO POMAR CARIOCA simulada para testes."
+}

@@ -1338,7 +1338,30 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     }
 
     const endStr = [logradouro, numero, bairro, cidade].filter(Boolean).join(', ');
-    const cepStr = args.cep ? String(args.cep) : '';
+    let cepStr = args.cep ? String(args.cep) : '';
+
+    // Fallback: ViaCEP para descobrir o CEP pela rua e cidade (se não fornecido)
+    if (!cepStr && logradouro && cidade) {
+      try {
+        const ax = require('axios');
+        // Usa estado padrao do config
+        const uf = config.defaultUf || 'CE';
+        const url = `https://viacep.com.br/ws/${uf}/${encodeURIComponent(cidade)}/${encodeURIComponent(logradouro)}/json/`;
+        const resp = await ax.get(url, { timeout: 3500 });
+        if (Array.isArray(resp.data) && resp.data.length > 0) {
+          let match = resp.data[0];
+          if (bairro) {
+            const mBairro = resp.data.find((d: any) => d.bairro && d.bairro.toLowerCase().includes(bairro.toLowerCase()));
+            if (mBairro) match = mBairro;
+          }
+          cepStr = match.cep.replace(/\D/g, '');
+          ctx.log.push(`ViaCEP fallback descobriu o CEP: ${cepStr} (${match.logradouro})`);
+        }
+      } catch (err: any) {
+        ctx.log.push(`ViaCEP fallback falhou: ${err.message || ''}`);
+      }
+    }
+
     ctx.enderecoConsultado = endStr || cepStr;
 
     // 1. SEMPRE consulta a CTO no GeoSite — é quem conhece as portas disponíveis.

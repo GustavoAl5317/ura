@@ -23,6 +23,7 @@ const optBool = (key: string, def = false) => {
 };
 
 export const config = {
+  defaultUf: process.env.DEFAULT_UF || "CE",
   tz: opt('TZ', 'America/Fortaleza'),
 
   audiosocket: {
