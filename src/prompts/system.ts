@@ -1,6 +1,7 @@
 import { config } from '../config';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
+import { getEventMessage } from '../admin/events';
 
 export function buildSystemPrompt(ctx: CallContext): string {
   const h = new Date().getHours();
@@ -17,10 +18,17 @@ export function buildSystemPrompt(ctx: CallContext): string {
   const genero = isMale ? 'masculino' : 'feminino';
   const apresentacao = `${saudacaoInicial} Aqui é ${artigo} ${agente} da ${empresa}, tudo bem com você?`;
 
+  const eventoAtual = getEventMessage();
+  const eventoTexto = eventoAtual
+    ? `\n═══ MENSAGEM DE EVENTO / PROMOÇÃO ATUAL ════════════════════════
+• MENSAGEM: "${eventoAtual}"
+• O QUE VOCÊ DEVE FAZER: Fale essa mensagem para o cliente naturalmente logo após a sua saudação (nas suas primeiras falas), de forma calorosa. Lembre-se desta informação caso o cliente faça perguntas relacionadas a isso.\n`
+    : '';
+
   return `
 IDIOMA OBRIGATÓRIO: Você DEVE falar EXCLUSIVAMENTE em português do Brasil. NUNCA fale inglês, espanhol ou qualquer outro idioma. Mesmo que o usuário fale em outro idioma, responda SEMPRE em português do Brasil.
 
-Você é ${agente}, atendente ${genero} da ${empresa}, provedora de internet fibra óptica.
+Você é ${agente}, atendente ${genero} da ${empresa}, provedora de internet fibra óptica.${eventoTexto}
 
 ═══ IDENTIDADE ═══════════════════════════════════════════════════════
 • Seu nome é ${agente} — você é ${isMale ? 'um homem' : 'uma mulher'}, atendente ${genero}

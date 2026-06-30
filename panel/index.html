@@ -45,6 +45,7 @@
       min-height: 100vh;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
     body::before {
@@ -58,33 +59,40 @@
       z-index: 0;
     }
 
-    .app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
-
-    /* ── Header ── */
-    .header {
+    .app-layout {
+      position: relative;
+      z-index: 1;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 0.875rem 1.75rem;
-      border-bottom: 1px solid var(--border);
-      background: rgba(14, 18, 25, 0.85);
-      backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 100;
+      min-height: 100vh;
     }
 
-    .brand {
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px;
+      background: rgba(14, 18, 25, 0.85);
+      backdrop-filter: blur(12px);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 200;
+    }
+
+    .sidebar-header {
+      padding: 1.5rem 1.25rem;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 0.875rem;
     }
 
     .brand-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 11px;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
       background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
       display: flex;
       align-items: center;
@@ -92,19 +100,77 @@
       box-shadow: 0 4px 16px var(--accent-glow);
     }
 
-    .brand-icon svg { width: 22px; height: 22px; color: #fff; }
+    .brand-icon svg { width: 18px; height: 18px; color: #fff; }
 
     .brand-text h1 {
-      font-size: 1.05rem;
+      font-size: 1.1rem;
       font-weight: 700;
       letter-spacing: -0.02em;
-      line-height: 1.2;
+      line-height: 1;
+      margin-bottom: 0.2rem;
     }
 
     .brand-text span {
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       color: var(--text-muted);
       font-weight: 500;
+    }
+
+    .nav-menu {
+      padding: 1.25rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .nav-item:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .nav-item svg { width: 18px; height: 18px; opacity: 0.9; }
+
+    /* ── Main Content Area ── */
+    .content-wrapper {
+      flex: 1;
+      margin-left: 260px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 1rem;
+      padding: 0.875rem 1.75rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(14, 18, 25, 0.65);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
 
     .header-right {
@@ -112,7 +178,6 @@
       align-items: center;
       gap: 0.75rem;
       flex-wrap: wrap;
-      justify-content: flex-end;
     }
 
     .status-pill {
@@ -178,14 +243,16 @@
 
     .auth-group input::placeholder { color: var(--text-muted); }
 
-    /* ── Main ── */
+    /* ── Main Tab Content ── */
     main {
       flex: 1;
       padding: 1.5rem 1.75rem 2.5rem;
-      max-width: 1440px;
-      margin: 0 auto;
       width: 100%;
+      max-width: 1200px;
     }
+
+    .tab-pane { display: none; animation: fadeIn 0.3s ease; }
+    .tab-pane.active { display: block; }
 
     .toolbar {
       display: flex;
@@ -228,38 +295,18 @@
     }
 
     button:active { transform: scale(0.98); }
-
     button svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.85; }
 
-    button.primary {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-      box-shadow: 0 2px 12px var(--accent-glow);
-    }
-
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 2px 12px var(--accent-glow); }
     button.primary:hover { background: #2563eb; border-color: #2563eb; }
-
-    button.success {
-      background: rgba(22, 163, 74, 0.9);
-      border-color: #16a34a;
-      color: #fff;
-    }
-
+    
+    button.success { background: rgba(22, 163, 74, 0.9); border-color: #16a34a; color: #fff; }
     button.success:hover { background: #15803d; }
-
-    button.danger {
-      background: rgba(185, 28, 28, 0.85);
-      border-color: #b91c1c;
-      color: #fff;
-    }
-
+    
+    button.danger { background: rgba(185, 28, 28, 0.85); border-color: #b91c1c; color: #fff; }
     button.danger:hover { background: #991b1b; }
-
-    button.ghost {
-      background: transparent;
-      border-color: var(--border);
-    }
+    
+    button.ghost { background: transparent; border-color: var(--border); }
 
     /* ── Stats ── */
     .stats {
@@ -269,7 +316,7 @@
       margin-bottom: 1.5rem;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 1024px) {
       .stats { grid-template-columns: 1fr; }
     }
 
@@ -298,7 +345,6 @@
       justify-content: center;
       flex-shrink: 0;
     }
-
     .stat-icon svg { width: 22px; height: 22px; }
 
     .stat-icon.calls { background: var(--accent-soft); color: var(--accent); }
@@ -306,30 +352,9 @@
     .stat-icon.uptime { background: var(--ok-soft); color: var(--ok); }
 
     .stat-body { min-width: 0; flex: 1; }
-
-    .stat-label {
-      font-size: 0.72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--text-muted);
-      margin-bottom: 0.35rem;
-    }
-
-    .stat-value {
-      font-size: 1.85rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.1;
-    }
-
-    .stat-sub {
-      font-size: 0.78rem;
-      color: var(--text-secondary);
-      margin-top: 0.4rem;
-      line-height: 1.4;
-    }
-
+    .stat-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 0.35rem; }
+    .stat-value { font-size: 1.85rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+    .stat-sub { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.4rem; line-height: 1.4; }
     .stat-sub.error { color: #fbbf24; }
 
     /* ── Layout ── */
@@ -354,6 +379,8 @@
       overflow: hidden;
     }
 
+    .panel-card.auto-height { min-height: auto; }
+
     .panel-head {
       padding: 1rem 1.25rem;
       border-bottom: 1px solid var(--border);
@@ -363,17 +390,8 @@
       gap: 0.5rem;
     }
 
-    .panel-head h3 {
-      font-size: 0.92rem;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }
-
-    .panel-head .hint {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
+    .panel-head h3 { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
+    .panel-head .hint { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
 
     .panel-body {
       flex: 1;
@@ -383,10 +401,7 @@
     }
 
     .panel-body::-webkit-scrollbar { width: 6px; }
-    .panel-body::-webkit-scrollbar-thumb {
-      background: var(--border-strong);
-      border-radius: 3px;
-    }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
     .panel-foot {
       padding: 0.65rem 1.25rem;
@@ -396,215 +411,81 @@
     }
 
     /* Sessions */
-    .session-item {
-      padding: 0.9rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
+    .session-item { padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
     .session-item:hover { background: var(--surface-hover); }
-
-    .session-item.active {
-      background: var(--accent-soft);
-      border-left: 3px solid var(--accent);
-      padding-left: calc(1.25rem - 3px);
-    }
-
-    .session-number {
-      font-weight: 600;
-      font-size: 0.9rem;
-      font-family: var(--mono);
-      letter-spacing: -0.02em;
-    }
-
-    .session-name {
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      margin-top: 0.15rem;
-    }
-
-    .session-meta {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      margin-top: 0.35rem;
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-    }
-
-    .session-meta .tag {
-      background: var(--bg-elevated);
-      padding: 0.1rem 0.45rem;
-      border-radius: 4px;
-      font-family: var(--mono);
-      font-size: 0.68rem;
-    }
-
-    .empty-state {
-      padding: 2.5rem 1.5rem;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }
-
-    .empty-state svg {
-      width: 40px;
-      height: 40px;
-      opacity: 0.35;
-      margin-bottom: 0.75rem;
-    }
+    .session-item.active { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: calc(1.25rem - 3px); }
+    .session-number { font-weight: 600; font-size: 0.9rem; font-family: var(--mono); letter-spacing: -0.02em; }
+    .session-name { font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.15rem; }
+    .session-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; display: flex; gap: 0.5rem; align-items: center; }
+    .session-meta .tag { background: var(--bg-elevated); padding: 0.1rem 0.45rem; border-radius: 4px; font-family: var(--mono); font-size: 0.68rem; }
+    .empty-state { padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+    .empty-state svg { width: 40px; height: 40px; opacity: 0.35; margin-bottom: 0.75rem; }
 
     /* Feed */
     .feed { padding: 0.75rem; }
-
-    .event {
-      padding: 0.65rem 0.85rem;
-      margin-bottom: 0.45rem;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 0.84rem;
-      line-height: 1.45;
-      animation: fadeIn 0.2s ease;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
+    .event { padding: 0.65rem 0.85rem; margin-bottom: 0.45rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.84rem; line-height: 1.45; animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
     .event.client { border-left: 3px solid #60a5fa; }
     .event.ana { border-left: 3px solid var(--purple); }
     .event.tool { border-left: 3px solid var(--warn); }
-
-    .event-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-      margin-bottom: 0.3rem;
-    }
-
-    .event-who {
-      font-size: 0.72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
+    .event-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
+    .event-who { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
     .event.client .event-who { color: #60a5fa; }
     .event.ana .event-who { color: var(--purple); }
     .event.tool .event-who { color: var(--warn); }
-
-    .event .time {
-      color: var(--text-muted);
-      font-size: 0.7rem;
-      font-family: var(--mono);
-    }
-
+    .event .time { color: var(--text-muted); font-size: 0.7rem; font-family: var(--mono); }
     .event-msg { color: var(--text-secondary); }
 
     /* Bottom sections */
-    .bottom-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      margin-top: 1rem;
-    }
-
-    @media (max-width: 900px) {
-      .bottom-grid { grid-template-columns: 1fr; }
-    }
-
+    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
     .bottom-grid .panel-card { min-height: 280px; }
-
-    .alert-item {
-      padding: 0.75rem 1rem;
-      border-radius: var(--radius-sm);
-      margin: 0.5rem 0.75rem;
-      font-size: 0.84rem;
-      border: 1px solid;
-    }
-
-    .alert-item.warn {
-      background: var(--warn-soft);
-      border-color: rgba(245, 158, 11, 0.3);
-    }
-
-    .alert-item.critical {
-      background: var(--danger-soft);
-      border-color: rgba(239, 68, 68, 0.3);
-    }
-
-    .alert-item.info {
-      background: var(--accent-soft);
-      border-color: rgba(59, 130, 246, 0.3);
-    }
-
-    .alert-item strong {
-      display: block;
-      font-size: 0.85rem;
-      margin-bottom: 0.2rem;
-    }
-
-    .alert-item .time {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      margin-top: 0.35rem;
-      font-family: var(--mono);
-    }
-
-    .history-item {
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.84rem;
-      transition: background 0.15s;
-    }
-
+    .alert-item { padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin: 0.5rem 0.75rem; font-size: 0.84rem; border: 1px solid; }
+    .alert-item.warn { background: var(--warn-soft); border-color: rgba(245, 158, 11, 0.3); }
+    .alert-item.critical { background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.3); }
+    .alert-item.info { background: var(--accent-soft); border-color: rgba(59, 130, 246, 0.3); }
+    .alert-item strong { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; }
+    .alert-item .time { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--mono); }
+    .history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.84rem; transition: background 0.15s; }
     .history-item:hover { background: var(--surface-hover); }
-
-    .history-item .time {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      font-family: var(--mono);
-      margin-bottom: 0.25rem;
-    }
-
+    .history-item .time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--mono); margin-bottom: 0.25rem; }
     .history-item .detail { color: var(--text-secondary); }
+    
+    .footer-note { margin-top: 1.5rem; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; }
+    .footer-note code { font-family: var(--mono); font-size: 0.72rem; background: var(--bg-elevated); padding: 0.1rem 0.35rem; border-radius: 4px; color: var(--text-secondary); }
 
-    .footer-note {
-      margin-top: 1.5rem;
-      padding: 1rem 1.25rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      line-height: 1.6;
+    /* Form Fields */
+    .form-group { margin-bottom: 1.5rem; }
+    .form-label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+    .form-textarea { width: 100%; padding: 0.875rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font); font-size: 0.95rem; resize: vertical; min-height: 120px; transition: border-color 0.2s; outline: none; }
+    .form-textarea:focus { border-color: var(--accent); }
+    
+    /* Toast */
+    .toast { position: fixed; bottom: 20px; right: 20px; background: var(--ok); color: white; padding: 0.75rem 1.25rem; border-radius: var(--radius-sm); font-weight: 500; font-size: 0.9rem; box-shadow: var(--shadow); transform: translateY(100px); opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+      .sidebar.open { transform: translateX(0); }
+      .content-wrapper { margin-left: 0; }
+      .mobile-menu-btn { display: block !important; }
     }
-
-    .footer-note code {
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      background: var(--bg-elevated);
-      padding: 0.1rem 0.35rem;
-      border-radius: 4px;
-      color: var(--text-secondary);
-    }
-
-    @media (max-width: 640px) {
-      .header { padding: 0.75rem 1rem; }
-      main { padding: 1rem; }
-      .auth-group input { width: 140px; }
-      .brand-text span { display: none; }
+    
+    .mobile-menu-btn {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      padding: 0.5rem;
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header class="header">
-      <div class="brand">
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
         <div class="brand-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
@@ -614,125 +495,234 @@
         </div>
         <div class="brand-text">
           <h1>URA AI</h1>
-          <span>Aquitelecom · Painel de operações</span>
+          <span>Painel de operações</span>
         </div>
       </div>
-      <div class="header-right">
-        <span id="ura-badge" class="status-pill on">
-          <span class="status-dot"></span>
-          URA ligada
-        </span>
-        <div class="auth-group">
-          <input type="password" id="api-key" placeholder="Chave API" />
-          <button class="ghost" onclick="saveKey()">Salvar</button>
-        </div>
-      </div>
-    </header>
+      <nav class="nav-menu">
+        <a href="#" class="nav-item active" onclick="switchTab('dashboard', this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Dashboard
+        </a>
+        <a href="#" class="nav-item" onclick="switchTab('events', this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M11 9h2M12 8v2"></path></svg>
+          Mensagens da URA
+        </a>
+      </nav>
+    </aside>
 
-    <main>
-      <div class="toolbar">
-        <span class="toolbar-label">Controles</span>
-        <div class="btn-group">
-          <button class="success" onclick="setUra(true)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Ligar URA
-          </button>
-          <button class="danger" onclick="setUra(false)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
-            Desligar URA
-          </button>
-          <button onclick="refresh()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-            Atualizar
-          </button>
-          <button class="primary" onclick="refreshOpenAi()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            Gasto OpenAI
-          </button>
+    <div class="content-wrapper">
+      <!-- Header -->
+      <header class="header">
+        <button class="mobile-menu-btn" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div style="flex:1"></div>
+        <div class="header-right">
+          <span id="ura-badge" class="status-pill on">
+            <span class="status-dot"></span>
+            URA ligada
+          </span>
+          <div class="auth-group">
+            <input type="password" id="api-key" placeholder="Chave API" />
+            <button class="ghost" onclick="saveKey()">Salvar</button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      <div class="stats">
-        <div class="stat-card">
-          <div class="stat-icon calls">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-label">Ligações ativas</div>
-            <div class="stat-value" id="active-calls">—</div>
-            <div class="stat-sub">chamadas em andamento agora</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon openai">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-label">Gasto OpenAI (mês)</div>
-            <div class="stat-value" id="openai-usage">—</div>
-            <div class="stat-sub" id="openai-sub">atualiza automaticamente</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon uptime">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-label">Uptime</div>
-            <div class="stat-value" id="uptime">—</div>
-            <div class="stat-sub">processo ura-ai em execução</div>
+      <!-- Dashboard Tab -->
+      <main id="tab-dashboard" class="tab-pane active">
+        <div class="toolbar">
+          <span class="toolbar-label">Controles Rápidos</span>
+          <div class="btn-group">
+            <button class="success" onclick="setUra(true)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Ligar URA
+            </button>
+            <button class="danger" onclick="setUra(false)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
+              Desligar URA
+            </button>
+            <button onclick="refresh()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+              Atualizar
+            </button>
+            <button class="primary" onclick="refreshOpenAi()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Gasto OpenAI
+            </button>
           </div>
         </div>
-      </div>
 
-      <div class="layout">
-        <div class="panel-card">
+        <div class="stats">
+          <div class="stat-card">
+            <div class="stat-icon calls">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">Ligações ativas</div>
+              <div class="stat-value" id="active-calls">—</div>
+              <div class="stat-sub">chamadas em andamento agora</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon openai">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">Gasto OpenAI (mês)</div>
+              <div class="stat-value" id="openai-usage">—</div>
+              <div class="stat-sub" id="openai-sub">atualiza automaticamente</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon uptime">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">Uptime</div>
+              <div class="stat-value" id="uptime">—</div>
+              <div class="stat-sub">processo ura-ai em execução</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="layout">
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>Ligações ao vivo</h3>
+              <span class="hint">clique para monitorar</span>
+            </div>
+            <div class="panel-body" id="sessions-list"></div>
+            <div class="panel-foot">Atualização em tempo real via SSE</div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3 id="feed-title">Feed em tempo real</h3>
+              <span class="hint">Ana · Cliente · Tools</span>
+            </div>
+            <div class="panel-body feed" id="live-feed"></div>
+            <div class="panel-foot">Últimos 150 eventos da ligação selecionada</div>
+          </div>
+        </div>
+
+        <div class="bottom-grid">
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>Alertas</h3>
+              <span class="hint">gasto · sistema</span>
+            </div>
+            <div class="panel-body" id="alerts-list"></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>Histórico de chamadas</h3>
+              <span class="hint">últimas 30</span>
+            </div>
+            <div class="panel-body" id="history-list"></div>
+          </div>
+        </div>
+
+        <p class="footer-note" id="audit-note">
+          Monitor de login OpenAI: ative Audit logging em platform.openai.com → Settings → Data controls.
+          Alertas no WhatsApp: <code>ADMIN_ALERT_WHATSAPP</code>.
+        </p>
+      </main>
+
+      <!-- Events Tab -->
+      <main id="tab-events" class="tab-pane">
+        <div class="toolbar">
+          <span class="toolbar-label">Configuração de Eventos</span>
+        </div>
+        
+        <div class="panel-card auto-height" style="max-width: 800px;">
           <div class="panel-head">
-            <h3>Ligações ao vivo</h3>
-            <span class="hint">clique para monitorar</span>
+            <h3>Mensagem Programada da IA</h3>
+            <span class="hint">O que a IA deve falar para os clientes</span>
           </div>
-          <div class="panel-body" id="sessions-list"></div>
-          <div class="panel-foot">Atualização em tempo real via SSE</div>
-        </div>
-        <div class="panel-card">
-          <div class="panel-head">
-            <h3 id="feed-title">Feed em tempo real</h3>
-            <span class="hint">Ana · Cliente · Tools</span>
+          <div class="panel-body" style="padding: 1.5rem;">
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
+              Configure uma mensagem global que a URA deve informar a todos os clientes que ligarem.
+              Por exemplo, use para avisos de feriados, promoções (ex: <i>"Feliz dia dos pais! Estamos com uma promoção no plano de 1GB"</i>), 
+              ou informações gerais.
+            </p>
+            
+            <div class="form-group">
+              <label class="form-label" for="event-text">Texto da Mensagem</label>
+              <textarea id="event-text" class="form-textarea" placeholder="Digite aqui a mensagem que a URA deve falar..."></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+              <button class="danger" onclick="clearEvent()">Limpar Aviso</button>
+              <button class="primary" onclick="saveEvent()">Salvar Mensagem</button>
+            </div>
           </div>
-          <div class="panel-body feed" id="live-feed"></div>
-          <div class="panel-foot">Últimos 150 eventos da ligação selecionada</div>
         </div>
-      </div>
-
-      <div class="bottom-grid">
-        <div class="panel-card">
-          <div class="panel-head">
-            <h3>Alertas</h3>
-            <span class="hint">gasto · sistema</span>
-          </div>
-          <div class="panel-body" id="alerts-list"></div>
-        </div>
-        <div class="panel-card">
-          <div class="panel-head">
-            <h3>Histórico de chamadas</h3>
-            <span class="hint">últimas 30</span>
-          </div>
-          <div class="panel-body" id="history-list"></div>
-        </div>
-      </div>
-
-      <p class="footer-note" id="audit-note">
-        Monitor de login OpenAI: ative Audit logging em platform.openai.com → Settings → Data controls.
-        Alertas no WhatsApp: <code>ADMIN_ALERT_WHATSAPP</code> (usa Evolution já configurada).
-      </p>
-    </main>
+      </main>
+    </div>
   </div>
+
+  <div id="toast" class="toast">Mensagem salva com sucesso!</div>
 
   <script>
     const API = '';
     let selectedCallId = null;
     let evtSource = null;
 
+    // UI Tab Switcher
+    function switchTab(tabId, el) {
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      if (el) el.classList.add('active');
+      
+      if (window.innerWidth <= 768) toggleSidebar();
+      
+      if (tabId === 'events') {
+        loadEvent();
+      }
+    }
+    
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+    }
+    
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // Events API
+    async function loadEvent() {
+      try {
+        const data = await api('/api/event');
+        document.getElementById('event-text').value = data.message || '';
+      } catch (err) {
+        console.error('Erro ao carregar evento:', err);
+      }
+    }
+    
+    async function saveEvent() {
+      try {
+        const text = document.getElementById('event-text').value;
+        await api('/api/event', { 
+          method: 'POST', 
+          body: JSON.stringify({ message: text }) 
+        });
+        showToast('Mensagem configurada com sucesso!');
+      } catch (err) {
+        alert('Erro ao salvar: ' + err.message);
+      }
+    }
+    
+    async function clearEvent() {
+      document.getElementById('event-text').value = '';
+      await saveEvent();
+    }
+
+    // Existing App Logic
     function getKey() {
       return localStorage.getItem('ura_admin_key') || '';
     }
