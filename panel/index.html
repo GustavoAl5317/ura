@@ -484,28 +484,6 @@
 </head>
 <body>
 
-  <div id="login-overlay" style="position: fixed; inset: 0; background: var(--bg); z-index: 99999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
-    <div class="panel-card" style="padding: 2.5rem; width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--accent); box-shadow: 0 0 40px rgba(59, 130, 246, 0.2);">
-      <div class="header-logo" style="margin-bottom: 2rem; justify-content: center;">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12 2.1 7.1"/></svg>
-        </div>
-        <div>URA <span style="color: var(--accent);">AI</span></div>
-      </div>
-      <h3 style="margin-bottom: 0.5rem;">Acesso Restrito</h3>
-      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Por favor, informe a senha de acesso (Admin API Key).</p>
-      
-      <div class="form-group" style="text-align: left;">
-        <input type="password" id="login-pwd" class="form-textarea" placeholder="Sua senha..." style="height: 48px; border-radius: var(--radius-sm);" onkeydown="if(event.key === 'Enter') doLogin()" />
-      </div>
-      
-      <button class="primary" onclick="doLogin()" style="width: 100%; justify-content: center; padding: 1rem; font-size: 1rem; border-radius: var(--radius-sm);">
-        Acessar Painel
-      </button>
-      <div id="login-error" style="color: var(--danger); font-size: 0.85rem; margin-top: 1rem; display: none;">Senha incorreta ou sem permissão.</div>
-    </div>
-  </div>
-  
   <div class="app-layout">
     <div id="sidebar-overlay" class="sidebar-overlay" ></div>
     <!-- Sidebar -->
@@ -550,10 +528,6 @@
             <span class="status-dot"></span>
             URA ligada
           </span>
-          <div class="auth-group">
-            <input type="password" id="api-key" placeholder="Chave API" />
-            <button class="ghost" onclick="saveKey()">Salvar</button>
-          </div>
         </div>
       </header>
 
@@ -753,46 +727,7 @@
   <script>
     const API = '';
     let selectedCallId = null;
-    let evtSource = null;
 
-    
-    // Login Logic
-    function getKey() {
-      return localStorage.getItem('ura_admin_key') || '';
-    }
-    
-    function saveKey(key) {
-      localStorage.setItem('ura_admin_key', key);
-    }
-    
-    async function checkLogin() {
-      const key = getKey();
-      if (!key) {
-        document.getElementById('login-overlay').style.display = 'flex';
-        return;
-      }
-      
-      try {
-        const res = await fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + key }});
-        if (res.ok) {
-          document.getElementById('login-overlay').style.display = 'none';
-          initializeApp();
-        } else {
-          document.getElementById('login-overlay').style.display = 'flex';
-          document.getElementById('login-error').style.display = 'block';
-        }
-      } catch (err) {
-        // block
-      }
-    }
-    
-    async function doLogin() {
-      const pwd = document.getElementById('login-pwd').value;
-      if (!pwd) return;
-      saveKey(pwd);
-      document.getElementById('login-error').style.display = 'none';
-      await checkLogin();
-    }
 
     // App Initialization after Login
     function initializeApp() {
@@ -805,7 +740,7 @@
 
     // Wait for DOM
     document.addEventListener("DOMContentLoaded", () => {
-      checkLogin();
+      initializeApp();
     });
 
     // Fix sidebar logic
