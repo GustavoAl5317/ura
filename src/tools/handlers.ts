@@ -340,7 +340,7 @@ function orientacaoFinanceiro(params: {
       'Avalie desbloqueio_confianca ou oriente contato comercial.';
   }
 
-  return orientacao + ' ATENÇÃO: Consulta financeira concluída. AGORA VOCÊ DEVE FALAR com o cliente (gere a sua resposta em texto para voz). Pergunte como pode ajudar, OU se ele já relatou problema de internet, chame verificar_massiva.';
+  return orientacao;
 }
 
 function resolverFaturaIdPriorizandoVencida(
@@ -791,6 +791,11 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const temFaturasAbertas = tits.length > 0;
     const temFaturasVencidas = vencidas.length > 0;
 
+    // Executa diagnóstico de rede (Zabbix) simultaneamente para agilizar o atendimento
+    await carregarOnuParaInfra(ctx);
+    const z = await zabbix.diagnosticar(ctx);
+    const zabbixResult = mapZabbixParaTool(z);
+
     return {
       contrato_id: contratoId,
       inadimplente,
@@ -802,28 +807,21 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       fala_obrigatoria: servicoSuspensoFinanceiro ? FALA_SUSPENSAO_FINANCEIRA : null,
       tem_faturas_abertas: temFaturasAbertas,
       tem_faturas_vencidas: temFaturasVencidas,
-      total_vencido: temFaturasVencidas
-        ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}`
-        : null,
-      total_vencido_falado: temFaturasVencidas
-        ? valorPorExtenso(valorTotalVencido)
-        : null,
-      total_a_vencer: aVencer.length > 0
-        ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}`
-        : null,
-      total_a_vencer_falado: aVencer.length > 0
-        ? valorPorExtenso(valorTotalAVencer)
-        : null,
+      total_vencido: temFaturasVencidas ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}` : null,
+      total_vencido_falado: temFaturasVencidas ? valorPorExtenso(valorTotalVencido) : null,
+      total_a_vencer: aVencer.length > 0 ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}` : null,
+      total_a_vencer_falado: aVencer.length > 0 ? valorPorExtenso(valorTotalAVencer) : null,
       faturas_vencidas: vencidas.slice(0, 5).map(mapFaturaResumo),
       faturas_a_vencer: aVencer.slice(0, 3).map(mapFaturaResumo),
       faturas: vencidas.slice(0, 5).map(mapFaturaResumo),
+      diagnostico_rede: zabbixResult,
       orientacao: orientacaoFinanceiro({
         vencidas,
         aVencer,
         contratoSuspenso,
         bloqueioFinanceiro,
         servicoSuspensoFinanceiro,
-      }),
+      }) + (zabbixResult.tem_incidente ? ` IMPORTANTE: Há uma falha na rede detectada (${zabbixResult.orientacao}). Comunique a situação financeira e IMEDIATAMENTE informe o cliente sobre o incidente de rede.` : ''),
     };
   });
 
