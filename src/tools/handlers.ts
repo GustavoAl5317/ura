@@ -316,47 +316,31 @@ function orientacaoFinanceiro(params: {
   const prefixoSuspensao = servicoSuspensoFinanceiro
     ? 'OBRIGATÓRIO: comece sua fala com fala_obrigatoria (texto exato do campo). '
     : '';
+    
+  let orientacao = 'Situação financeira regular — sem faturas pendentes.';
 
   if (vencidas.length > 0 && (contratoSuspenso || bloqueioFinanceiro)) {
-    return (
-      prefixoSuspensao +
+    orientacao = prefixoSuspensao +
       `Há ${vencidas.length} fatura(s) VENCIDA(s). Informe valor e vencimento da vencida e ` +
-      'ofereça segunda via/PIX (faturas_vencidas[].id). NÃO envie faturas a vencer sem o cliente pedir.'
-    );
-  }
-
-  if (vencidas.length > 0) {
-    return (
-      'Há fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ' +
-      'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.'
-    );
-  }
-
-  if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
-    return (
-      prefixoSuspensao +
+      'ofereça segunda via/PIX (faturas_vencidas[].id). NÃO envie faturas a vencer sem o cliente pedir.';
+  } else if (vencidas.length > 0) {
+    orientacao = `Há ${vencidas.length} fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ` +
+      'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.';
+  } else if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
+    orientacao = prefixoSuspensao +
       'Há fatura(s) em aberto sem data vencida. Explique a suspensão; se o cliente pedir boleto, ' +
-      'liste faturas_a_vencer e use gerar_segunda_via com fatura_id.'
-    );
-  }
-
-  if (aVencer.length > 0) {
-    return (
-      'Há fatura(s) a vencer, mas NENHUMA vencida. NÃO ofereça boleto automaticamente. ' +
+      'liste faturas_a_vencer e use gerar_segunda_via com fatura_id.';
+  } else if (aVencer.length > 0) {
+    orientacao = 'Há fatura(s) a vencer, mas NENHUMA vencida. NÃO ofereça boleto automaticamente. ' +
       'Se o cliente pedir fatura: informe que não há vencida, pergunte qual deseja, ' +
-      'liste faturas_a_vencer (valor e vencimento) e use gerar_segunda_via com fatura_id escolhida.'
-    );
-  }
-
-  if (contratoSuspenso) {
-    return (
-      prefixoSuspensao +
+      'liste faturas_a_vencer (valor e vencimento) e use gerar_segunda_via com fatura_id escolhida.';
+  } else if (contratoSuspenso) {
+    orientacao = prefixoSuspensao +
       'Sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
-      'Avalie desbloqueio_confianca ou oriente contato comercial.'
-    );
+      'Avalie desbloqueio_confianca ou oriente contato comercial.';
   }
 
-  return 'Situação financeira regular — sem faturas pendentes.';
+  return orientacao + ' ATENÇÃO: Consulta financeira concluída. AGORA VOCÊ DEVE FALAR com o cliente (gere a sua resposta em texto para voz). Pergunte como pode ajudar, OU se ele já relatou problema de internet, chame verificar_massiva.';
 }
 
 function resolverFaturaIdPriorizandoVencida(
