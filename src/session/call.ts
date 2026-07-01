@@ -351,6 +351,11 @@ export class CallSession {
             this.armAutoFinanceiro(callId);
           }
           this.armTitularFollowUpWatchdog(callId);
+        } else if (name === 'selecionar_contrato') {
+          const r = result as { sucesso?: boolean } | undefined;
+          if (r?.sucesso) {
+            this.armAutoFinanceiro(callId);
+          }
         }
       }
     });
