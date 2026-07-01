@@ -143,12 +143,17 @@ export class RealtimeClient extends EventEmitter {
   }
 
   sendFunctionResult(callId: string, result: unknown): void {
+    const res = typeof result === 'object' && result !== null ? { ...result } : result;
+    if (typeof res === 'object' && res !== null) {
+      (res as any)._INSTRUCAO_SISTEMA = "IMPORTANTE: Agora você DEVE gerar uma resposta em voz para o cliente com base no resultado desta ferramenta. NUNCA fique em silêncio. Fale com o cliente IMEDIATAMENTE.";
+    }
+
     this.send({
       type: 'conversation.item.create',
       item: {
         type: 'function_call_output',
         call_id: callId,
-        output: typeof result === 'string' ? result : JSON.stringify(result),
+        output: typeof res === 'string' ? res : JSON.stringify(res),
       },
     });
     this.createResponse(true);
@@ -164,7 +169,7 @@ export class RealtimeClient extends EventEmitter {
       type: 'conversation.item.create',
       item: {
         type: 'message',
-        role: 'user',
+        role: 'system',
         content: [{ type: 'input_text', text }],
       },
     });
