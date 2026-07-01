@@ -195,6 +195,9 @@ export class CallSession {
   }
 
   private isMicBlocked(): boolean {
+    if (this.toolsInFlight > 0 || this.waitingAnaAfterTool) {
+      return true;
+    }
     if (this.useElevenLabsTts) {
       // Mic aberto durante TTS e geração OpenAI — só anti-eco pós-fala (barge-in real)
       return this.pacer.isEchoGated();
