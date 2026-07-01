@@ -1322,7 +1322,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const numero = args.numero ? String(args.numero).trim() : '';
     const bairro = args.bairro ? String(args.bairro).trim() : '';
     const cidade = args.cidade ? String(args.cidade).trim() : '';
-    const cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
+    let cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
 
     // Viabilidade depende do endereço EXATO (a CTO mais próxima varia rua a rua).
     // Exige CEP válido OU endereço com rua + número + bairro. Nunca consulta só por bairro/cidade.
@@ -1335,6 +1335,13 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         mensagem:
           'Não dá para verificar viabilidade só pelo bairro ou cidade. Peça ao cliente o CEP ou o endereço completo (rua, número e bairro).',
       };
+    }
+
+    // Se o CEP passado for inválido mas o endereço for completo, descarta o CEP errado
+    // para forçar a URA a pesquisar o CEP real usando o ViaCEP.
+    if (!cepValido) {
+      cepDigitos = '';
+      args.cep = '';
     }
 
     const endStr = [logradouro, numero, bairro, args.cidade].filter(Boolean).join(', ');
