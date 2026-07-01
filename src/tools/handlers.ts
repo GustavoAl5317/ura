@@ -1337,16 +1337,17 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    const endStr = [logradouro, numero, bairro, cidade].filter(Boolean).join(', ');
+    const endStr = [logradouro, numero, bairro, args.cidade].filter(Boolean).join(', ');
     let cepStr = args.cep ? String(args.cep) : '';
+    const cidadeBusca = args.cidade || 'Fortaleza';
 
     // Fallback: ViaCEP para descobrir o CEP pela rua e cidade (se não fornecido)
-    if (!cepStr && logradouro && cidade) {
+    if (!cepStr && logradouro && cidadeBusca) {
       try {
         const ax = require('axios');
         // Usa estado padrao do config
         const uf = config.defaultUf || 'CE';
-        const url = `https://viacep.com.br/ws/${uf}/${encodeURIComponent(cidade)}/${encodeURIComponent(logradouro)}/json/`;
+        const url = `https://viacep.com.br/ws/${uf}/${encodeURIComponent(cidadeBusca)}/${encodeURIComponent(logradouro)}/json/`;
         const resp = await ax.get(url, { timeout: 3500 });
         if (Array.isArray(resp.data) && resp.data.length > 0) {
           let match = resp.data[0];
