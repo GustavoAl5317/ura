@@ -170,14 +170,6 @@ function orientacaoZabbix(tipo: ZabbixEventoTipo | null, afetaCliente: boolean):
       return 'Confirmado: queda de interface na infraestrutura deste cliente. Informe o problema de rede/fibra.';
     case 'energia':
       return 'Confirmado: alerta de energia/DSE na infraestrutura deste cliente.';
-    case 'energia_cliente':
-      return 'Confirmado: equipamento do cliente sem energia (tomada/desligado). Oriente verificar energia na ONU/roteador. NÃO reinicie remotamente se parecer falta de luz local.';
-    case 'equipamento_cliente':
-      return 'Confirmado: ONU/equipamento do cliente offline no monitoramento. Siga fluxo técnico (energia local, cabos, depois reinício se indicado).';
-    case 'link':
-      return 'Confirmado: rompimento/queda de link na infraestrutura deste cliente. Informe problema na rede externa/fibra.';
-    case 'poe':
-      return 'Confirmado: falha de energia PoE na infraestrutura. Equipe técnica deve atuar.';
     default:
       return 'Incidente confirmado na infraestrutura deste cliente — informe com clareza.';
   }
@@ -281,19 +273,13 @@ const FALA_SUSPENSAO_FINANCEIRA =
 export interface FinanceiroSpeechInput {
   fala_obrigatoria?: string | null;
   total_vencido?: string | null;
-  total_vencido_falado?: string | null;
-  tem_faturas_vencidas?: boolean;
-  tem_faturas_abertas?: boolean;
-  servico_suspenso_financeiro?: boolean;
-  bloqueio_financeiro?: boolean;
   faturas_vencidas?: { valor?: string; valor_falado?: string; vencimento?: string }[];
 }
 
-/** Texto para TTS após consultar_financeiro (quando o modelo fica mudo). */
-export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string {
+/** Texto completo para TTS quando o modelo fica mudo após consultar_financeiro. */
+export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string | null {
   const parts: string[] = [];
   if (result.fala_obrigatoria?.trim()) parts.push(result.fala_obrigatoria.trim());
-
   const vencida = result.faturas_vencidas?.[0];
   if (vencida?.valor_falado || vencida?.valor) {
     const val = vencida.valor_falado || vencida.valor;
@@ -302,77 +288,13 @@ export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string {
       const [y, m, d] = vencida.vencimento.split('-');
       if (d && m && y) parts.push(`O vencimento foi dia ${d} de ${m} de ${y}.`);
     }
-    parts.push('Posso enviar a segunda via ou o PIX por WhatsApp, se quiser.');
   } else if (result.total_vencido) {
     parts.push(`O total vencido é de ${result.total_vencido}.`);
+  }
+  if (parts.length > 0) {
     parts.push('Posso enviar a segunda via ou o PIX por WhatsApp, se quiser.');
-  } else if (result.servico_suspenso_financeiro || result.bloqueio_financeiro) {
-    if (!result.fala_obrigatoria) {
-      parts.push(FALA_SUSPENSAO_FINANCEIRA);
-    }
-  } else if (result.tem_faturas_vencidas === false) {
-    parts.push('Consultei aqui: não há faturas vencidas, sua situação financeira está em dia.');
-  } else {
-    parts.push('Consultei a situação financeira e está tudo certo por aqui.');
   }
-
-  return parts.join(' ');
-}
-
-export interface MassivaSpeechInput {
-  tem_massiva?: boolean;
-  afeta_cliente?: boolean;
-  descricao?: string | null;
-  mensagem_ura?: string | null;
-  manutencao_regional_nao_confirmada?: boolean;
-  zabbix?: {
-    tipo_evento?: string | null;
-    resumo?: string | null;
-    afeta_cliente?: boolean;
-  };
-}
-
-/** Texto para TTS após verificar_massiva. */
-export function buildMassivaSpeech(result: MassivaSpeechInput): string {
-  if (result.manutencao_regional_nao_confirmada) {
-    return 'Há manutenção na rede na região, mas não está confirmada na sua rua. Vou seguir verificando o seu equipamento.';
-  }
-  if (!result.tem_massiva || !result.afeta_cliente) {
-    return 'Verifiquei a rede na sua região e não há alerta de manutenção ou queda no momento.';
-  }
-
-  const tipo = result.zabbix?.tipo_evento;
-  switch (tipo) {
-    case 'cto_off':
-      return 'Encontrei um alerta de queda na sua CTO. Nossa equipe já está atuando, peço desculpas pelo transtorno.';
-    case 'pppoe_off':
-      return 'Identifiquei instabilidade na rede com queda de sessões na sua CTO. A equipe técnica já está trabalhando nisso.';
-    case 'pop_off':
-      return 'Há um problema no POP que atende a sua região. Nossa equipe já está atuando para normalizar.';
-    case 'fibra':
-    case 'link':
-      return 'Identifiquei um problema de fibra ou link na infraestrutura da sua região. A equipe já está atuando.';
-    case 'energia':
-      return 'Há um alerta de falta de energia na infraestrutura que atende você. A equipe está trabalhando na normalização.';
-    case 'energia_cliente':
-      return 'O monitoramento indica que seu equipamento pode estar sem energia. Verifica se a ONU ou roteador está ligado na tomada, por favor.';
-    case 'equipamento_cliente':
-      return 'Seu equipamento aparece offline no monitoramento. Vamos verificar energia e cabos; se precisar, oriento um reinício.';
-    case 'poe':
-      return 'Há uma falha de energia PoE na CTO que atende você. Nossa equipe técnica já está atuando.';
-    default:
-      break;
-  }
-
-  const msg = result.mensagem_ura || result.descricao || result.zabbix?.resumo;
-  if (msg) {
-    return `Identifiquei o seguinte na rede: ${msg.replace(/^\[MOCK\]\s*/i, '')}. Nossa equipe está atuando.`;
-  }
-  return 'Há um incidente na rede na sua região e nossa equipe já está atuando.';
-}
-
-export function detectProblemaTecnico(text: string): boolean {
-  return /internet|conex[aã]o|wi-?fi|wi fi|lent[ao]|caiu|cai|sem sinal|offline|n[aã]o conect|travou|inst[aá]vel|queda|sem internet|parou de funcionar|n[aã]o funciona|sem rede/i.test(text);
+  return parts.length ? parts.join(' ') : null;
 }
 
 function suspensoPorFinanceiro(contratoSuspenso: boolean, motivoStatus: string | null): boolean {
@@ -1093,7 +1015,6 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    ctx.consultaMassivaFeita = true;
     await carregarOnuParaInfra(ctx);
     const termos = termosInfraDoCliente(ctx);
 
@@ -1103,9 +1024,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       ctx.manutencoesAtivas = manutencoes;
     }
 
-    const zbx = (config.zabbix.enabled || config.zabbix.mock)
-      ? await zabbix.diagnosticar(termos)
-      : null;
+    const zbx = config.zabbix.enabled ? await zabbix.diagnosticar(termos) : null;
 
     const manutencaoCliente = manutencoes.filter((m) =>
       !m.ctos.length && !m.olts.length ? false : massivaSgpAfetaCliente(m, termos),
@@ -1172,7 +1091,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
-    if (!config.zabbix.enabled && !config.zabbix.mock) {
+    if (!config.zabbix.enabled) {
       return { tem_incidente: false, mensagem: 'Monitoramento Zabbix não habilitado.' };
     }
 
