@@ -1,0 +1,8 @@
+{
+  "nome": "Queda de sessões na CTO CTO 6 R. POMAR CARIOCA",
+  "host": "CTO 6 R. POMAR CARIOCA - OLT-3 (172.16.22.10)",
+  "hostVisivel": "CTO 6 R. POMAR CARIOCA",
+  "tipo": "pppoe_off",
+  "desde": "2026-07-01T10:00:00.000Z",
+  "resumo": "[MOCK] Queda de sessões PPPoE na CTO do cliente"
+}

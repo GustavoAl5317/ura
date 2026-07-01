@@ -56,6 +56,9 @@ export interface CallContext {
   /** Após titular confirmado: financeiro deve ser consultado sem esperar o cliente */
   precisaConsultarFinanceiro?: boolean;
   consultaFinanceiraFeita?: boolean;
+  consultaMassivaFeita?: boolean;
+  /** Cliente relatou queda/lentidão/etc. — encadear verificar_massiva após financeiro */
+  relatouProblemaTecnico?: boolean;
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {

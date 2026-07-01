@@ -263,27 +263,56 @@ export class ZabbixClient {
       hostsConsultados: hosts,
     };
 
-    // --- MOCK INJECTION PARA TESTES LOCAIS ---
-    try {
-      const fs = require('fs/promises');
-      const mockPath = require('path').join(process.cwd(), 'zabbix-mock.json');
-      const mockData = await fs.readFile(mockPath, 'utf8');
-      const mockIncidente = JSON.parse(mockData) as ZabbixIncidente;
-      
-      // Se o mock_host bater com algum termo do cliente, forçamos o incidente
-      if (hosts.some((h) => mockIncidente.host.includes(h) || mockIncidente.nome.includes(h))) {
-        logger.warn('⚠️ Alerta MOCK do Zabbix injetado', { nome: mockIncidente.nome });
-        return {
-          ...base,
-          temIncidente: true,
-          afetaCliente: true,
-          incidentes: [mockIncidente],
-          resumo: (mockIncidente as any).resumo || mockIncidente.nome,
-          tipoPrincipal: mockIncidente.tipo,
-        };
+    // --- MOCK (ZABBIX_MOCK=1 + zabbix-mocks/{ZABBIX_MOCK_SCENARIO}.json) ---
+    if (config.zabbix.mock) {
+      try {
+        const fs = require('fs/promises');
+        const path = require('path');
+        const scenario = (config.zabbix.mockScenario || 'cto_off').replace(/[^a-z0-9_-]/gi, '');
+        const candidates = [
+          path.join(process.cwd(), 'zabbix-mocks', `${scenario}.json`),
+          path.join(process.cwd(), 'zabbix-mock.json'),
+        ];
+        let mockIncidente: ZabbixIncidente | null = null;
+        let mockPath = '';
+        for (const p of candidates) {
+          try {
+            const mockData = await fs.readFile(p, 'utf8');
+            mockIncidente = JSON.parse(mockData) as ZabbixIncidente;
+            mockPath = p;
+            break;
+          } catch {
+            // tenta próximo
+          }
+        }
+        if (mockIncidente && hosts.length && ZabbixClient.incidenteAfetaTermos(mockIncidente, hosts)) {
+          logger.warn('⚠️ Alerta MOCK do Zabbix injetado', {
+            cenario: scenario,
+            arquivo: mockPath,
+            nome: mockIncidente.nome,
+            tipo: mockIncidente.tipo,
+            termos: hosts,
+          });
+          return {
+            ...base,
+            temIncidente: true,
+            afetaCliente: true,
+            incidentes: [mockIncidente],
+            resumo: (mockIncidente as { resumo?: string }).resumo || mockIncidente.nome,
+            tipoPrincipal: mockIncidente.tipo,
+          };
+        }
+        if (mockIncidente && hosts.length) {
+          logger.warn('Zabbix mock: cenário carregado mas CTO do cliente não bate', {
+            cenario: scenario,
+            mockHost: mockIncidente.host,
+            termos: hosts,
+          });
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn('Zabbix mock: falha ao carregar cenário', { err: msg });
       }
-    } catch {
-      // Ignora silenciosamente se o arquivo não existir
     }
     // -----------------------------------------
 

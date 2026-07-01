@@ -1,0 +1,8 @@
+{
+  "nome": "Queda no POP Aquitel - link indisponível",
+  "host": "CTO 6 R. POMAR CARIOCA - OLT-3 (172.16.22.10)",
+  "hostVisivel": "POP Aquitel",
+  "tipo": "pop_off",
+  "desde": "2026-07-01T10:00:00.000Z",
+  "resumo": "[MOCK] Queda no POP que atende a CTO do cliente"
+}

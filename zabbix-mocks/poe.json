@@ -1,0 +1,8 @@
+{
+  "nome": "Falha PoE desligado na CTO 6 R. POMAR CARIOCA",
+  "host": "CTO 6 R. POMAR CARIOCA - OLT-3 (172.16.22.10)",
+  "hostVisivel": "CTO 6 R. POMAR CARIOCA",
+  "tipo": "poe",
+  "desde": "2026-07-01T10:00:00.000Z",
+  "resumo": "[MOCK] Falha de energia PoE na CTO do cliente"
+}

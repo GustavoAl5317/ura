@@ -22,8 +22,11 @@ echo -e "\n6. Portas"
 nc -z 127.0.0.1 9019 && echo "9019 AudioSocket: OK" || echo "9019 AudioSocket: FECHADA"
 nc -z 127.0.0.1 9020 && echo "9020 Sidecar: OK" || echo "9020 Sidecar: FECHADA"
 
-echo -e "\n7. Dialplan usa ura-enabled?"
-grep -n ura-enabled /etc/asterisk/extensions_custom.conf 2>/dev/null || echo "ATENÇÃO: dialplan sem check ura-enabled"
+echo -e "\n7. Dialplan testa porta 9019 (fallback pm2 stop)?"
+grep -nE 'URA_UP|9019|nc -z' /etc/asterisk/extensions_custom.conf 2>/dev/null || echo "ATENÇÃO: dialplan sem check da porta 9019"
+
+echo -e "\n7b. Fila suporte (se usar Queue no dialplan)"
+asterisk -rx "queue show suporte" 2>/dev/null | head -5 || echo "(fila suporte não existe — use Dial nos ramais)"
 
 echo -e "\n8. Última chamada (procure TTS ElevenLabs)"
 grep -E 'Nova conexão|Chamada iniciada|Pipeline áudio|TTS ElevenLabs|TTS erro|URA desligada' /root/.pm2/logs/ura-ai-out.log | tail -15

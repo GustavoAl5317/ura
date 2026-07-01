@@ -5,7 +5,7 @@ import { upsample8to24, downsample24to8 } from '../audio/resampler';
 import { AudioPacer, SLIN_CHUNK_BYTES, writeAudioSocketFrame } from '../audio/pacer';
 import { MicRingBuffer } from '../audio/mic-ring';
 import { synthesize, synthesizeStream } from '../tts/elevenlabs';
-import { registerTools, buildFinanceiroSpeech } from '../tools/handlers';
+import { registerTools, buildFinanceiroSpeech, buildMassivaSpeech, detectProblemaTecnico } from '../tools/handlers';
 import { createContext } from './context';
 import { assignAgentVoice } from './voice-rotation';
 import { buildSystemPrompt } from '../prompts/system';
@@ -72,7 +72,11 @@ export class CallSession {
   private falaObrigatoriaTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFalaObrigatoria: string | null = null;
   private autoFinanceiroTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoMassivaTimer: ReturnType<typeof setTimeout> | null = null;
   private financeiroTtsTimer: ReturnType<typeof setTimeout> | null = null;
+  private massivaTtsTimer: ReturnType<typeof setTimeout> | null = null;
+  private emptyResponseRetries = 0;
+  private pendingDirectSpeech: string | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
 
@@ -338,10 +342,17 @@ export class CallSession {
       }
       if (name === 'consultar_financeiro' && result && typeof result === 'object') {
         const speech = buildFinanceiroSpeech(result as Parameters<typeof buildFinanceiroSpeech>[0]);
-        if (speech) {
-          this.pendingFalaObrigatoria = speech;
-          this.scheduleFinanceiroTts(callId, speech);
+        this.pendingFalaObrigatoria = speech;
+        this.pendingDirectSpeech = speech;
+        this.scheduleFinanceiroTts(callId, speech);
+        if (this.ctx.relatouProblemaTecnico && !this.ctx.consultaMassivaFeita) {
+          this.armAutoMassiva(callId);
         }
+      }
+      if (name === 'verificar_massiva' && result && typeof result === 'object') {
+        const speech = buildMassivaSpeech(result as Parameters<typeof buildMassivaSpeech>[0]);
+        this.pendingDirectSpeech = [this.pendingDirectSpeech, speech].filter(Boolean).join(' ');
+        this.scheduleMassivaTts(callId, speech);
       }
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
@@ -410,6 +421,9 @@ export class CallSession {
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
       this.ctx.lastClientSpeech = text;
+      if (detectProblemaTecnico(text)) {
+        this.ctx.relatouProblemaTecnico = true;
+      }
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 
@@ -500,28 +514,37 @@ export class CallSession {
         }
         // Modelo encerrou sem texto após tool — reenvia e mantém teclado
         if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
+          if (this.pendingFalaObrigatoria || this.pendingDirectSpeech || this.financeiroTtsTimer || this.massivaTtsTimer) {
+            return;
+          }
           if (!this.fillerLoopRunning) this.startTypingSound();
           setTimeout(() => {
             if (!this.tearing && !this.socket.destroyed && this.waitingAnaAfterTool) {
               if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
-                // A resposta para o tool output já começou, ignora o watchdog
                 return;
               }
-              
-              const retries = (this as any).emptyResponseRetries || 0;
-              if (retries >= 2) {
+              if (this.pendingFalaObrigatoria || this.pendingDirectSpeech || this.financeiroTtsTimer || this.massivaTtsTimer) {
+                return;
+              }
+
+              if (this.emptyResponseRetries >= 2) {
+                const fallback = this.pendingDirectSpeech || this.pendingFalaObrigatoria;
                 logger.error(`[${callId}] Falha contínua do modelo em responder após tool. Acionando fallback de voz.`);
-                (this as any).emptyResponseRetries = 0;
+                this.emptyResponseRetries = 0;
                 this.waitingAnaAfterTool = false;
                 this.stopTypingSound();
-                this.enqueueTTS(() => this.synthesizeAndSend('Deu um pequeno erro na consulta, mas me diga, o que mais eu posso te ajudar?'));
+                if (fallback) {
+                  this.speakToolResultDirect(callId, fallback);
+                } else {
+                  this.enqueueTTS(() => this.synthesizeAndSend('Deu um pequeno erro na consulta, mas me diga, o que mais eu posso te ajudar?'));
+                }
                 return;
               }
-              
-              (this as any).emptyResponseRetries = retries + 1;
-              logger.warn(`[${callId}] Resposta vazia após consulta (tentativa ${retries + 1}) — injetando instrução e reenviando`);
+
+              this.emptyResponseRetries++;
+              logger.warn(`[${callId}] Resposta vazia após consulta (tentativa ${this.emptyResponseRetries}) — injetando instrução e reenviando`);
               this.rt.injectSystemNote(
-                '[SISTEMA] Você recebeu o resultado da ferramenta mas não respondeu ao cliente. Por favor, dê a resposta adequada com base nos dados que acabou de receber.'
+                '[SISTEMA] Você recebeu o resultado da ferramenta mas não respondeu ao cliente. Por favor, dê a resposta adequada com base nos dados que acabou de receber.',
               );
             }
           }, 400);
@@ -612,16 +635,31 @@ export class CallSession {
     this.clearFalaObrigatoriaFallback();
     this.financeiroTtsTimer = setTimeout(() => {
       this.financeiroTtsTimer = null;
-      if (this.tearing || this.socket.destroyed || this.assistantTextInResponse) return;
-      this.speakFinanceiroDirect(callId, speech);
-    }, 2_000);
+      if (this.tearing || this.socket.destroyed) return;
+      this.speakToolResultDirect(callId, speech);
+    }, 800);
   }
 
-  private speakFinanceiroDirect(callId: string, speech: string): void {
+  private scheduleMassivaTts(callId: string, speech: string): void {
+    if (this.massivaTtsTimer) clearTimeout(this.massivaTtsTimer);
+    this.massivaTtsTimer = setTimeout(() => {
+      this.massivaTtsTimer = null;
+      if (this.tearing || this.socket.destroyed) return;
+      this.enqueueToolResultSpeech(callId, speech);
+    }, 400);
+  }
+
+  private speakToolResultDirect(callId: string, speech: string): void {
     this.pendingFalaObrigatoria = null;
     this.clearPostToolSpeechWatchdog();
+    this.emptyResponseRetries = 0;
     this.assistantTextInResponse = true;
     this.waitingAnaAfterTool = false;
+    this.enqueueToolResultSpeech(callId, speech);
+    this.pendingDirectSpeech = null;
+  }
+
+  private enqueueToolResultSpeech(callId: string, speech: string): void {
     this.stopTypingSound();
     logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
     sessionRegistry.emit(callId, 'assistant_text', speech);
@@ -632,6 +670,35 @@ export class CallSession {
     if (this.financeiroTtsTimer) {
       clearTimeout(this.financeiroTtsTimer);
       this.financeiroTtsTimer = null;
+    }
+  }
+
+  private clearMassivaTts(): void {
+    if (this.massivaTtsTimer) {
+      clearTimeout(this.massivaTtsTimer);
+      this.massivaTtsTimer = null;
+    }
+  }
+
+  /** Após financeiro, consulta massiva automaticamente quando o cliente relatou problema técnico. */
+  private armAutoMassiva(callId: string): void {
+    this.clearAutoMassiva();
+    this.autoMassivaTimer = setTimeout(() => {
+      this.autoMassivaTimer = null;
+      if (this.tearing || this.socket.destroyed || this.ctx.consultaMassivaFeita) return;
+      if (this.toolsInFlight > 0) {
+        this.armAutoMassiva(callId);
+        return;
+      }
+      logger.info(`[${callId}] Auto: verificar_massiva após financeiro`);
+      void this.rt.runServerTool('verificar_massiva', {});
+    }, 300);
+  }
+
+  private clearAutoMassiva(): void {
+    if (this.autoMassivaTimer) {
+      clearTimeout(this.autoMassivaTimer);
+      this.autoMassivaTimer = null;
     }
   }
 
@@ -699,6 +766,9 @@ export class CallSession {
         return;
       }
       logger.info(`[${callId}] Auto: consultar_financeiro após titular`);
+      if (this.ctx.lastClientSpeech && detectProblemaTecnico(this.ctx.lastClientSpeech)) {
+        this.ctx.relatouProblemaTecnico = true;
+      }
       void this.rt.runServerTool('consultar_financeiro', {
         cliente_id: this.ctx.cliente?.contratoId,
       });
@@ -1010,7 +1080,9 @@ export class CallSession {
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.autoFinanceiroTimer) clearTimeout(this.autoFinanceiroTimer);
+    if (this.autoMassivaTimer) clearTimeout(this.autoMassivaTimer);
     if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
+    if (this.massivaTtsTimer) clearTimeout(this.massivaTtsTimer);
     if (this.falaObrigatoriaTimer) clearTimeout(this.falaObrigatoriaTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.hangupTimer) clearTimeout(this.hangupTimer);

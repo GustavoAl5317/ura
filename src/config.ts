@@ -169,6 +169,10 @@ export const config = {
 
   zabbix: {
     enabled: optBool('ZABBIX_ENABLED', false),
+    /** 1 = lê zabbix-mocks/{cenário}.json (teste sem API real) */
+    mock: optBool('ZABBIX_MOCK', false),
+    /** Cenário: cto_off | pppoe_off | pop_off | fibra | link | energia | energia_cliente | equipamento_cliente | poe */
+    mockScenario: opt('ZABBIX_MOCK_SCENARIO', 'cto_off'),
     /** Base sem path — ex: https://zabbix.aquitelecom.com */
     baseUrl: opt('ZABBIX_URL', ''),
     username: opt('ZABBIX_USER', ''),

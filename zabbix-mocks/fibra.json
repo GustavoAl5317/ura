@@ -1,0 +1,8 @@
+{
+  "nome": "Queda da Interface uplink OLT-3",
+  "host": "CTO 6 R. POMAR CARIOCA - OLT-3 (172.16.22.10)",
+  "hostVisivel": "OLT-3",
+  "tipo": "fibra",
+  "desde": "2026-07-01T10:00:00.000Z",
+  "resumo": "[MOCK] Queda de interface/fibra na infraestrutura do cliente"
+}

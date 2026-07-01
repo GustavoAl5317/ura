@@ -1,0 +1,8 @@
+{
+  "nome": "ONU 48575443AFA284AC - Power desligado",
+  "host": "48575443AFA284AC",
+  "hostVisivel": "ONU 48575443AFA284AC - CTO 6 R. POMAR CARIOCA",
+  "tipo": "energia_cliente",
+  "desde": "2026-07-01T10:00:00.000Z",
+  "resumo": "[MOCK] Equipamento do cliente sem energia (tomada/desligado)"
+}
