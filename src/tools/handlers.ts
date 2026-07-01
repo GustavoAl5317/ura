@@ -793,7 +793,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     // Executa diagnóstico de rede (Zabbix) simultaneamente para agilizar o atendimento
     await carregarOnuParaInfra(ctx);
-    const z = await zabbix.diagnosticar(ctx);
+    const z = await zabbix.diagnosticar(termosInfraDoCliente(ctx));
     const zabbixResult = mapZabbixParaTool(z);
 
     return {
