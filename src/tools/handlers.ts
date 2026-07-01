@@ -1339,7 +1339,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const endStr = [logradouro, numero, bairro, args.cidade].filter(Boolean).join(', ');
     let cepStr = args.cep ? String(args.cep) : '';
-    const cidadeBusca = args.cidade || 'Fortaleza';
+    const cidadeBusca = args.cidade ? String(args.cidade) : 'Fortaleza';
 
     // Fallback: ViaCEP para descobrir o CEP pela rua e cidade (se não fornecido)
     if (!cepStr && logradouro && cidadeBusca) {

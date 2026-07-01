@@ -54,7 +54,7 @@ export const config = {
 
   openai: {
     apiKey: req('OPENAI_API_KEY'),
-    realtimeModel: opt('REALTIME_MODEL', 'gpt-4o-realtime-preview'),
+    realtimeModel: opt('REALTIME_MODEL', 'gpt-realtime-2025-08-28'),
     realtimeSchema: opt('OPENAI_REALTIME_SCHEMA', 'ga'),
     voice: opt('OPENAI_VOICE', 'shimmer'),
     temperature: optFloat('TEMPERATURE', 0.65),

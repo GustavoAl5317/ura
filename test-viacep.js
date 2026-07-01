@@ -1,8 +1,15 @@
 const axios = require('axios');
-async function test() {
-  try {
-    const res = await axios.get('https://viacep.com.br/ws/CE/Fortaleza/Domingos Olimpio/json/');
-    console.log(JSON.stringify(res.data, null, 2));
-  } catch(e) { console.error(e.message); }
+async function testViaCep() {
+    try {
+        const uf = 'CE';
+        const cidade = 'Fortaleza';
+        const rua = 'Rua 71';
+        const url = https://viacep.com.br/ws////json/;
+        console.log('Consultando:', url);
+        const res = await axios.get(url);
+        console.log('Resultado ViaCEP:', res.data);
+    } catch(e) {
+        console.error('Erro ViaCEP:', e.message);
+    }
 }
-test();
+testViaCep();
