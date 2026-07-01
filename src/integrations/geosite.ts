@@ -135,6 +135,7 @@ export class GeositeClient {
   private processarCaixas(data: unknown): Viabilidade {
     const caixas = Array.isArray(data) ? (data as GeositeCaixa[]) : [];
     if (!caixas.length) {
+      logger.info('Geosite: Nenhuma CTO encontrada no raio configurado.');
       return { temCobertura: false, caixasProximas: 0 };
     }
 
@@ -151,6 +152,12 @@ export class GeositeClient {
     // Mais próxima que cobre E tem porta livre; se a mais próxima estiver lotada,
     // segue para a próxima mais próxima que cobre.
     const selecionada = cobrindo.find((c) => c.portasDisponiveis > 0);
+
+    if (selecionada) {
+      logger.info(`Geosite: CTO escolhida -> ${selecionada.tipoCodigo} a ${Math.round(selecionada.distanciaMetros)}m com ${selecionada.portasDisponiveis} portas livres (avaliadas ${cobrindo.length} CTOs no total)`);
+    } else {
+      logger.info(`Geosite: Foram encontradas ${cobrindo.length} CTOs, mas TODAS estavam sem portas livres! Passando para o Fallback (SGP).`);
+    }
 
     return {
       temCobertura: !!selecionada,
