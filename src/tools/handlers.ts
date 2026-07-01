@@ -1014,6 +1014,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Massiva ────────────────────────────────────────────────────────────────
 
   client.registerTool('verificar_massiva', async () => {
+    ctx.consultaMassivaFeita = true;
+    
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;
 
