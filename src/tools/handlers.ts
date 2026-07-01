@@ -305,6 +305,63 @@ function contratoDoContexto(ctx: CallContext, contratoId: number) {
   return ctx.cliente?.contratos.find((c) => c.contrato === contratoId) ?? ctx.cliente?.contratos[0];
 }
 
+
+async function obterDadosFinanceirosEZabbix(ctx: CallContext, contratoId: number) {
+  ctx.precisaConsultarFinanceiro = false;
+  ctx.consultaFinanceiraFeita = true;
+
+  let tits = ctx.titulos;
+  if (!tits) {
+    tits = await sgp.titulos(contratoId, 'abertos');
+    ctx.titulos = tits;
+  }
+
+  const { vencidas, aVencer } = separarTitulos(tits);
+  const inadimplente = vencidas.length > 0;
+  const valorTotalVencido = vencidas.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
+  const valorTotalAVencer = aVencer.reduce((s, t) => s + (t.valorCorrigido ?? t.valor), 0);
+  const ct = contratoDoContexto(ctx, contratoId);
+  const statusContrato = ct?.status ?? null;
+  const motivoStatus = ct?.motivo_status ?? null;
+  const contratoSuspenso = /suspens|bloquead|cancelad/i.test(statusContrato ?? '');
+  const servicoSuspensoFinanceiro = suspensoPorFinanceiro(contratoSuspenso, motivoStatus);
+  const bloqueioFinanceiro = inadimplente || servicoSuspensoFinanceiro;
+  const temFaturasAbertas = tits.length > 0;
+  const temFaturasVencidas = vencidas.length > 0;
+
+  await carregarOnuParaInfra(ctx);
+  const z = await zabbix.diagnosticar(termosInfraDoCliente(ctx));
+  const zabbixResult = mapZabbixParaTool(z);
+
+  const orient = orientacaoFinanceiro({
+    vencidas,
+    aVencer,
+    contratoSuspenso,
+    bloqueioFinanceiro,
+    servicoSuspensoFinanceiro,
+  });
+
+  return {
+    inadimplente,
+    contrato_suspenso: contratoSuspenso,
+    status_contrato: statusContrato,
+    motivo_status: motivoStatus,
+    bloqueio_financeiro: bloqueioFinanceiro,
+    servico_suspenso_financeiro: servicoSuspensoFinanceiro,
+    fala_obrigatoria: servicoSuspensoFinanceiro ? FALA_SUSPENSAO_FINANCEIRA : null,
+    tem_faturas_abertas: temFaturasAbertas,
+    tem_faturas_vencidas: temFaturasVencidas,
+    total_vencido: temFaturasVencidas ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}` : null,
+    total_vencido_falado: temFaturasVencidas ? valorPorExtenso(valorTotalVencido) : null,
+    total_a_vencer: aVencer.length > 0 ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}` : null,
+    total_a_vencer_falado: aVencer.length > 0 ? valorPorExtenso(valorTotalAVencer) : null,
+    faturas_vencidas: vencidas.slice(0, 5).map(mapFaturaResumo),
+    faturas_a_vencer: aVencer.slice(0, 3).map(mapFaturaResumo),
+    diagnostico_rede: zabbixResult,
+    orientacao: orient + (zabbixResult.tem_incidente ? ` IMPORTANTE: Há uma falha na rede detectada (${zabbixResult.orientacao}). Comunique a situação financeira e IMEDIATAMENTE informe o cliente sobre o incidente de rede.` : ' ATENÇÃO: AGORA VOCÊ DEVE FALAR com o cliente.'),
+  };
+}
+
 function orientacaoFinanceiro(params: {
   vencidas: SgpTitulo[];
   aVencer: SgpTitulo[];
@@ -672,15 +729,15 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     ctx.log.push(`Contrato selecionado: ${contratoId} — ${formatarEndereco(ct.endereco)}`);
     prefetchConsultas(contratoId);
 
+    const finZabbix = await obterDadosFinanceirosEZabbix(ctx, contratoId);
     return {
       sucesso: true,
       contrato_id: contratoId,
       endereco: formatarEndereco(ct.endereco ?? ctx.cliente.endereco),
       plano: ct.servicos[0]?.plano?.descricao ?? null,
-      status: ct.status,
-      motivo_status: ct.motivo_status,
       mensagem: 'Contrato selecionado.',
-      orientacao: 'Consulta de contrato finalizada. O sistema acionará a ferramenta consultar_financeiro automaticamente a seguir, aguarde o resultado.',
+      ...finZabbix,
+      orientacao: 'Contrato selecionado. ' + finZabbix.orientacao,
     };
   });
 
