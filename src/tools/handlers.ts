@@ -1337,11 +1337,15 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    // Se o CEP passado for inválido mas o endereço for completo, descarta o CEP errado
-    // para forçar a URA a pesquisar o CEP real usando o ViaCEP.
-    if (!cepValido) {
-      cepDigitos = '';
-      args.cep = '';
+    // Se o cliente forneceu um CEP, mas a IA entendeu um número inválido (mais ou menos de 8 dígitos)
+    // nós retornamos um erro claro para a IA pedir para o cliente repetir, em vez de tentar adivinhar.
+    if (args.cep && !cepValido) {
+      return {
+        tem_cobertura: null,
+        erro: 'cep_invalido',
+        mensagem:
+          'O CEP que você entendeu é inválido (tem que ter exatamente 8 dígitos). Peça educadamente para o cliente repetir o CEP pausadamente porque não ficou claro.',
+      };
     }
 
     const endStr = [logradouro, numero, bairro, args.cidade].filter(Boolean).join(', ');
