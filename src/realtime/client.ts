@@ -156,7 +156,7 @@ export class RealtimeClient extends EventEmitter {
         output: typeof res === 'string' ? res : JSON.stringify(res),
       },
     });
-    this.createResponse(true);
+    this.createResponse(true, "Você acabou de receber o resultado de uma ferramenta. Gere uma fala natural para o cliente com base no resultado. IMPORTANTE: Fale algo, NUNCA responda vazio.");
   }
 
   private clearToolTimer(callId: string): void {
@@ -173,23 +173,25 @@ export class RealtimeClient extends EventEmitter {
         content: [{ type: 'input_text', text: `[INSTRUÇÃO DO SISTEMA OBRIGATÓRIA]\n${text}` }],
       },
     });
-    this.createResponse(true);
+    this.createResponse(true, "Responda adequadamente à instrução do sistema que acabou de ser enviada. Fale com o cliente de forma natural.");
   }
 
-  createResponse(force = false): boolean {
+  createResponse(force = false, instructions?: string): boolean {
     if (!force && (this.responseActive || this.responsePending)) {
       logger.warn(`[${this.callId}] createResponse bloqueado (active=${this.responseActive}, pending=${this.responsePending})`);
       return false;
     }
     if (force && (this.responseActive || this.responsePending)) {
       logger.warn(`[${this.callId}] createResponse forçado (active=${this.responseActive}, pending=${this.responsePending})`);
-      this.responseActive = false;
-      this.responsePending = false;
-      this.clearPendingWatchdog();
+      // Continua e tenta forçar mesmo assim
     }
+
     this.responsePending = true;
     this.armPendingWatchdog();
-    this.send({ type: 'response.create' });
+    this.send({ 
+      type: 'response.create',
+      ...(instructions ? { response: { instructions } } : {})
+    });
     return true;
   }
 
@@ -263,7 +265,7 @@ export class RealtimeClient extends EventEmitter {
           }],
         },
       });
-      this.createResponse(true);
+      this.createResponse(true, `Você acabou de receber o resultado da ferramenta ${name} (enviada pelo sistema). Informe o resultado ao cliente seguindo as orientações do json recebido. Mantenha a naturalidade e NÃO FIQUE EM SILÊNCIO.`);
       this.emit('toolDone', name, result, { serverSide: true });
       return result;
     } catch (err: any) {
@@ -376,6 +378,7 @@ export class RealtimeClient extends EventEmitter {
         this.clearPendingWatchdog();
         this.responseActive = false;
         this.responsePending = false;
+        logger.debug(`[${this.callId}] RAW response.done: ${JSON.stringify(event.response)}`);
         if (!this.responseTextEmitted) {
           const text = extractResponseText(event.response);
           if (text) {
