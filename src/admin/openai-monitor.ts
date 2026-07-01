@@ -69,8 +69,9 @@ export function getOpenAiSnapshot(): OpenAiUsageSnapshot | null {
 export async function refreshOpenAiUsage(): Promise<OpenAiUsageSnapshot> {
   const alertBudget = config.admin.openaiBudgetUsd;
   const prepaid = config.admin.openaiPrepaidUsd;
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const now = new Date();
+    // Puxa os últimos 30 dias contínuos em vez de apenas o mês atual
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
 
   const snapshot: OpenAiUsageSnapshot = {
     checkedAt: now.toISOString(),
