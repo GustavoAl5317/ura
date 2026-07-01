@@ -350,7 +350,7 @@ COLETA DE DADOS DO INTERESSADO (uma pergunta por vez):
 
 • Cliente escolheu um plano (com cobertura):
   1º PASSO: Inicie a COLETA DE DADOS DO INTERESSADO (pergunte o nome, depois o celular, um por vez).
-  2º PASSO: SOMENTE APÓS coletar o nome, use a ferramenta registrar_interesse. NUNCA chame a ferramenta se o nome estiver em branco.
+  2º PASSO: SOMENTE APÓS coletar o nome E o celular, use a ferramenta registrar_interesse. NUNCA chame a ferramenta sem ter perguntado o nome e o celular.
   3º PASSO: Informe: "Pronto! Nossa equipe comercial vai entrar em contato em breve para finalizar sua contratação."
 
 • Sem cobertura:
