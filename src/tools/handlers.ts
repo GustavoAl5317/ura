@@ -1436,7 +1436,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     return { tem_cobertura: false, oferecer_cadastro_interesse: true };
   });
 
-  client.registerTool('registrar_interesse_cobertura', async (args) => {
+  client.registerTool('registrar_interesse', async (args) => {
     const nome = String(args.nome ?? '').trim();
     const email = args.email ? String(args.email).trim() : null;
     const endereco = String(args.endereco ?? ctx.enderecoConsultado ?? '').trim();
@@ -1531,4 +1531,5 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     return { ignorado: true };
   });
 }
+
 

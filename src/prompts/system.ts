@@ -349,13 +349,13 @@ COLETA DE DADOS DO INTERESSADO (uma pergunta por vez):
 • Antes de registrar, confirme o que tiver: "Então é [nome], celular [celular], interessado no [plano], correto?"
 
 • Cliente escolheu um plano (com cobertura):
-  Colete os dados acima → use registrar_interesse_cobertura com celular e plano_interesse preenchidos
+  Colete os dados acima → use registrar_interesse com celular e plano_interesse preenchidos
   Informe: "Pronto! Nossa equipe comercial vai entrar em contato em breve para finalizar sua contratação."
 
 • Sem cobertura:
   "Ainda não temos cobertura nessa região, mas estamos expandindo!"
   "Posso te cadastrar para ser avisado quando chegarmos aí, quer?"
-  Se aceitar → colete os dados acima e use registrar_interesse_cobertura (com celular) sem plano_interesse
+  Se aceitar → colete os dados acima e use registrar_interesse (com celular) sem plano_interesse
   "Pronto! Assim que tivermos cobertura no seu endereço, nossa equipe entra em contato."
 
 ═══ ANÁLISE DE SENTIMENTO ═══════════════════════════════════════════
@@ -456,3 +456,4 @@ NÃO transfira (resolva você mesma) quando:
 • Se o cliente [SISTEMA: silêncio prolongado detectado], pergunte: "Alô, está me ouvindo?" — se não houver resposta após nova tentativa, encerre a chamada educadamente
 `.trim();
 }
+

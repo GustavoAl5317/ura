@@ -275,9 +275,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
-    name: 'registrar_interesse_cobertura',
+    name: 'registrar_interesse',
     description:
-      'Registra o interesse de um cliente em potencial que não tem cobertura no endereço. Use SOMENTE após verificar_viabilidade retornar sem cobertura e o cliente aceitar ser avisado quando a cobertura chegar.',
+      'Registra o interesse do cliente. Use após coletar os dados do cliente tanto em casos SEM COBERTURA (para ser avisado futuramente) quanto em casos COM COBERTURA (quando o cliente escolhe um plano para contratação).',
     parameters: {
       type: 'object',
       properties: {
@@ -360,3 +360,4 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
+
