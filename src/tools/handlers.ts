@@ -790,6 +790,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const bloqueioFinanceiro = inadimplente || servicoSuspensoFinanceiro;
     const temFaturasAbertas = tits.length > 0;
     const temFaturasVencidas = vencidas.length > 0;
+    
+    ctx.financeiroBloqueado = bloqueioFinanceiro;
 
     return {
       contrato_id: contratoId,

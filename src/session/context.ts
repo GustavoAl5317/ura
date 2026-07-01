@@ -59,6 +59,8 @@ export interface CallContext {
   consultaMassivaFeita?: boolean;
   /** Cliente relatou queda/lentidão/etc. — encadear verificar_massiva após financeiro */
   relatouProblemaTecnico?: boolean;
+  /** Se o cliente tem faturas atrasadas ou bloqueio financeiro */
+  financeiroBloqueado?: boolean;
 }
 
 export function createContext(callId: string, callerNumber: string): CallContext {

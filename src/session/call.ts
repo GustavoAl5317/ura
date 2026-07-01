@@ -479,9 +479,9 @@ export class CallSession {
     });
 
     this.rt.on('responseDone', () => {
-        if (this.ctx.relatouProblemaTecnico && this.ctx.consultaFinanceiraFeita && !this.ctx.consultaMassivaFeita) {
-          this.armAutoMassiva(callId);
-        }
+      if (this.ctx.contratoSelecionado && this.ctx.consultaFinanceiraFeita && !this.ctx.consultaMassivaFeita && !this.ctx.financeiroBloqueado) {
+        this.armAutoMassiva(callId);
+      }
       this.clearResponseStallWatchdog();
       if (useElevenLabsTts) {
         this.pacer.setHoldStream(false);
