@@ -72,6 +72,7 @@ export class CallSession {
   private falaObrigatoriaTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFalaObrigatoria: string | null = null;
   private autoFinanceiroTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoMassivaTimer: ReturnType<typeof setTimeout> | null = null;
   private financeiroTtsTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
@@ -409,6 +410,9 @@ export class CallSession {
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
+      if (/internet|conex[aã]o|wi-?fi|wi fi|lent[ao]|caiu|cai|sem sinal|offline|n[aã]o conect|travou|inst[aá]vel|queda|sem internet|parou de funcionar|n[aã]o funciona|sem rede/i.test(text)) {
+        this.ctx.relatouProblemaTecnico = true;
+      }
       this.ctx.lastClientSpeech = text;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
@@ -479,6 +483,9 @@ export class CallSession {
     });
 
     this.rt.on('responseDone', () => {
+        if (this.ctx.relatouProblemaTecnico && this.ctx.consultaFinanceiraFeita && !this.ctx.consultaMassivaFeita) {
+          this.armAutoMassiva(callId);
+        }
       this.clearResponseStallWatchdog();
       if (useElevenLabsTts) {
         this.pacer.setHoldStream(false);
@@ -703,6 +710,29 @@ export class CallSession {
         cliente_id: this.ctx.cliente?.contratoId,
       });
     }, 100);
+  }
+
+  
+  /** Após o financeiro e se houve queixa de internet, aciona massiva automaticamente para forçar o sequenciamento */
+  private armAutoMassiva(callId: string): void {
+    this.clearAutoMassiva();
+    this.autoMassivaTimer = setTimeout(() => {
+      this.autoMassivaTimer = null;
+      if (this.tearing || this.socket.destroyed || this.ctx.consultaMassivaFeita) return;
+      if (this.toolsInFlight > 0 || this.rt.isResponseActive() || this.rt.isResponsePending()) {
+        this.armAutoMassiva(callId);
+        return;
+      }
+      logger.info(`[${callId}] Auto: verificar_massiva após financeiro (via speech sequencial)`);
+      void this.rt.runServerTool("verificar_massiva", {});
+    }, 500);
+  }
+
+  private clearAutoMassiva(): void {
+    if (this.autoMassivaTimer) {
+      clearTimeout(this.autoMassivaTimer);
+      this.autoMassivaTimer = null;
+    }
   }
 
   private clearAutoFinanceiro(): void {
@@ -1010,6 +1040,7 @@ export class CallSession {
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.autoFinanceiroTimer) clearTimeout(this.autoFinanceiroTimer);
+    if (this.autoMassivaTimer) clearTimeout(this.autoMassivaTimer);
     if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
     if (this.falaObrigatoriaTimer) clearTimeout(this.falaObrigatoriaTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
