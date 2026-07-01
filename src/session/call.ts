@@ -337,12 +337,8 @@ export class CallSession {
       } else if (this.lastToolName) {
         sessionRegistry.emit(callId, 'tool_done', `Concluído: ${this.lastToolName}`, { tool: this.lastToolName });
       }
-      if (name === 'consultar_financeiro' && result && typeof result === 'object') {
-        const speech = buildFinanceiroSpeech(result as Parameters<typeof buildFinanceiroSpeech>[0]);
-        if (speech) {
-          this.pendingFalaObrigatoria = speech;
-          this.scheduleFinanceiroTts(callId, speech);
-        }
+      if (name === 'consultar_financeiro') {
+        this.ctx.consultaFinanceiraFeita = true;
       }
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
@@ -614,27 +610,6 @@ export class CallSession {
   }
 
   /** TTS da fatura após consultar_financeiro — aguarda preâmbulo e fila liberarem. */
-  private scheduleFinanceiroTts(callId: string, speech: string): void {
-    if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
-    this.clearFalaObrigatoriaFallback();
-    this.financeiroTtsTimer = setTimeout(() => {
-      this.financeiroTtsTimer = null;
-      if (this.tearing || this.socket.destroyed || this.assistantTextInResponse) return;
-      this.speakFinanceiroDirect(callId, speech);
-    }, 2_000);
-  }
-
-  private speakFinanceiroDirect(callId: string, speech: string): void {
-    this.pendingFalaObrigatoria = null;
-    this.clearPostToolSpeechWatchdog();
-    this.assistantTextInResponse = true;
-    this.waitingAnaAfterTool = false;
-    this.stopTypingSound();
-    logger.info(`[${callId}] 🤖 ${this.agentLabel()} (TTS direto): ${speech}`);
-    sessionRegistry.emit(callId, 'assistant_text', speech);
-    this.enqueueTTS(() => this.synthesizeAndSend(speech));
-  }
-
   private clearFinanceiroTts(): void {
     if (this.financeiroTtsTimer) {
       clearTimeout(this.financeiroTtsTimer);
