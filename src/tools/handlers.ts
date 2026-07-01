@@ -707,6 +707,14 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
+    // Aguarda até 1.5s pela transcrição caso esteja nula devido a atraso na API (race condition)
+    if (!ctx.lastClientSpeech) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (ctx.lastClientSpeech) break;
+      }
+    }
+
     const confirmado = args.confirmado === true;
     const nomeContrato = ctx.cliente.nome;
 
