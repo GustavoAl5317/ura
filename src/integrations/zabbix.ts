@@ -263,20 +263,6 @@ export class ZabbixClient {
       hostsConsultados: hosts,
     };
 
-    if (!config.zabbix.enabled) return base;
-    if (!config.zabbix.baseUrl || !config.zabbix.username) {
-      return { ...base, erro: 'Zabbix não configurado (ZABBIX_URL / ZABBIX_USER)' };
-    }
-
-    if (!hosts.length) {
-      return {
-        ...base,
-        semMapeamentoInfra: true,
-      };
-    }
-
-    const padroes = config.zabbix.searchPatterns;
-
     // --- MOCK INJECTION PARA TESTES LOCAIS ---
     try {
       const fs = require('fs/promises');
@@ -300,6 +286,22 @@ export class ZabbixClient {
       // Ignora silenciosamente se o arquivo não existir
     }
     // -----------------------------------------
+
+    if (!config.zabbix.enabled) return base;
+    if (!config.zabbix.baseUrl || !config.zabbix.username) {
+      return { ...base, erro: 'Zabbix não configurado (ZABBIX_URL / ZABBIX_USER)' };
+    }
+
+    if (!hosts.length) {
+      return {
+        ...base,
+        semMapeamentoInfra: true,
+      };
+    }
+
+    const padroes = config.zabbix.searchPatterns;
+
+
 
     let problemas: ZabbixProblem[];
     try {
