@@ -1531,3 +1531,4 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     return { ignorado: true };
   });
 }
+
