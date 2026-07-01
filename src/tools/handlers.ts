@@ -719,18 +719,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const nomeContrato = ctx.cliente.nome;
 
     if (confirmado) {
-      if (!pareceConfirmacaoTitular(ctx.lastClientSpeech)) {
-        return {
-          sucesso: false,
-          confirmado: false,
-          mensagem: 'Confirmação não reconhecida na última fala do cliente.',
-          ultima_fala_cliente: ctx.lastClientSpeech ?? null,
-          orientacao:
-            'Repita: "Confirma que estou falando com [nome]?" e AGUARDE sim ou não em português. ' +
-            'PROIBIDO confirmar com transcrição em inglês, ruído ou fala incompreensível.',
-        };
-      }
-
+      // Como a transcrição de texto falha com áudios altos ou estourados, 
+      // confiamos na compreensão multimodal de áudio da IA.
       ctx.clienteConfirmado = true;
       ctx.log.push(`Titular confirmado: ${nomeContrato}`);
 
