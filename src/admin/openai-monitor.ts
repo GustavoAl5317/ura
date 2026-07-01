@@ -15,7 +15,7 @@ function sumCostsFromBuckets(buckets: CostBucket[]): number {
   for (const bucket of buckets) {
     for (const row of bucket.results ?? []) {
       if (row.amount?.value != null) {
-        total += row.amount.value;
+        total += Number(row.amount.value);
       }
     }
   }
