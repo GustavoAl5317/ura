@@ -242,10 +242,9 @@ export class RealtimeClient extends EventEmitter {
       }
     }
 
-    try {
+      try {
       const result = await handler(args);
       logger.info(`[${this.callId}] Server tool ${name} resultado`, result);
-      this.emit('toolDone', name, result, { serverSide: true });
       await this.waitResponseDone();
       this.send({
         type: 'conversation.item.create',
@@ -260,9 +259,11 @@ export class RealtimeClient extends EventEmitter {
         },
       });
       this.createResponse(true);
+      this.emit('toolDone', name, result, { serverSide: true });
       return result;
     } catch (err: any) {
       logger.error(`[${this.callId}] Erro server tool ${name}`, { err: err.message });
+      await this.waitResponseDone();
       this.emit('toolDone', name, { error: err.message }, { serverSide: true });
       return null;
     }
@@ -430,15 +431,15 @@ export class RealtimeClient extends EventEmitter {
         const result = await handler(args);
         this.clearToolTimer(call_id);
         logger.info(`[${this.callId}] Tool ${name} resultado`, result);
-        this.emit('toolDone', name, result, { serverSide: false });
         await this.waitResponseDone();
         this.sendFunctionResult(call_id, result);
+        this.emit('toolDone', name, result, { serverSide: false });
       } catch (err: any) {
         this.clearToolTimer(call_id);
         logger.error(`[${this.callId}] Erro na tool ${name}`, { err: err.message });
-        this.emit('toolDone', name, { error: err.message }, { serverSide: false });
         await this.waitResponseDone();
         this.sendFunctionResult(call_id, { error: err.message });
+        this.emit('toolDone', name, { error: err.message }, { serverSide: false });
       }
     };
 
