@@ -71,7 +71,7 @@ export class CallSession {
   private titularFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
   private falaObrigatoriaTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFalaObrigatoria: string | null = null;
-
+  private autoFinanceiroTimer: ReturnType<typeof setTimeout> | null = null;
   private financeiroTtsTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
@@ -346,7 +346,16 @@ export class CallSession {
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
         if (name === 'confirmar_titular_contrato') {
+          const r = result as { sucesso?: boolean; confirmado?: boolean } | undefined;
+          if (r?.sucesso && r?.confirmado) {
+            this.armAutoFinanceiro(callId);
+          }
           this.armTitularFollowUpWatchdog(callId);
+        } else if (name === 'selecionar_contrato') {
+          const r = result as { sucesso?: boolean } | undefined;
+          if (r?.sucesso) {
+            this.armAutoFinanceiro(callId);
+          }
         }
       }
     });
@@ -679,7 +688,29 @@ export class CallSession {
     }, 4_000);
   }
 
+  /** Se o modelo não chamar financeiro após titular, o servidor chama imediatamente para evitar bug de resposta vazia. */
+  private armAutoFinanceiro(callId: string): void {
+    this.clearAutoFinanceiro();
+    this.autoFinanceiroTimer = setTimeout(() => {
+      this.autoFinanceiroTimer = null;
+      if (this.tearing || this.socket.destroyed || this.ctx.consultaFinanceiraFeita) return;
+      if (this.toolsInFlight > 0 || this.rt.isResponseActive() || this.rt.isResponsePending()) {
+        this.armAutoFinanceiro(callId);
+        return;
+      }
+      logger.info(`[${callId}] Auto: consultar_financeiro após titular`);
+      void this.rt.runServerTool('consultar_financeiro', {
+        cliente_id: this.ctx.cliente?.contratoId,
+      });
+    }, 100);
+  }
 
+  private clearAutoFinanceiro(): void {
+    if (this.autoFinanceiroTimer) {
+      clearTimeout(this.autoFinanceiroTimer);
+      this.autoFinanceiroTimer = null;
+    }
+  }
 
   private clearTitularFollowUpWatchdog(): void {
     if (this.titularFollowUpTimer) {
@@ -978,7 +1009,7 @@ export class CallSession {
     if (this.responseStallTimer) clearTimeout(this.responseStallTimer);
     if (this.postToolSpeechTimer) clearTimeout(this.postToolSpeechTimer);
     if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
-
+    if (this.autoFinanceiroTimer) clearTimeout(this.autoFinanceiroTimer);
     if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
     if (this.falaObrigatoriaTimer) clearTimeout(this.falaObrigatoriaTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
