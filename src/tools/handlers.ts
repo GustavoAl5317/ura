@@ -1411,7 +1411,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     //    está desabilitado ou falhou. Ignorado se COVERAGE_USE_GEOSITE_ONLY=true.
     if (!config.geosite.useGeositeOnly) {
       const temCobertura = await sgp.viabilidade({
-        cep: cepDigitos || undefined,
+        cep: cepStr || cepDigitos || undefined,
         logradouro: logradouro || undefined,
         numero_inicial: numero || undefined,
         numero_final: numero || undefined,
