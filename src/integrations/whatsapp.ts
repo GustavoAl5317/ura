@@ -176,7 +176,8 @@ export class WhatsAppClient {
       return false;
     }
     try {
-      await this.postSendText(grupoId, mensagem);
+      const formattedGrupo = grupoId.includes('@g.us') ? grupoId : `${grupoId}@g.us`;
+      await this.postSendText(formattedGrupo, mensagem);
       return true;
     } catch (err: any) {
       logger.error('WhatsApp grupo erro', {
