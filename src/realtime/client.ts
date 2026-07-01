@@ -251,11 +251,11 @@ export class RealtimeClient extends EventEmitter {
         type: 'conversation.item.create',
         item: {
           type: 'message',
-          role: 'user',
+          role: 'system',
           content: [{
             type: 'input_text',
             text:
-              `O sistema automático acabou de concluir a execução da ferramenta ${name} e retornou o seguinte resultado:\n${JSON.stringify(result)}\n\nComo assistente, siga a "orientacao" retornada e continue o atendimento com o cliente agora. Não fique em silêncio.`,
+              `A ferramenta ${name} foi executada pelo sistema em segundo plano e retornou:\n${JSON.stringify(result)}\n\n[INSTRUÇÃO CRÍTICA]: Siga a "orientacao" retornada e responda ao cliente IMEDIATAMENTE (gere a sua resposta em texto/voz).`,
           }],
         },
       });

@@ -814,9 +814,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       total_a_vencer_falado: aVencer.length > 0
         ? valorPorExtenso(valorTotalAVencer)
         : null,
-      faturas_vencidas: vencidas.map(mapFaturaResumo),
-      faturas_a_vencer: aVencer.map(mapFaturaResumo),
-      faturas: vencidas.map(mapFaturaResumo),
+      faturas_vencidas: vencidas.slice(0, 5).map(mapFaturaResumo),
+      faturas_a_vencer: aVencer.slice(0, 3).map(mapFaturaResumo),
+      faturas: vencidas.slice(0, 5).map(mapFaturaResumo),
       orientacao: orientacaoFinanceiro({
         vencidas,
         aVencer,
