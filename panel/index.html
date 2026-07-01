@@ -1053,8 +1053,10 @@
           const spend = oa.spendUsd ?? oa.totalUsd;
           document.getElementById('openai-usage').textContent = spend != null ? '$' + spend.toFixed(2) : (oa.ok ? '$0.00' : '—');
           let sub = oa.error ? ('⚠ ' + oa.error) : (oa.note || '');
-          if (!oa.error && oa.percentUsed != null && (oa.alertBudgetUsd ?? oa.budgetUsd)) {
-            sub += ' · ' + oa.percentUsed + '% do limite de alerta ($' + (oa.alertBudgetUsd ?? oa.budgetUsd) + ')';
+          if (!oa.error && (oa.alertBudgetUsd ?? oa.budgetUsd)) {
+            const limit = oa.alertBudgetUsd ?? oa.budgetUsd;
+            const remaining = oa.remainingUsd ?? (limit - spend);
+            sub = `Restam $${remaining.toFixed(2)} do limite de alerta ($${limit})`;
           }
           subEl.textContent = sub;
           subEl.className = 'stat-sub' + (oa.error ? ' error' : '');
