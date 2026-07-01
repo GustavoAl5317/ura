@@ -255,8 +255,7 @@ export class RealtimeClient extends EventEmitter {
           content: [{
             type: 'input_text',
             text:
-              `[SISTEMA] Resultado de ${name}: ${JSON.stringify(result)}. ` +
-              'Fale ao cliente AGORA com base nisso. Não fique em silêncio.',
+              `O sistema automático acabou de concluir a execução da ferramenta ${name} e retornou o seguinte resultado:\n${JSON.stringify(result)}\n\nComo assistente, siga a "orientacao" retornada e continue o atendimento com o cliente agora. Não fique em silêncio.`,
           }],
         },
       });
