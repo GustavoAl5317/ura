@@ -346,8 +346,8 @@ export class CallSession {
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
         if (name === 'confirmar_titular_contrato') {
-          const r = result as { sucesso?: boolean; confirmado?: boolean } | undefined;
-          if (r?.sucesso && r?.confirmado) {
+          const r = result as { sucesso?: boolean; confirmado?: boolean; multiplos_contratos?: boolean } | undefined;
+          if (r?.sucesso && r?.confirmado && !r?.multiplos_contratos) {
             this.armAutoFinanceiro(callId);
           }
           this.armTitularFollowUpWatchdog(callId);
