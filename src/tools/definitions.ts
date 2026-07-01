@@ -277,11 +277,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'registrar_interesse',
     description:
-      'Registra o interesse do cliente. Use após coletar os dados do cliente tanto em casos SEM COBERTURA (para ser avisado futuramente) quanto em casos COM COBERTURA (quando o cliente escolhe um plano para contratação).',
+      'Registra o interesse do cliente. Use APÓS perguntar e coletar o nome e o celular do cliente. Nunca chame esta ferramenta com nome vazio, você DEVE perguntar o nome antes.',
     parameters: {
       type: 'object',
       properties: {
-        nome: { type: 'string', description: 'Nome completo do interessado' },
+        nome: { type: 'string', description: 'Nome completo do interessado (Obrigatório! Pergunte antes de chamar)' },
         celular: {
           type: 'string',
           description:

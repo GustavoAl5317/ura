@@ -42,8 +42,7 @@ export class WhatsAppClient {
     const path = `/message/sendText/${config.whatsapp.instance}`;
     const modern = { 
       number, 
-      text,
-      options: { delay: 1000, presence: 'composing' as const, checkNumber: false }
+      text
     };
     const classic = {
       number,

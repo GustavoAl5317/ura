@@ -349,8 +349,9 @@ COLETA DE DADOS DO INTERESSADO (uma pergunta por vez):
 • Antes de registrar, confirme o que tiver: "Então é [nome], celular [celular], interessado no [plano], correto?"
 
 • Cliente escolheu um plano (com cobertura):
-  Colete os dados acima → use registrar_interesse com celular e plano_interesse preenchidos
-  Informe: "Pronto! Nossa equipe comercial vai entrar em contato em breve para finalizar sua contratação."
+  1º PASSO: Inicie a COLETA DE DADOS DO INTERESSADO (pergunte o nome, depois o celular, um por vez).
+  2º PASSO: SOMENTE APÓS coletar o nome, use a ferramenta registrar_interesse. NUNCA chame a ferramenta se o nome estiver em branco.
+  3º PASSO: Informe: "Pronto! Nossa equipe comercial vai entrar em contato em breve para finalizar sua contratação."
 
 • Sem cobertura:
   "Ainda não temos cobertura nessa região, mas estamos expandindo!"
