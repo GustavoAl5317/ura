@@ -169,8 +169,8 @@ export class RealtimeClient extends EventEmitter {
       type: 'conversation.item.create',
       item: {
         type: 'message',
-        role: 'system',
-        content: [{ type: 'input_text', text }],
+        role: 'user',
+        content: [{ type: 'input_text', text: `[INSTRUÇÃO DO SISTEMA OBRIGATÓRIA]\n${text}` }],
       },
     });
     this.createResponse(true);
@@ -255,11 +255,11 @@ export class RealtimeClient extends EventEmitter {
         type: 'conversation.item.create',
         item: {
           type: 'message',
-          role: 'system',
+          role: 'user',
           content: [{
             type: 'input_text',
             text:
-              `A ferramenta ${name} foi executada pelo sistema em segundo plano e retornou:\n${JSON.stringify(result)}\n\n[INSTRUÇÃO CRÍTICA]: Siga a "orientacao" retornada e responda ao cliente IMEDIATAMENTE (gere a sua resposta em texto/voz).`,
+              `[INSTRUÇÃO DO SISTEMA OBRIGATÓRIA]\nA ferramenta ${name} foi executada pelo sistema em segundo plano e retornou:\n${JSON.stringify(result)}\n\nSiga a "orientacao" retornada e responda ao cliente IMEDIATAMENTE. NUNCA fique em silêncio.`,
           }],
         },
       });
