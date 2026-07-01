@@ -680,7 +680,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       status: ct.status,
       motivo_status: ct.motivo_status,
       mensagem: 'Contrato selecionado.',
-      orientacao: 'Consulta de contrato finalizada. O sistema acionará a ferramenta consultar_financeiro automaticamente a seguir, aguarde o resultado.',
+      orientacao: 'Consulta de contrato finalizada. CHAME AGORA MESMO a ferramenta consultar_financeiro e aguarde o resultado para continuar o atendimento.',
     };
   });
 
@@ -735,7 +735,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         contrato_id: ctx.cliente.contratoId,
         endereco: formatarEndereco(ctx.cliente.endereco),
         mensagem: 'Identidade confirmada. Pode prosseguir com consultas e atendimento.',
-        orientacao: 'Identidade confirmada. O sistema acionará a ferramenta consultar_financeiro automaticamente a seguir, aguarde o resultado.',
+        orientacao: 'Identidade confirmada. CHAME AGORA MESMO a ferramenta consultar_financeiro e aguarde o resultado para continuar o atendimento.',
       };
     }
 
