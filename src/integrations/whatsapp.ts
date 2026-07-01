@@ -40,7 +40,11 @@ export class WhatsAppClient {
   // (500 costuma ser instância/desconexão — trocar o payload piora e mascara a causa).
   private async postSendText(number: string, text: string): Promise<void> {
     const path = `/message/sendText/${config.whatsapp.instance}`;
-    const modern = { number, text };
+    const modern = { 
+      number, 
+      text,
+      options: { delay: 1000, presence: 'composing' as const, checkNumber: false }
+    };
     const classic = {
       number,
       textMessage: { text },
