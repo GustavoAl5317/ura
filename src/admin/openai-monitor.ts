@@ -103,7 +103,9 @@ export async function refreshOpenAiUsage(): Promise<OpenAiUsageSnapshot> {
 
   try {
     const startSec = Math.floor(start.getTime() / 1000);
-    const endSec = Math.floor(now.getTime() / 1000);
+    // OpenAI exige que o end_date seja estritamente DEPOIS do start_date
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const endSec = Math.floor(end.getTime() / 1000);
     const { spend } = await fetchOrganizationCosts(startSec, endSec);
     const spendUsd = Math.round(spend * 100) / 100;
 
