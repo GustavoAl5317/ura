@@ -64,7 +64,7 @@ export class WhatsAppClient {
 
       // 400 por schema — tenta formato clássico só se não exigir "text" na raiz
       if ((status === 400 || status === 422) && !body.includes('requires property "text"')) {
-        logger.info('WhatsApp: formato moderno falhou, tentando formato clássico', { status });
+        logger.info('WhatsApp: formato moderno falhou, tentando formato clássico', { status, bodyModern: body });
         await this.client.post(path, classic);
         return;
       }
