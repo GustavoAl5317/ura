@@ -267,8 +267,8 @@ export class SgpClient {
     try {
       const res = await this.http.post<T>(path, this.formBody(data));
       return res.data;
-    } catch {
-      return null;
+    } catch (err) {
+      throw err;
     }
   }
 
@@ -276,8 +276,8 @@ export class SgpClient {
     try {
       const res = await this.http.post<T>(path, { ...this.auth(), ...body });
       return res.data;
-    } catch {
-      return null;
+    } catch (err) {
+      throw err;
     }
   }
 
@@ -285,8 +285,8 @@ export class SgpClient {
     try {
       const res = await this.http.get<T>(path, { params: { ...this.auth(), ...params } });
       return res.data;
-    } catch {
-      return null;
+    } catch (err) {
+      throw err;
     }
   }
 

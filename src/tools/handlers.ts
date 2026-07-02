@@ -295,8 +295,13 @@ export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string | n
     const val = vencida.valor_falado || vencida.valor;
     parts.push(`A fatura em aberto é de ${val}.`);
     if (vencida.vencimento) {
-      const [y, m, d] = vencida.vencimento.split('-');
-      if (d && m && y) parts.push(`O vencimento foi dia ${d} de ${m} de ${y}.`);
+      const [y, mStr, d] = vencida.vencimento.split('-');
+      if (d && mStr && y) {
+        const m = parseInt(mStr, 10);
+        const meses = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+        const nomeMes = meses[m] || mStr;
+        parts.push(`O vencimento foi dia ${d} de ${nomeMes}.`);
+      }
     }
   } else if (result.total_vencido) {
     parts.push(`O total vencido é de ${result.total_vencido}.`);
@@ -604,7 +609,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     }
 
     const cliente = await sgp.buscarPorCpf(digitos);
-    if (!cliente) return { encontrado: false, mensagem: 'CPF não encontrado no cadastro.' };
+    if (!cliente) return { encontrado: false, mensagem: 'CPF não encontrado no cadastro.', orientacao: 'O CPF não foi localizado. Pode ser um cliente novo ou o CPF foi digitado incorretamente. Pergunte se o CPF está correto ou se ele é um cliente novo interessado em contratar internet.' };
 
     ctx.cliente = cliente;
     ctx.clienteIdentificado = true;

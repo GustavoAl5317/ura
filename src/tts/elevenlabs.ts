@@ -52,6 +52,7 @@ export async function synthesizeStream(
     {
       text,
       model_id: config.tts.elevenlabs.modelId,
+      language_code: 'pt',
       voice_settings: {
         stability: config.tts.elevenlabs.stability,
         similarity_boost: config.tts.elevenlabs.similarityBoost,

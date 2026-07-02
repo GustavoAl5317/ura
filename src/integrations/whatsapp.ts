@@ -57,12 +57,9 @@ export class WhatsAppClient {
       const status = errModern.response?.status;
       const body = JSON.stringify(errModern.response?.data ?? '');
 
-      // 500 = erro interno/instância — retenta o mesmo formato uma vez
       if (status === 500) {
-        logger.warn('WhatsApp: erro 500, retentando mesmo formato', { number });
-        await new Promise((r) => setTimeout(r, 800));
-        await this.client.post(path, modern);
-        return;
+        logger.warn('WhatsApp: erro 500 (Evolution). Não retentando para evitar duplicação.', { number });
+        throw errModern;
       }
 
       // 400 por schema — tenta formato clássico só se não exigir "text" na raiz
