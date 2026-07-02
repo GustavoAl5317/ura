@@ -1425,7 +1425,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         numero_inicial: numero || undefined,
         numero_final: numero || undefined,
         bairro: bairro || undefined,
-        cidade: cidade || undefined,
+        cidade: cidadeBusca || undefined,
       });
 
       if (temCobertura) return { tem_cobertura: true, fonte: 'sgp' };
