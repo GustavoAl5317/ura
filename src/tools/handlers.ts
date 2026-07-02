@@ -266,8 +266,7 @@ function mapFaturaResumo(t: SgpTitulo) {
   return {
     id: t.id,
     numero_documento: t.numeroDocumento,
-    valor: `R$ ${t.valorCorrigido.toFixed(2).replace('.', ',')}`,
-    valor_falado: valorPorExtenso(t.valorCorrigido),
+    valor: valorPorExtenso(t.valorCorrigido),
     vencimento: t.dataVencimento,
     atraso_dias: atraso,
     atraso_dias_sgp: t.diasAtraso,
@@ -816,13 +815,13 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       tem_faturas_abertas: temFaturasAbertas,
       tem_faturas_vencidas: temFaturasVencidas,
       total_vencido: temFaturasVencidas
-        ? `R$ ${valorTotalVencido.toFixed(2).replace('.', ',')}`
+        ? valorPorExtenso(valorTotalVencido)
         : null,
       total_vencido_falado: temFaturasVencidas
         ? valorPorExtenso(valorTotalVencido)
         : null,
       total_a_vencer: aVencer.length > 0
-        ? `R$ ${valorTotalAVencer.toFixed(2).replace('.', ',')}`
+        ? valorPorExtenso(valorTotalAVencer)
         : null,
       total_a_vencer_falado: aVencer.length > 0
         ? valorPorExtenso(valorTotalAVencer)
@@ -944,7 +943,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const linkBoleto = linkObj.link;
     const linhaDigitavel = linkObj.linhadigitavel;
-    const valorFmt = `R$ ${linkObj.valor.toFixed(2).replace('.', ',')}`;
+    const valorFmt = valorPorExtenso(linkObj.valor);
 
     ctx.faturaWhatsApp = {
       valor: valorFmt,
