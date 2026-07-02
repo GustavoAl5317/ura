@@ -781,13 +781,14 @@ export class CallSession {
     const gen = this.ttsGeneration;
     this.stopTypingSound();
     
-    // Correção fonética para a ElevenLabs ler "mega" corretamente em português
-    const normalizedText = text.replace(/\bmegas?\b/gi, (match) => {
-      const isPlural = match.toLowerCase().endsWith('s');
-      const isUpper = match[0] === match[0].toUpperCase();
-      if (isPlural) return isUpper ? 'Mégas' : 'mégas';
-      return isUpper ? 'Méga' : 'méga';
-    });
+    // Correção fonética para a ElevenLabs ler siglas e "mega" corretamente em português
+    const normalizedText = text
+      .replace(/\bMB\b/g, 'megabytes')
+      .replace(/\bGB\b/g, 'gigabytes')
+      .replace(/\bMega\b/g, 'Méga')
+      .replace(/\bMegas\b/g, 'Mégas')
+      .replace(/\bmega\b/g, 'méga')
+      .replace(/\bmegas\b/g, 'mégas');
 
     const fmt = config.tts.elevenlabs.outputFormat;
     logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${normalizedText.length} chars, ${fmt})`);
