@@ -1493,7 +1493,11 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
         const num = parseFloat(p.preco);
         return {
           id: p.id,
-          nome: p.descricao,
+          nome: p.descricao
+            .replace(/MB/gi, ' Mega')
+            .replace(/GB/gi, ' Giga')
+            .replace(/\s*-\s*(BASIC|PLUS|PREMIUM|ULTRA)/gi, '')
+            .trim(),
           preco: `R$ ${num.toFixed(2).replace('.', ',')}`,
           preco_falado: valorPorExtenso(num),
         };
