@@ -11,6 +11,17 @@ import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
 
+function limparNomePlano(nome: string | null | undefined): string | null {
+  if (!nome) return null;
+  return nome
+    .replace(/\b(basic|premium|gold|plus|master|fidelizado|s\/?fid\w*|promocional|promo|residencial|resid\w*|fibra)\b/gi, '')
+    .replace(/plano\s*(de)?/gi, '')
+    .replace(/[\s-]{2,}/g, ' ')
+    .trim()
+    .replace(/^-|-$/g, '')
+    .trim();
+}
+
 function pareceConfirmacaoTitular(text?: string): boolean {
   if (!text?.trim()) return false;
   const t = text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
@@ -448,7 +459,7 @@ function listarContratos(ctx: CallContext) {
   return ctx.cliente.contratos.map((ct) => ({
     contrato_id: ct.contrato,
     endereco: formatarEndereco(ct.endereco ?? ctx.cliente!.endereco),
-    plano: ct.servicos[0]?.plano?.descricao ?? null,
+    plano: limparNomePlano(ct.servicos[0]?.plano?.descricao),
     status: ct.status,
     motivo_status: ct.motivo_status,
   }));
@@ -636,7 +647,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       telefones_cadastro: cliente.telefones ?? [],
       status_contrato: cliente.contratos[0]?.status,
       motivo_status: cliente.contratos[0]?.motivo_status,
-      plano: cliente.contratos[0]?.servicos[0]?.plano?.descricao,
+      plano: limparNomePlano(cliente.contratos[0]?.servicos[0]?.plano?.descricao),
       endereco: formatarEndereco(cliente.endereco),
       orientacao: orientacaoTitular + orientacaoContratos,
     };
@@ -676,7 +687,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       sucesso: true,
       contrato_id: contratoId,
       endereco: formatarEndereco(ct.endereco ?? ctx.cliente.endereco),
-      plano: ct.servicos[0]?.plano?.descricao ?? null,
+      plano: limparNomePlano(ct.servicos[0]?.plano?.descricao),
       status: ct.status,
       motivo_status: ct.motivo_status,
       mensagem: 'Contrato selecionado.',
