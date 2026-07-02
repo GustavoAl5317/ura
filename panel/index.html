@@ -3,40 +3,46 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>URA AI — Painel Aquitelecom</title>
+  <title>URA AI — Painel de Controle</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #080b12;
-      --bg-elevated: #0e1219;
-      --surface: #131820;
-      --surface-hover: #1a2230;
-      --border: rgba(255, 255, 255, 0.07);
-      --border-strong: rgba(255, 255, 255, 0.12);
-      --text: #f0f4fa;
-      --text-secondary: #94a3b8;
-      --text-muted: #64748b;
+      --bg: #09090b;
+      --bg-elevated: #18181b;
+      --surface: rgba(24, 24, 27, 0.7);
+      --surface-hover: rgba(39, 39, 42, 0.8);
+      --border: rgba(255, 255, 255, 0.1);
+      --border-strong: rgba(255, 255, 255, 0.15);
+      --text: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      
       --accent: #3b82f6;
-      --accent-soft: rgba(59, 130, 246, 0.12);
-      --accent-glow: rgba(59, 130, 246, 0.25);
+      --accent-hover: #2563eb;
+      --accent-soft: rgba(59, 130, 246, 0.15);
+      --accent-glow: rgba(59, 130, 246, 0.4);
+      
       --ok: #22c55e;
-      --ok-soft: rgba(34, 197, 94, 0.12);
+      --ok-soft: rgba(34, 197, 94, 0.15);
       --warn: #f59e0b;
-      --warn-soft: rgba(245, 158, 11, 0.12);
+      --warn-soft: rgba(245, 158, 11, 0.15);
       --danger: #ef4444;
-      --danger-soft: rgba(239, 68, 68, 0.12);
-      --purple: #a78bfa;
-      --purple-soft: rgba(167, 139, 250, 0.12);
-      --radius: 14px;
-      --radius-sm: 10px;
-      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-      --font: 'DM Sans', system-ui, sans-serif;
-      --mono: 'JetBrains Mono', ui-monospace, monospace;
+      --danger-soft: rgba(239, 68, 68, 0.15);
+      --purple: #a855f7;
+      --purple-soft: rgba(168, 85, 247, 0.15);
+      
+      --radius: 16px;
+      --radius-sm: 8px;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+      
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
     }
 
-    * { box-sizing: border-box; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: var(--font);
@@ -46,884 +52,521 @@
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
+      display: flex;
     }
 
+    /* Background effects */
     body::before {
       content: '';
       position: fixed;
-      inset: 0;
-      background:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.15), transparent),
-        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(167, 139, 250, 0.08), transparent);
-      pointer-events: none;
-      z-index: 0;
+      top: -20%; left: -10%; width: 50%; height: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
+      filter: blur(100px); opacity: 0.5; z-index: -1;
     }
-
-    .app-layout {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      min-height: 100vh;
-    }
-
-    /* ── Sidebar ── */
-    .sidebar {
-      width: 260px;
-      background: rgba(14, 18, 25, 0.85);
-      backdrop-filter: blur(12px);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
+    body::after {
+      content: '';
       position: fixed;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      z-index: 200;
+      bottom: -20%; right: -10%; width: 50%; height: 50%;
+      background: radial-gradient(circle, rgba(168,85,247,0.3) 0%, transparent 60%);
+      filter: blur(100px); opacity: 0.5; z-index: -1;
     }
 
-    .sidebar-header {
-      padding: 1.5rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 0.875rem;
+    /* Layout */
+    .sidebar {
+      width: 280px;
+      background: rgba(9, 9, 11, 0.8);
+      backdrop-filter: blur(20px);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; z-index: 100;
+      transition: transform 0.3s ease;
     }
 
+    .main-content {
+      flex: 1;
+      margin-left: 280px;
+      display: flex; flex-direction: column;
+      min-height: 100vh;
+      width: calc(100% - 280px);
+    }
+
+    /* Sidebar Header */
+    .brand {
+      padding: 2rem 1.5rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
     .brand-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 16px var(--accent-glow);
     }
+    .brand-icon svg { width: 24px; height: 24px; color: #fff; }
+    .brand-text h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    .brand-text span { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 
-    .brand-icon svg { width: 18px; height: 18px; color: #fff; }
-
-    .brand-text h1 {
-      font-size: 1.1rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1;
-      margin-bottom: 0.2rem;
-    }
-
-    .brand-text span {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .nav-menu {
-      padding: 1.25rem 0.75rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      flex: 1;
-    }
-
+    /* Navigation */
+    .nav-menu { padding: 0 1rem; display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
     .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 1rem;
-      border-radius: var(--radius-sm);
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: all 0.2s;
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.875rem 1rem; border-radius: var(--radius-sm);
+      color: var(--text-secondary); text-decoration: none;
+      font-size: 0.95rem; font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer; border: 1px solid transparent;
     }
-
-    .nav-item:hover {
-      background: var(--surface-hover);
-      color: var(--text);
-    }
-
+    .nav-item:hover { background: var(--surface-hover); color: var(--text); }
     .nav-item.active {
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: 600;
+      background: var(--surface); color: var(--text);
+      border-color: var(--border); box-shadow: var(--shadow-sm);
     }
-
-    .nav-item svg { width: 18px; height: 18px; opacity: 0.9; }
-
-    /* ── Main Content Area ── */
-    .content-wrapper {
-      flex: 1;
-      margin-left: 260px;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
+    .nav-item.active::before {
+      content: ''; position: absolute; left: 0; width: 4px; height: 20px;
+      background: var(--accent); border-radius: 0 4px 4px 0;
     }
+    .nav-item svg { width: 20px; height: 20px; opacity: 0.8; }
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 1rem;
-      padding: 0.875rem 1.75rem;
+    /* Topbar */
+    .topbar {
+      padding: 1.25rem 2rem;
+      display: flex; align-items: center; justify-content: space-between;
       border-bottom: 1px solid var(--border);
-      background: rgba(14, 18, 25, 0.65);
+      background: rgba(9, 9, 11, 0.5);
       backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 100;
+      position: sticky; top: 0; z-index: 90;
     }
-
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0.9rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      border: 1px solid transparent;
-      transition: all 0.2s;
-    }
-
-    .status-pill.on {
-      background: var(--ok-soft);
-      color: #4ade80;
-      border-color: rgba(34, 197, 94, 0.25);
-    }
-
-    .status-pill.off {
-      background: var(--danger-soft);
-      color: #f87171;
-      border-color: rgba(239, 68, 68, 0.25);
-    }
-
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: currentColor;
-    }
-
-    .status-pill.on .status-dot {
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
-      50% { opacity: 0.85; box-shadow: 0 0 0 4px transparent; }
-    }
-
-    .auth-group {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.25rem 0.25rem 0.25rem 0.75rem;
-    }
-
-    .auth-group input {
-      width: 200px;
-      padding: 0.4rem 0;
-      border: none;
-      background: transparent;
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 0.82rem;
-      outline: none;
-    }
-
-    .auth-group input::placeholder { color: var(--text-muted); }
-
-    /* ── Main Tab Content ── */
-    main {
-      flex: 1;
-      padding: 1.5rem 1.75rem 2.5rem;
-      width: 100%;
-      max-width: 1200px;
-    }
-
-    .tab-pane { display: none; animation: fadeIn 0.3s ease; }
-    .tab-pane.active { display: block; }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-      flex-wrap: wrap;
-    }
-
-    .toolbar-label {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-
-    button {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.55rem 1rem;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
-      background: var(--surface);
-      color: var(--text);
-      cursor: pointer;
-      font-family: var(--font);
-      font-size: 0.85rem;
-      font-weight: 500;
-      transition: all 0.15s ease;
-    }
-
-    button:hover {
-      background: var(--surface-hover);
-      border-color: rgba(255, 255, 255, 0.18);
-    }
-
-    button:active { transform: scale(0.98); }
-    button svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.85; }
-
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 2px 12px var(--accent-glow); }
-    button.primary:hover { background: #2563eb; border-color: #2563eb; }
+    .topbar-title { font-size: 1.25rem; font-weight: 600; }
     
-    button.success { background: rgba(22, 163, 74, 0.9); border-color: #16a34a; color: #fff; }
-    button.success:hover { background: #15803d; }
-    
-    button.danger { background: rgba(185, 28, 28, 0.85); border-color: #b91c1c; color: #fff; }
-    button.danger:hover { background: #991b1b; }
-    
-    button.ghost { background: transparent; border-color: var(--border); }
-
-    /* ── Stats ── */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-      margin-bottom: 1.5rem;
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1rem; border-radius: 99px;
+      font-size: 0.85rem; font-weight: 600;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      transition: all 0.3s ease;
     }
+    .status-badge.on { background: var(--ok-soft); color: var(--ok); border-color: rgba(34, 197, 94, 0.3); }
+    .status-badge.off { background: var(--danger-soft); color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .status-badge.on .pulse-dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+
+    /* Pages */
+    .page { display: none; padding: 2rem; animation: fadeUp 0.4s ease; max-width: 1400px; margin: 0 auto; width: 100%; }
+    .page.active { display: block; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Cards */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
+      box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);
+    }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .card-title { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+    .card-title svg { color: var(--text-muted); width: 18px; }
+
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .stat-box { display: flex; align-items: center; gap: 1.25rem; }
+    .stat-icon {
+      width: 56px; height: 56px; border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+    }
+    .stat-icon svg { width: 28px; height: 28px; }
+    .stat-icon.blue { color: var(--accent); background: var(--accent-soft); border-color: rgba(59,130,246,0.3); }
+    .stat-icon.green { color: var(--ok); background: var(--ok-soft); border-color: rgba(34,197,94,0.3); }
+    .stat-icon.purple { color: var(--purple); background: var(--purple-soft); border-color: rgba(168,85,247,0.3); }
+    .stat-info { display: flex; flex-direction: column; }
+    .stat-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .stat-value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .stat-sub { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; }
+
+    /* Live Monitor Workspace */
+    .workspace {
+      display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; height: calc(100vh - 280px); min-height: 500px;
+    }
+    .call-list-col { display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; padding-right: 0.5rem; }
+    .call-item {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      padding: 1.25rem; border-radius: var(--radius-sm);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .call-item:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .call-item.active { background: var(--accent-soft); border-color: var(--accent); }
+    .call-phone { font-size: 1.1rem; font-weight: 600; font-family: var(--mono); color: var(--text); margin-bottom: 0.25rem; }
+    .call-name { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+    .call-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-muted); }
+    .call-tag { background: rgba(255,255,255,0.1); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 500; }
+    
+    .chat-col {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden;
+    }
+    .chat-header {
+      padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02); display: flex; justify-content: space-between; align-items: center;
+    }
+    .chat-header h3 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+    .chat-feed { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; scroll-behavior: smooth; }
+    
+    /* Chat Bubbles */
+    .bubble-row { display: flex; width: 100%; margin-bottom: 0.5rem; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    
+    .bubble { max-width: 75%; padding: 0.875rem 1.25rem; border-radius: 16px; font-size: 0.95rem; line-height: 1.5; position: relative; }
+    .bubble-meta { font-size: 0.7rem; margin-bottom: 0.3rem; opacity: 0.7; display: flex; justify-content: space-between; }
+    
+    /* Client (Right) */
+    .row-client { justify-content: flex-end; }
+    .bubble-client { background: var(--accent); color: white; border-bottom-right-radius: 4px; box-shadow: 0 4px 12px rgba(59,130,246,0.2); }
+    
+    /* AI (Left) */
+    .row-ai { justify-content: flex-start; }
+    .bubble-ai { background: var(--surface-hover); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    
+    /* Tool/System (Center) */
+    .row-tool { justify-content: center; }
+    .bubble-tool { background: var(--bg); border: 1px dashed var(--border-strong); padding: 0.5rem 1rem; border-radius: 99px; font-size: 0.8rem; color: var(--text-secondary); font-family: var(--mono); display: flex; align-items: center; gap: 0.5rem; }
+    .bubble-tool svg { width: 14px; height: 14px; color: var(--warn); }
+    
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.6rem 1.25rem; border-radius: var(--radius-sm);
+      font-family: var(--font); font-size: 0.9rem; font-weight: 500;
+      cursor: pointer; transition: all 0.2s; border: 1px solid transparent;
+      background: var(--surface); color: var(--text); border-color: var(--border-strong);
+    }
+    .btn:hover { background: var(--surface-hover); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn svg { width: 16px; height: 16px; }
+    
+    .btn-primary { background: var(--accent); color: white; box-shadow: 0 4px 12px var(--accent-glow); }
+    .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .btn-success { background: var(--ok); color: white; box-shadow: 0 4px 12px var(--ok-soft); }
+    .btn-success:hover { background: #16a34a; }
+    .btn-danger { background: var(--danger); color: white; box-shadow: 0 4px 12px var(--danger-soft); }
+    .btn-danger:hover { background: #dc2626; }
+    
+    .actions-bar { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+
+    /* Tables */
+    .table-container { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-elevated); }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 1rem 1.25rem; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.2); }
+    td { padding: 1rem 1.25rem; font-size: 0.9rem; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface-hover); }
+
+    /* Login Overlay */
+    #login-overlay {
+      position: fixed; inset: 0; background: rgba(9, 9, 11, 0.9); backdrop-filter: blur(20px);
+      z-index: 9999; display: flex; align-items: center; justify-content: center;
+    }
+    .login-box { width: 100%; max-width: 400px; text-align: center; }
+    .login-input { width: 100%; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: white; font-size: 1rem; margin-bottom: 1rem; outline: none; transition: border-color 0.2s; text-align: center; letter-spacing: 0.1em; }
+    .login-input:focus { border-color: var(--accent); }
+
+    /* Forms */
+    .form-group { margin-bottom: 1.5rem; text-align: left; }
+    .form-label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); }
+    .form-control { width: 100%; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-family: var(--font); outline: none; }
+    .form-control:focus { border-color: var(--accent); }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--ok); color: white; padding: 1rem 1.5rem; border-radius: var(--radius-sm); font-weight: 500; box-shadow: var(--shadow); transform: translateY(100px); opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; display: flex; align-items: center; gap: 0.75rem; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: var(--text-muted); text-align: center; height: 100%; }
+    .empty-state svg { width: 48px; height: 48px; opacity: 0.5; margin-bottom: 1rem; }
 
     @media (max-width: 1024px) {
-      .stats { grid-template-columns: 1fr; }
+      .workspace { grid-template-columns: 1fr; height: auto; }
+      .chat-col { height: 600px; }
     }
-
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.25rem 1.35rem;
-      display: flex;
-      gap: 1rem;
-      align-items: flex-start;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    .stat-card:hover {
-      border-color: var(--border-strong);
-      box-shadow: var(--shadow);
-    }
-
-    .stat-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .stat-icon svg { width: 22px; height: 22px; }
-
-    .stat-icon.calls { background: var(--accent-soft); color: var(--accent); }
-    .stat-icon.openai { background: var(--purple-soft); color: var(--purple); }
-    .stat-icon.uptime { background: var(--ok-soft); color: var(--ok); }
-
-    .stat-body { min-width: 0; flex: 1; }
-    .stat-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 0.35rem; }
-    .stat-value { font-size: 1.85rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
-    .stat-sub { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.4rem; line-height: 1.4; }
-    .stat-sub.error { color: #fbbf24; }
-
-    /* ── Layout ── */
-    .layout {
-      display: grid;
-      grid-template-columns: 340px 1fr;
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    @media (max-width: 960px) {
-      .layout { grid-template-columns: 1fr; }
-    }
-
-    .panel-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      display: flex;
-      flex-direction: column;
-      min-height: 460px;
-      overflow: hidden;
-    }
-
-    .panel-card.auto-height { min-height: auto; }
-
-    .panel-head {
-      padding: 1rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
-
-    .panel-head h3 { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
-    .panel-head .hint { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
-
-    .panel-body {
-      flex: 1;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border-strong) transparent;
-    }
-
-    .panel-body::-webkit-scrollbar { width: 6px; }
-    .panel-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
-
-    .panel-foot {
-      padding: 0.65rem 1.25rem;
-      border-top: 1px solid var(--border);
-      font-size: 0.75rem;
-      color: var(--text-muted);
-    }
-
-    /* Sessions */
-    .session-item { padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
-    .session-item:hover { background: var(--surface-hover); }
-    .session-item.active { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: calc(1.25rem - 3px); }
-    .session-number { font-weight: 600; font-size: 0.9rem; font-family: var(--mono); letter-spacing: -0.02em; }
-    .session-name { font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.15rem; }
-    .session-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; display: flex; gap: 0.5rem; align-items: center; }
-    .session-meta .tag { background: var(--bg-elevated); padding: 0.1rem 0.45rem; border-radius: 4px; font-family: var(--mono); font-size: 0.68rem; }
-    .empty-state { padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
-    .empty-state svg { width: 40px; height: 40px; opacity: 0.35; margin-bottom: 0.75rem; }
-
-    /* Feed */
-    .feed { padding: 0.75rem; }
-    .event { padding: 0.65rem 0.85rem; margin-bottom: 0.45rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.84rem; line-height: 1.45; animation: fadeIn 0.2s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-    .event.client { border-left: 3px solid #60a5fa; }
-    .event.ana { border-left: 3px solid var(--purple); }
-    .event.tool { border-left: 3px solid var(--warn); }
-    .event-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
-    .event-who { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-    .event.client .event-who { color: #60a5fa; }
-    .event.ana .event-who { color: var(--purple); }
-    .event.tool .event-who { color: var(--warn); }
-    .event .time { color: var(--text-muted); font-size: 0.7rem; font-family: var(--mono); }
-    .event-msg { color: var(--text-secondary); }
-
-    /* Bottom sections */
-    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
-    @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
-    .bottom-grid .panel-card { min-height: 280px; }
-    .alert-item { padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin: 0.5rem 0.75rem; font-size: 0.84rem; border: 1px solid; }
-    .alert-item.warn { background: var(--warn-soft); border-color: rgba(245, 158, 11, 0.3); }
-    .alert-item.critical { background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.3); }
-    .alert-item.info { background: var(--accent-soft); border-color: rgba(59, 130, 246, 0.3); }
-    .alert-item strong { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; }
-    .alert-item .time { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--mono); }
-    .history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.84rem; transition: background 0.15s; }
-    .history-item:hover { background: var(--surface-hover); }
-    .history-item .time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--mono); margin-bottom: 0.25rem; }
-    .history-item .detail { color: var(--text-secondary); }
-    
-    .footer-note { margin-top: 1.5rem; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; }
-    .footer-note code { font-family: var(--mono); font-size: 0.72rem; background: var(--bg-elevated); padding: 0.1rem 0.35rem; border-radius: 4px; color: var(--text-secondary); }
-
-    /* Form Fields */
-    .form-group { margin-bottom: 1.5rem; }
-    .form-label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
-    .form-textarea { width: 100%; padding: 0.875rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font); font-size: 0.95rem; resize: vertical; min-height: 120px; transition: border-color 0.2s; outline: none; }
-    .form-textarea:focus { border-color: var(--accent); }
-    
-    /* Toast */
-    .toast { position: fixed; bottom: 20px; right: 20px; background: var(--ok); color: white; padding: 0.75rem 1.25rem; border-radius: var(--radius-sm); font-weight: 500; font-size: 0.9rem; box-shadow: var(--shadow); transform: translateY(100px); opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; }
-    .toast.show { transform: translateY(0); opacity: 1; }
-
-    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 80; backdrop-filter: blur(4px); transition: opacity 0.3s; opacity: 0; }
-    .sidebar-overlay.show { display: block; opacity: 1; }
-    
     @media (max-width: 768px) {
-      .app-layout { flex-direction: column; }
-      .sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 0; }
-      .nav-menu { flex-direction: row; overflow-x: auto; padding: 0.5rem 1rem; gap: 0.5rem; align-items: center; white-space: nowrap; }
-      .nav-item { padding: 0.6rem 1rem; font-size: 0.85rem; }
-      .sidebar-overlay { display: none !important; }
-      .mobile-menu-btn { display: none !important; }
-      .content-wrapper { margin-left: 0; padding: 1rem; }
-      .top-metrics { grid-template-columns: 1fr; }
-      .chart-grid { grid-template-columns: 1fr; }
-      .table-container { overflow-x: auto; }
-      #event-modal .panel-body > div.form-group { margin-bottom: 1rem !important; }
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; width: 100%; }
+      .hamburger { display: block !important; }
     }
+    .hamburger { display: none; background: none; border: none; color: white; cursor: pointer; padding: 0.5rem; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; backdrop-filter: blur(4px); }
   </style>
 </head>
 <body>
 
-  <div class="app-layout">
-    <div id="sidebar-overlay" class="sidebar-overlay" ></div>
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" x2="12" y1="19" y2="22"/>
-          </svg>
-        </div>
-        <div class="brand-text">
-          <h1>URA AI</h1>
-          <span>Painel de operações</span>
-        </div>
+  <!-- Login Overlay -->
+  <div id="login-overlay">
+    <div class="card login-box">
+      <div class="brand-icon" style="margin: 0 auto 1.5rem auto; width: 56px; height: 56px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12 2.1 7.1"/></svg>
       </div>
-      <nav class="nav-menu">
-        <a href="#" class="nav-item active" onclick="switchTab('dashboard', this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-          Dashboard
-        </a>
-        <a href="#" class="nav-item" onclick="switchTab('events', this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M11 9h2M12 8v2"></path></svg>
-          Mensagens da URA
-        </a>
-      
-          <button class="nav-item" onclick="switchTab('audit', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            Auditoria OpenAI
-          </button>
-        </nav>
-    </aside>
-
-    <div class="content-wrapper">
-      <!-- Header -->
-      <header class="header">
-
-        <div style="flex:1"></div>
-        <div class="header-right">
-          <span id="ura-badge" class="status-pill on">
-            <span class="status-dot"></span>
-            URA ligada
-          </span>
-        </div>
-      </header>
-
-      <!-- Dashboard Tab -->
-      <main id="tab-dashboard" class="tab-pane active">
-        <div class="toolbar">
-          <span class="toolbar-label">Controles Rápidos</span>
-          <div class="btn-group">
-            <button class="success" onclick="setUra(true)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Ligar URA
-            </button>
-            <button class="danger" onclick="setUra(false)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
-              Desligar URA
-            </button>
-            <button onclick="refresh()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-              Atualizar
-            </button>
-            <button class="primary" onclick="refreshOpenAi()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-              Gasto OpenAI
-            </button>
-          </div>
-        </div>
-
-        <div class="stats">
-          <div class="stat-card">
-            <div class="stat-icon calls">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-            </div>
-            <div class="stat-body">
-              <div class="stat-label">Ligações ativas</div>
-              <div class="stat-value" id="active-calls">—</div>
-              <div class="stat-sub">chamadas em andamento agora</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon openai">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            </div>
-            <div class="stat-body">
-              <div class="stat-label">Gasto OpenAI (30 dias)</div>
-              <div class="stat-value" id="openai-usage">—</div>
-              <div class="stat-sub" id="openai-sub">atualiza automaticamente</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon uptime">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div class="stat-body">
-              <div class="stat-label">Uptime</div>
-              <div class="stat-value" id="uptime">—</div>
-              <div class="stat-sub">processo ura-ai em execução</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="layout">
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3>Ligações ao vivo</h3>
-              <span class="hint">clique para monitorar</span>
-            </div>
-            <div class="panel-body" id="sessions-list"></div>
-            <div class="panel-foot">Atualização em tempo real via SSE</div>
-          </div>
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3 id="feed-title">Feed em tempo real</h3>
-              <span class="hint">Ana · Cliente · Tools</span>
-            </div>
-            <div class="panel-body feed" id="live-feed"></div>
-            <div class="panel-foot">Últimos 150 eventos da ligação selecionada</div>
-          </div>
-        </div>
-
-        <div class="bottom-grid">
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3>Alertas</h3>
-              <span class="hint">gasto · sistema</span>
-            </div>
-            <div class="panel-body" id="alerts-list"></div>
-          </div>
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3>Histórico de chamadas</h3>
-              <span class="hint">últimas 30</span>
-            </div>
-            <div class="panel-body" id="history-list"></div>
-          </div>
-        </div>
-
-        <p class="footer-note" id="audit-note">
-          Monitor de login OpenAI: ative Audit logging em platform.openai.com → Settings → Data controls.
-          Alertas no WhatsApp: <code>ADMIN_ALERT_WHATSAPP</code>.
-        </p>
-      </main>
-
-      
-      <!-- Audit Tab -->
-      <main id="tab-audit" class="tab-pane">
-        <div class="toolbar">
-          <span class="toolbar-label">Histórico de Auditoria OpenAI</span>
-          <button class="ghost" onclick="loadAudit()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 1 0 2.6-6.4L2 9"/></svg>
-            Atualizar
-          </button>
-        </div>
-        
-        <div class="panel-card auto-height">
-          <div class="panel-head">
-            <h3>Acessos e Chaves</h3>
-            <span class="hint">Últimos eventos na conta OpenAI</span>
-          </div>
-          <div class="panel-body table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Data / Hora</th>
-                  <th>Tipo de Evento</th>
-                  <th>Usuário</th>
-                  <th>IP de Origem</th>
-                  <th>Detalhes</th>
-                </tr>
-              </thead>
-              <tbody id="audit-tbody">
-                <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">Carregando...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
-
-      <!-- Events Tab -->
-      <main id="tab-events" class="tab-pane">
-        <div class="toolbar">
-          <span class="toolbar-label">Configuração de Eventos</span>
-          <button class="primary" onclick="showAddEventModal()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-            Novo Aviso
-          </button>
-        </div>
-        
-        <div id="events-container" style="display: flex; flex-direction: column; gap: 1rem; max-width: 800px;">
-          <!-- A lista de eventos será renderizada aqui -->
-        </div>
-
-        <div id="event-modal" class="panel-card auto-height" style="max-width: 800px; display: none; margin-top: 1rem; border-color: var(--accent);">
-          <div class="panel-head">
-            <h3 id="event-modal-title">Adicionar Novo Aviso</h3>
-            <span class="hint">O que a IA deve falar para os clientes</span>
-          </div>
-          <div class="panel-body" style="padding: 1.5rem;">
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
-              Configure uma mensagem global que a URA deve informar a todos os clientes que ligarem.
-            </p>
-            
-            <input type="hidden" id="event-id" />
-            
-            <div class="form-group">
-              <label class="form-label" for="event-text">Texto da Mensagem</label>
-              <textarea id="event-text" class="form-textarea" placeholder="Ex: Feliz dia dos pais! Estamos com promoção..."></textarea>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" for="event-start">Início (Opcional)</label>
-                <input type="datetime-local" id="event-start" style="width: 100%; padding: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font);" />
-              </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" for="event-end">Fim (Opcional)</label>
-                <input type="datetime-local" id="event-end" style="width: 100%; padding: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--text); font-family: var(--font);" />
-              </div>
-            </div>
-
-            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
-              <input type="checkbox" id="event-active" checked style="width: 16px; height: 16px;" />
-              <label class="form-label" for="event-active" style="margin-bottom: 0; cursor: pointer;">Aviso Ativo (Ligado)</label>
-            </div>
-            
-            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
-              <button class="ghost" onclick="hideAddEventModal()">Cancelar</button>
-              <button class="primary" onclick="saveEvent()">Salvar Aviso</button>
-            </div>
-          </div>
-        </div>
-      </main>
+      <h2 style="margin-bottom: 0.5rem;">Acesso Restrito</h2>
+      <p style="color: var(--text-muted); margin-bottom: 2rem;">Informe a senha administrativa.</p>
+      <input type="password" id="login-pwd" class="login-input" placeholder="••••••••" onkeydown="if(event.key === 'Enter') doLogin()" />
+      <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="doLogin()">Acessar Painel</button>
+      <p id="login-error" style="color: var(--danger); font-size: 0.85rem; margin-top: 1rem; display: none;">Senha incorreta ou acesso negado.</p>
     </div>
   </div>
 
-  <div id="toast" class="toast">Mensagem salva com sucesso!</div>
+  <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1>URA AI</h1>
+        <span>Painel de Operações</span>
+      </div>
+    </div>
+    <nav class="nav-menu">
+      <a class="nav-item active" onclick="switchTab('dashboard', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        Monitor ao Vivo
+      </a>
+      <a class="nav-item" onclick="switchTab('events', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M11 9h2M12 8v2"></path></svg>
+        Avisos da IA
+      </a>
+      <a class="nav-item" onclick="switchTab('audit', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Auditoria OpenAI
+      </a>
+    </nav>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button class="hamburger" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <h2 class="topbar-title" id="page-title">Monitor ao Vivo</h2>
+      </div>
+      <div id="ura-badge" class="status-badge on">
+        <div class="pulse-dot"></div>
+        <span>URA Ligada</span>
+      </div>
+    </header>
+
+    <!-- Dashboard / Monitor -->
+    <div id="tab-dashboard" class="page active">
+      
+      <div class="actions-bar">
+        <button class="btn btn-success" onclick="setUra(true)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Ligar URA
+        </button>
+        <button class="btn btn-danger" onclick="setUra(false)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> Desligar URA
+        </button>
+        <button class="btn" onclick="refreshOpenAi()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Forçar Atualização
+        </button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="card stat-box">
+          <div class="stat-icon blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Ligações Ativas</span>
+            <span class="stat-value" id="active-calls">0</span>
+            <span class="stat-sub">neste exato momento</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Custo OpenAI (30d)</span>
+            <span class="stat-value" id="openai-usage">$0.00</span>
+            <span class="stat-sub" id="openai-sub">atualizado agora</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Uptime Sistema</span>
+            <span class="stat-value" id="uptime">0m</span>
+            <span class="stat-sub">online e operante</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="workspace">
+        <div class="call-list-col" id="sessions-list">
+          <!-- Calls populate here -->
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <p>Nenhuma ligação ativa</p>
+          </div>
+        </div>
+
+        <div class="chat-col">
+          <div class="chat-header">
+            <h3 id="feed-title">Selecione uma ligação para monitorar</h3>
+            <span class="status-badge on" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" id="feed-status">Aguardando...</span>
+          </div>
+          <div class="chat-feed" id="live-feed">
+            <div class="empty-state" style="padding: 2rem;">
+              <p>O texto em tempo real aparecerá aqui.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+
+    <!-- Events / Avisos -->
+    <div id="tab-events" class="page">
+      <div class="actions-bar" style="justify-content: flex-end;">
+        <button class="btn btn-primary" onclick="showAddEventModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Novo Aviso Geral
+        </button>
+      </div>
+      <div id="events-container" style="display: grid; gap: 1.5rem; max-width: 900px; margin: 0 auto;"></div>
+    </div>
+
+    <!-- Audit -->
+    <div id="tab-audit" class="page">
+      <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="chat-header">
+          <h3>Acessos OpenAI (Auditoria de Chaves)</h3>
+          <button class="btn" onclick="loadAudit()" style="padding: 0.4rem 0.8rem;">Atualizar</button>
+        </div>
+        <div class="table-container" style="border: none; border-radius: 0;">
+          <table>
+            <thead>
+              <tr>
+                <th>Data / Hora</th>
+                <th>Evento</th>
+                <th>Usuário</th>
+                <th>IP</th>
+                <th>Erro</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modals -->
+  <div id="event-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+    <div class="card" style="width: 100%; max-width: 500px;">
+      <h3 style="margin-bottom: 1.5rem;">Configurar Aviso da IA</h3>
+      <input type="hidden" id="event-id" />
+      <div class="form-group">
+        <label class="form-label">O que a IA deve falar (antes de iniciar o atendimento)?</label>
+        <textarea id="event-text" class="form-control" style="min-height: 100px; resize: vertical;" placeholder="Ex: Estamos com instabilidade na região sul..."></textarea>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label class="form-label">Data Início (Opcional)</label>
+          <input type="datetime-local" id="event-start" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data Fim (Opcional)</label>
+          <input type="datetime-local" id="event-end" class="form-control" />
+        </div>
+      </div>
+      <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+        <input type="checkbox" id="event-active" checked style="width: 18px; height: 18px;" />
+        <label for="event-active" class="form-label" style="margin: 0; cursor: pointer;">Aviso Ativo (Ligado)</label>
+      </div>
+      <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+        <button class="btn" onclick="hideAddEventModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveEvent()">Salvar Aviso</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    <span id="toast-msg">Sucesso!</span>
+  </div>
 
   <script>
     const API = '';
     let selectedCallId = null;
+    let evtSource = null;
+    let globalEvents = [];
 
+    // --- Authentication ---
+    function getKey() { return localStorage.getItem('ura_admin_key') || ''; }
+    function saveKey(key) { localStorage.setItem('ura_admin_key', key); }
 
-    // App Initialization after Login
-    function initializeApp() {
-      loadState();
-      loadSessions();
-      loadEvent(); // load events
-      loadAudit();
-      startPoll();
-    }
-
-    // Wait for DOM
-    document.addEventListener("DOMContentLoaded", () => {
-      initializeApp();
-    });
-
-    // Fix sidebar logic
-    function toggleSidebar() {
-      document.getElementById('sidebar').classList.toggle('open');
-      document.getElementById('sidebar-overlay').classList.toggle('show');
-    }
-
-    // Audit Tab Logic
-    async function loadAudit() {
+    async function checkLogin() {
+      const key = getKey();
+      if (!key) { document.getElementById('login-overlay').style.display = 'flex'; return; }
       try {
-        const data = await api('/api/openai/audit/history');
-        const tbody = document.getElementById('audit-tbody');
-        if (!data.history || data.history.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum evento registrado.</td></tr>';
-          return;
+        const res = await fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + key }});
+        if (res.ok) {
+          document.getElementById('login-overlay').style.display = 'none';
+          initializeApp();
+        } else {
+          document.getElementById('login-overlay').style.display = 'flex';
+          document.getElementById('login-error').style.display = 'block';
         }
-        
-        tbody.innerHTML = data.history.map(e => {
-          const date = new Date(e.effective_at * 1000).toLocaleString('pt-BR');
-          const actor = e.actor?.session?.user?.email || e.actor?.api_key?.user?.email || '-';
-          const ip = e.actor?.session?.ip_address || '-';
-          const err = e['login.failed']?.error_message || '';
-          
-          let tipoHtml = e.type;
-          if (e.type === 'login.succeeded') tipoHtml = '<span style="color:var(--ok)">Login (Sucesso)</span>';
-          if (e.type === 'login.failed') tipoHtml = '<span style="color:var(--danger)">Login (Falha)</span>';
-          if (e.type === 'api_key.created') tipoHtml = '<span style="color:var(--warn)">API Key Criada</span>';
-          if (e.type === 'api_key.deleted') tipoHtml = '<span style="color:var(--warn)">API Key Deletada</span>';
-
-          return `
-            <tr>
-              <td style="font-family:var(--mono);font-size:0.85rem;">${date}</td>
-              <td>${tipoHtml}</td>
-              <td>${actor}</td>
-              <td style="font-family:var(--mono);font-size:0.85rem;">${ip}</td>
-              <td style="font-family:var(--mono);font-size:0.85rem;color:var(--danger);">${err}</td>
-            </tr>
-          `;
-        }).join('');
       } catch (err) {
-        console.error(err);
+        // network err
       }
     }
 
-    // UI Tab Switcher
+    async function doLogin() {
+      const pwd = document.getElementById('login-pwd').value;
+      if (!pwd) return;
+      saveKey(pwd);
+      document.getElementById('login-error').style.display = 'none';
+      await checkLogin();
+    }
+
+    // --- Core UI ---
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebar-overlay').style.display = 
+        document.getElementById('sidebar').classList.contains('open') ? 'block' : 'none';
+    }
+
     function switchTab(tabId, el) {
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('tab-' + tabId).classList.add('active');
       
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       if (el) el.classList.add('active');
       
+      const titles = { 'dashboard': 'Monitor ao Vivo', 'events': 'Avisos da IA', 'audit': 'Auditoria OpenAI' };
+      document.getElementById('page-title').textContent = titles[tabId];
+      
       if (window.innerWidth <= 768) toggleSidebar();
       
       if (tabId === 'audit') loadAudit();
-      if (tabId === 'events') {
-        loadEvent();
-      }
+      if (tabId === 'events') loadEvent();
     }
-    
 
-    
     function showToast(msg) {
-      const toast = document.getElementById('toast');
-      toast.textContent = msg;
-      toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 3000);
+      document.getElementById('toast-msg').textContent = msg;
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
     }
 
-    // Events API
-    let globalEvents = [];
-
-    function renderEvents() {
-      const container = document.getElementById('events-container');
-      if (!globalEvents || globalEvents.length === 0) {
-        container.innerHTML = '<div class="empty-state">Nenhum aviso configurado.</div>';
-        return;
-      }
-      container.innerHTML = globalEvents.map(e => `
-        <div class="panel-card auto-height" style="padding: 1.25rem; border-left: 4px solid ${e.active ? 'var(--ok)' : 'var(--text-muted)'};">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-            <div style="flex: 1;">
-              <p style="font-size: 0.95rem; line-height: 1.5; margin-bottom: 0.75rem;">"${escapeHtml(e.message)}"</p>
-              <div style="display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono);">
-                <span>Início: ${e.startTime ? new Date(e.startTime).toLocaleString('pt-BR') : 'Imediato'}</span>
-                <span>Fim: ${e.endTime ? new Date(e.endTime).toLocaleString('pt-BR') : 'Sempre'}</span>
-              </div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-              <button class="${e.active ? 'danger' : 'success'}" onclick="toggleEventActive('${e.id}')" style="padding: 0.4rem 0.75rem; font-size: 0.75rem;">
-                ${e.active ? 'Desativar' : 'Ativar'}
-              </button>
-              <button class="ghost" onclick="deleteEvent('${e.id}')" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; color: var(--danger);">Excluir</button>
-            </div>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    async function loadEvent() {
-      try {
-        const data = await api('/api/events');
-        globalEvents = data.events || [];
-        renderEvents();
-      } catch (err) {
-        console.error('Erro ao carregar eventos:', err);
-      }
-    }
-    
-    function showAddEventModal() {
-      document.getElementById('event-id').value = '';
-      document.getElementById('event-text').value = '';
-      document.getElementById('event-start').value = '';
-      document.getElementById('event-end').value = '';
-      document.getElementById('event-active').checked = true;
-      document.getElementById('event-modal').style.display = 'block';
-    }
-
-    function hideAddEventModal() {
-      document.getElementById('event-modal').style.display = 'none';
-    }
-
-    async function saveEvent() {
-      try {
-        const id = document.getElementById('event-id').value || Math.random().toString(36).substring(2, 9);
-        const text = document.getElementById('event-text').value.trim();
-        const start = document.getElementById('event-start').value;
-        const end = document.getElementById('event-end').value;
-        const active = document.getElementById('event-active').checked;
-        
-        if (!text) return alert('A mensagem não pode estar vazia.');
-
-        const newEvent = {
-          id,
-          message: text,
-          startTime: start ? new Date(start).toISOString() : null,
-          endTime: end ? new Date(end).toISOString() : null,
-          active
-        };
-
-        const existingIdx = globalEvents.findIndex(e => e.id === id);
-        if (existingIdx >= 0) globalEvents[existingIdx] = newEvent;
-        else globalEvents.push(newEvent);
-
-        await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
-        hideAddEventModal();
-        renderEvents();
-        showToast('Aviso salvo com sucesso!');
-      } catch (err) {
-        alert('Erro ao salvar: ' + err.message);
-      }
-    }
-
-    async function toggleEventActive(id) {
-      const evt = globalEvents.find(e => e.id === id);
-      if (evt) evt.active = !evt.active;
-      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
-      renderEvents();
-      showToast(evt.active ? 'Aviso ativado' : 'Aviso desativado');
-    }
-
-    async function deleteEvent(id) {
-      if (!confirm('Tem certeza que deseja excluir este aviso?')) return;
-      globalEvents = globalEvents.filter(e => e.id !== id);
-      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
-      renderEvents();
-      showToast('Aviso excluído');
-    }
-
-    // Existing App Logic
-    function getKey() {
-      return localStorage.getItem('ura_admin_key') || '';
-    }
-
-    function saveKey() {
-      localStorage.setItem('ura_admin_key', document.getElementById('api-key').value.trim());
-      connectStream();
-      refresh();
-    }
-
-    document.getElementById('api-key').value = getKey();
-
+    // --- API Helpers ---
     function headers() {
       const h = { 'Content-Type': 'application/json' };
       const k = getKey();
@@ -933,7 +576,10 @@
 
     async function api(path, opts = {}) {
       const res = await fetch(API + path, { ...opts, headers: { ...headers(), ...opts.headers } });
-      if (res.status === 401) throw new Error('Não autorizado — informe ADMIN_API_KEY');
+      if (res.status === 401) {
+        document.getElementById('login-overlay').style.display = 'flex';
+        throw new Error('Não autorizado');
+      }
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     }
@@ -946,76 +592,129 @@
       if (sec < 60) return sec + 's';
       const h = Math.floor(sec / 3600);
       const m = Math.floor((sec % 3600) / 60);
-      if (h > 0) return h + 'h ' + m + 'min';
-      return m + ' min';
-    }
-
-    function eventClass(type) {
-      if (type === 'client_speech') return 'client';
-      if (type === 'assistant_text') return 'ana';
-      if (type.startsWith('tool')) return 'tool';
-      return '';
-    }
-
-    function eventWho(type) {
-      if (type === 'client_speech') return 'Cliente';
-      if (type === 'assistant_text') return 'Ana';
-      if (type.startsWith('tool')) return 'Ferramenta';
-      return 'Sistema';
-    }
-
-    function appendEvent(ev, targetId = 'live-feed') {
-      const el = document.getElementById(targetId);
-      const div = document.createElement('div');
-      div.className = 'event ' + eventClass(ev.type);
-      div.innerHTML = `
-        <div class="event-header">
-          <span class="event-who">${eventWho(ev.type)}</span>
-          <span class="time">${fmtTime(ev.at)} · ${ev.callId?.slice(0, 8) || ''}</span>
-        </div>
-        <div class="event-msg">${escapeHtml(ev.message)}</div>
-      `;
-      el.prepend(div);
-      while (el.children.length > 150) el.removeChild(el.lastChild);
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
     }
 
     function escapeHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    const emptySessions = `
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-        <div>Nenhuma ligação ativa</div>
-      </div>
-    `;
-
+    // --- Live Monitor ---
     function renderSessions(sessions) {
       const el = document.getElementById('sessions-list');
-      if (!sessions.length) {
-        el.innerHTML = emptySessions;
+      if (!sessions || !sessions.length) {
+        el.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <p>Nenhuma ligação ativa</p>
+          </div>
+        `;
+        if (selectedCallId) selectSession(null);
         return;
       }
-      el.innerHTML = sessions.map(s => `
-        <div class="session-item ${s.callId === selectedCallId ? 'active' : ''}" data-id="${s.callId}">
-          <div class="session-number">${escapeHtml(s.callerNumber || 'Número desconhecido')}</div>
-          ${s.clienteNome ? '<div class="session-name">' + escapeHtml(s.clienteNome) + '</div>' : ''}
-          <div class="session-meta">
-            <span>${fmtTime(s.startedAt)}</span>
-            <span class="tag">${s.events?.length || 0} eventos</span>
+
+      // Evita recriar o DOM inteiro se as ligações forem as mesmas (para não perder estado hover)
+      const currentIds = Array.from(el.querySelectorAll('.call-item')).map(x => x.dataset.id);
+      const newIds = sessions.map(s => s.callId);
+      if (JSON.stringify(currentIds) !== JSON.stringify(newIds)) {
+        el.innerHTML = sessions.map(s => `
+          <div class="call-item ${s.callId === selectedCallId ? 'active' : ''}" data-id="${s.callId}" onclick="selectSession('${s.callId}')">
+            <div class="call-phone">${escapeHtml(s.callerNumber) || 'Desconhecido'}</div>
+            ${s.clienteNome ? '<div class="call-name">' + escapeHtml(s.clienteNome) + '</div>' : ''}
+            <div class="call-meta">
+              <span>${fmtTime(s.startedAt)}</span>
+              <span class="call-tag">${s.events?.length || 0} eventos</span>
+            </div>
           </div>
-        </div>
-      `).join('');
-      el.querySelectorAll('.session-item').forEach(item => {
-        item.onclick = () => selectSession(item.dataset.id);
-      });
+        `).join('');
+      } else {
+        // Atualiza apenas os contadores
+        sessions.forEach(s => {
+          const item = el.querySelector(`.call-item[data-id="${s.callId}"]`);
+          if (item) {
+            item.querySelector('.call-tag').textContent = `${s.events?.length || 0} eventos`;
+            if (s.callId === selectedCallId) item.classList.add('active');
+            else item.classList.remove('active');
+          }
+        });
+      }
+
+      if (!selectedCallId && sessions.length > 0) {
+        selectSession(sessions[0].callId);
+      }
     }
 
     function selectSession(id) {
       selectedCallId = id;
-      document.getElementById('feed-title').textContent = 'Feed — ' + id.slice(0, 8);
-      document.getElementById('live-feed').innerHTML = '';
-      refresh();
+      document.querySelectorAll('.call-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.id === id);
+      });
+      
+      const title = document.getElementById('feed-title');
+      const feed = document.getElementById('live-feed');
+      const status = document.getElementById('feed-status');
+      
+      if (!id) {
+        title.textContent = 'Selecione uma ligação para monitorar';
+        feed.innerHTML = '<div class="empty-state"><p>Nenhuma chamada selecionada.</p></div>';
+        status.style.display = 'none';
+        return;
+      }
+      
+      title.textContent = 'Monitorando: ' + id.slice(0,8);
+      status.style.display = 'inline-flex';
+      feed.innerHTML = '';
+      refresh(); // força carregar eventos dessa sessao
+    }
+
+    function appendEvent(ev, forceScroll = true) {
+      const feed = document.getElementById('live-feed');
+      // Remove empty state se existir
+      if (feed.querySelector('.empty-state')) feed.innerHTML = '';
+      
+      const div = document.createElement('div');
+      div.className = 'bubble-row';
+      
+      let content = '';
+      const msg = escapeHtml(ev.message);
+      
+      if (ev.type === 'client_speech') {
+        div.classList.add('row-client');
+        content = `
+          <div class="bubble bubble-client">
+            <div class="bubble-meta">Cliente · ${fmtTime(ev.at)}</div>
+            ${msg}
+          </div>
+        `;
+      } else if (ev.type === 'assistant_text') {
+        div.classList.add('row-ai');
+        content = `
+          <div class="bubble bubble-ai">
+            <div class="bubble-meta">Ana (IA) · ${fmtTime(ev.at)}</div>
+            ${msg}
+          </div>
+        `;
+      } else if (ev.type.startsWith('tool')) {
+        div.classList.add('row-tool');
+        content = `
+          <div class="bubble-tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            ${msg}
+          </div>
+        `;
+      } else {
+        div.classList.add('row-tool');
+        content = `<div class="bubble-tool">${msg}</div>`;
+      }
+      
+      div.innerHTML = content;
+      feed.appendChild(div);
+      
+      // Auto-scroll
+      if (forceScroll) {
+        feed.scrollTop = feed.scrollHeight;
+      }
     }
 
     function connectStream() {
@@ -1023,85 +722,58 @@
       const k = getKey();
       const url = '/api/events/stream' + (k ? '?key=' + encodeURIComponent(k) : '');
       evtSource = new EventSource(url);
+      
       evtSource.onmessage = (e) => {
         try {
           const payload = JSON.parse(e.data);
-          if (payload.type === 'event' && payload.event) appendEvent(payload.event);
+          if (payload.type === 'event' && payload.event) {
+            if (payload.event.callId === selectedCallId) {
+              appendEvent(payload.event);
+            }
+          }
           if (payload.type === 'session_update' || payload.type === 'session_ended') refresh();
         } catch {}
       };
-      evtSource.onerror = () => {};
+      
+      evtSource.onerror = () => {
+        setTimeout(connectStream, 5000); // Tenta reconectar em 5s se cair
+      };
     }
 
     async function refresh() {
       try {
         const data = await api('/api/status');
+        
         document.getElementById('active-calls').textContent = data.activeCalls;
+        document.getElementById('uptime').textContent = fmtUptime(data.uptimeSec);
 
         const badge = document.getElementById('ura-badge');
         if (data.uraEnabled) {
-          badge.className = 'status-pill on';
-          badge.innerHTML = '<span class="status-dot"></span> URA ligada';
+          badge.className = 'status-badge on';
+          badge.innerHTML = '<div class="pulse-dot"></div><span>URA Ligada</span>';
         } else {
-          badge.className = 'status-pill off';
-          badge.innerHTML = '<span class="status-dot"></span> URA desligada';
+          badge.className = 'status-badge off';
+          badge.innerHTML = '<span>URA Desligada</span>';
         }
 
         const oa = data.openai;
-        const subEl = document.getElementById('openai-sub');
         if (oa) {
           const spend = oa.spendUsd ?? oa.totalUsd;
           document.getElementById('openai-usage').textContent = spend != null ? '$' + spend.toFixed(2) : (oa.ok ? '$0.00' : '—');
-          let sub = oa.error ? ('⚠ ' + oa.error) : (oa.note || '');
-          if (!oa.error && (oa.alertBudgetUsd ?? oa.budgetUsd)) {
-            const limit = oa.alertBudgetUsd ?? oa.budgetUsd;
-            const remaining = oa.remainingUsd ?? (limit - spend);
-            sub = `Restam $${remaining.toFixed(2)} do limite de alerta ($${limit})`;
-          }
-          subEl.textContent = sub;
-          subEl.className = 'stat-sub' + (oa.error ? ' error' : '');
-        }
-
-        document.getElementById('uptime').textContent = fmtUptime(data.uptimeSec);
-
-        const audit = data.openaiAudit;
-        const auditNote = document.getElementById('audit-note');
-        if (auditNote && audit) {
-          let txt = audit.ok
-            ? ('🔐 Login OpenAI: ' + (audit.note || 'monitorando'))
-            : ('⚠ Login OpenAI: ' + (audit.error || 'indisponível'));
-          if (audit.lastCheckAt) txt += ' · verificado ' + fmtTime(audit.lastCheckAt);
-          auditNote.textContent = txt;
         }
 
         renderSessions(data.sessions || []);
 
-        const alerts = data.alerts || [];
-        document.getElementById('alerts-list').innerHTML = alerts.length
-          ? alerts.map(a => `
-            <div class="alert-item ${a.level}">
-              <strong>${escapeHtml(a.title)}</strong>
-              ${escapeHtml(a.message)}
-              <div class="time">${fmtTime(a.at)}</div>
-            </div>
-          `).join('')
-          : '<div class="empty-state"><div>Sem alertas no momento</div></div>';
-
-        const hist = await api('/api/history?limit=30');
-        document.getElementById('history-list').innerHTML = (hist.records || []).length
-          ? (hist.records || []).map(r => `
-            <div class="history-item">
-              <div class="time">${fmtTime(r.startedAt)} · ${r.durationSec}s · ${escapeHtml(r.callerNumber)}</div>
-              <div class="detail">${r.clienteNome ? escapeHtml(r.clienteNome) + ' · ' : ''}${r.events?.length || 0} eventos</div>
-            </div>
-          `).join('')
-          : '<div class="empty-state"><div>Sem histórico ainda</div></div>';
-
+        // Popula feed se selecionado e vazio
         if (selectedCallId) {
           const s = (data.sessions || []).find(x => x.callId === selectedCallId);
           if (s?.events?.length) {
             const feed = document.getElementById('live-feed');
-            if (!feed.children.length) s.events.forEach(ev => appendEvent(ev));
+            if (feed.children.length === 0 || feed.querySelector('.empty-state')) {
+              feed.innerHTML = '';
+              s.events.forEach(ev => appendEvent(ev, false));
+              feed.scrollTop = feed.scrollHeight;
+            }
           }
         }
       } catch (err) {
@@ -1111,17 +783,121 @@
 
     async function setUra(on) {
       await api(on ? '/api/ura/enable' : '/api/ura/disable', { method: 'POST' });
+      showToast(on ? 'URA foi ligada.' : 'URA desligada com sucesso.');
       refresh();
     }
 
     async function refreshOpenAi() {
       await api('/api/openai/usage');
+      showToast('Gasto sincronizado com a OpenAI.');
       refresh();
     }
 
-    connectStream();
-    refresh();
-    setInterval(refresh, 15000);
+    // --- Events Tab ---
+    function renderEvents() {
+      const container = document.getElementById('events-container');
+      if (!globalEvents || globalEvents.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhum aviso configurado.</div>';
+        return;
+      }
+      container.innerHTML = globalEvents.map(e => `
+        <div class="card" style="border-left: 4px solid ${e.active ? 'var(--ok)' : 'var(--text-muted)'}; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <p style="font-size: 1.05rem; font-weight: 500; margin-bottom: 0.5rem;">"${escapeHtml(e.message)}"</p>
+            <div style="color: var(--text-muted); font-size: 0.85rem; font-family: var(--mono);">
+              Início: ${e.startTime ? new Date(e.startTime).toLocaleString('pt-BR') : 'Imediato'} | 
+              Fim: ${e.endTime ? new Date(e.endTime).toLocaleString('pt-BR') : 'Sem validade'}
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:0.5rem;">
+            <button class="btn ${e.active ? 'btn-danger' : 'btn-success'}" onclick="toggleEventActive('${e.id}')">${e.active ? 'Desativar' : 'Ativar'}</button>
+            <button class="btn" style="color:var(--danger);" onclick="deleteEvent('${e.id}')">Excluir</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadEvent() {
+      const data = await api('/api/events');
+      globalEvents = data.events || [];
+      renderEvents();
+    }
+    
+    function showAddEventModal() {
+      document.getElementById('event-id').value = '';
+      document.getElementById('event-text').value = '';
+      document.getElementById('event-modal').style.display = 'flex';
+    }
+    function hideAddEventModal() { document.getElementById('event-modal').style.display = 'none'; }
+
+    async function saveEvent() {
+      const text = document.getElementById('event-text').value.trim();
+      if (!text) return alert('A mensagem é obrigatória.');
+      const id = document.getElementById('event-id').value || Math.random().toString(36).substring(2, 9);
+      const start = document.getElementById('event-start').value;
+      const end = document.getElementById('event-end').value;
+      const active = document.getElementById('event-active').checked;
+      
+      const newEvent = { id, message: text, active, startTime: start ? new Date(start).toISOString() : null, endTime: end ? new Date(end).toISOString() : null };
+      const idx = globalEvents.findIndex(e => e.id === id);
+      if (idx >= 0) globalEvents[idx] = newEvent; else globalEvents.push(newEvent);
+      
+      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+      hideAddEventModal();
+      loadEvent();
+      showToast('Aviso salvo!');
+    }
+
+    async function toggleEventActive(id) {
+      const evt = globalEvents.find(e => e.id === id);
+      if (evt) evt.active = !evt.active;
+      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+      loadEvent();
+    }
+
+    async function deleteEvent(id) {
+      if (!confirm('Excluir aviso?')) return;
+      globalEvents = globalEvents.filter(e => e.id !== id);
+      await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
+      loadEvent();
+    }
+
+    // --- Audit Tab ---
+    async function loadAudit() {
+      const data = await api('/api/openai/audit/history');
+      const tbody = document.getElementById('audit-tbody');
+      if (!data.history || !data.history.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Nenhum acesso registrado.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.history.map(e => {
+        const date = new Date(e.effective_at * 1000).toLocaleString('pt-BR');
+        const actor = e.actor?.session?.user?.email || e.actor?.api_key?.user?.email || '-';
+        const err = e['login.failed']?.error_message || '';
+        let t = e.type;
+        if (t === 'login.succeeded') t = '<span style="color:var(--ok)">Login Ok</span>';
+        else if (t === 'login.failed') t = '<span style="color:var(--danger)">Login Falhou</span>';
+        
+        return `<tr>
+          <td style="font-family:var(--mono);">${date}</td>
+          <td>${t}</td>
+          <td>${actor}</td>
+          <td style="font-family:var(--mono);">${e.actor?.session?.ip_address || '-'}</td>
+          <td style="color:var(--danger);">${err}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // --- Init ---
+    function initializeApp() {
+      connectStream();
+      refresh();
+      setInterval(refresh, 5000); // Polling suave de status
+    }
+    
+    document.addEventListener("DOMContentLoaded", () => {
+      checkLogin();
+    });
   </script>
 </body>
 </html>
