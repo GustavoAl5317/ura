@@ -1498,8 +1498,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
             .replace(/GB/gi, ' Giga')
             .replace(/\s*-\s*(BASIC|PLUS|PREMIUM|ULTRA)/gi, '')
             .trim(),
-          preco: `R$ ${num.toFixed(2).replace('.', ',')}`,
-          preco_falado: valorPorExtenso(num),
+          preco: valorPorExtenso(num),
         };
       }),
     };
