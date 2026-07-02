@@ -784,11 +784,7 @@ export class CallSession {
     // Correção fonética para a ElevenLabs ler siglas e "mega" corretamente em português
     const normalizedText = text
       .replace(/\bMB\b/g, 'megabytes')
-      .replace(/\bGB\b/g, 'gigabytes')
-      .replace(/\bMega\b/g, 'Méga')
-      .replace(/\bMegas\b/g, 'Mégas')
-      .replace(/\bmega\b/g, 'méga')
-      .replace(/\bmegas\b/g, 'mégas');
+      .replace(/\bGB\b/g, 'gigabytes');
 
     const fmt = config.tts.elevenlabs.outputFormat;
     logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${normalizedText.length} chars, ${fmt})`);
