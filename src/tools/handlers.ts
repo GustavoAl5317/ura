@@ -1346,9 +1346,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    const endStr = [logradouro, numero, bairro, args.cidade].filter(Boolean).join(', ');
     let cepStr = args.cep ? String(args.cep) : '';
     const cidadeBusca = args.cidade ? String(args.cidade) : 'Fortaleza';
+    const endStr = [logradouro, numero, bairro, cidadeBusca].filter(Boolean).join(', ');
 
     // Fallback: ViaCEP para descobrir o CEP pela rua e cidade (se não fornecido)
     if (!cepStr && logradouro && cidadeBusca) {
