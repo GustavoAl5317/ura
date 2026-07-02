@@ -780,11 +780,20 @@ export class CallSession {
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
     this.stopTypingSound();
+    
+    // Correção fonética para a ElevenLabs ler "mega" corretamente em português
+    const normalizedText = text.replace(/\bmegas?\b/gi, (match) => {
+      const isPlural = match.toLowerCase().endsWith('s');
+      const isUpper = match[0] === match[0].toUpperCase();
+      if (isPlural) return isUpper ? 'Mégas' : 'mégas';
+      return isUpper ? 'Méga' : 'méga';
+    });
+
     const fmt = config.tts.elevenlabs.outputFormat;
-    logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${text.length} chars, ${fmt})`);
+    logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${normalizedText.length} chars, ${fmt})`);
     this.pacer.setHoldStream(true);
     try {
-      await synthesizeStream(text, (pcm8k) => {
+      await synthesizeStream(normalizedText, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
         this.pacer.enqueue(pcm8k);
       }, this.ctx.voiceId);
