@@ -37,7 +37,7 @@ export const config = {
   admin: {
     enabled: optBool('ADMIN_ENABLED', true),
     port: optInt('ADMIN_PORT', 9021),
-    apiKey: opt('ADMIN_API_KEY', ''),
+    apiKey: opt('ADMIN_API_KEY', '').trim(),
     uraEnabledDefault: optBool('URA_ENABLED', true),
     openaiOrgId: opt('OPENAI_ORG_ID', ''),
     openaiAdminKey: opt('OPENAI_ADMIN_KEY', ''),

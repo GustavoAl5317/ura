@@ -529,7 +529,7 @@
     }
 
     async function doLogin() {
-      const pwd = document.getElementById('login-pwd').value;
+      const pwd = document.getElementById('login-pwd').value.trim();
       if (!pwd) return;
       saveKey(pwd);
       document.getElementById('login-error').style.display = 'none';
