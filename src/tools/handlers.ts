@@ -1323,15 +1323,15 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     let cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
 
     // Viabilidade depende do endereço EXATO (a CTO mais próxima varia rua a rua).
-    // Exige CEP válido OU endereço com rua + número + bairro. Nunca consulta só por bairro/cidade.
+    // Exige CEP válido OU endereço com rua + número. O bairro é opcional. Nunca consulta só por bairro/cidade.
     const cepValido = cepDigitos.length === 8;
-    const enderecoCompleto = !!logradouro && !!numero && !!bairro;
+    const enderecoCompleto = !!logradouro && !!numero;
     if (!cepValido && !enderecoCompleto) {
       return {
         tem_cobertura: null,
         erro: 'endereco_incompleto',
         mensagem:
-          'Não dá para verificar viabilidade só pelo bairro ou cidade. Peça ao cliente o CEP ou o endereço completo (rua, número e bairro).',
+          'Não dá para verificar viabilidade só pelo bairro ou cidade. Peça ao cliente o CEP ou o endereço contendo a rua e o número da casa.',
       };
     }
 
