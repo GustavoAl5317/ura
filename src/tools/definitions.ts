@@ -281,6 +281,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
+        tipo_interesse: {
+          type: 'string',
+          enum: ['nova_assinatura', 'mudanca_endereco', 'interesse_cobertura'],
+          description: 'O tipo da solicitação do cliente',
+        },
         nome: { type: 'string', description: 'Nome completo do interessado (Obrigatório! Pergunte antes de chamar)' },
         celular: {
           type: 'string',

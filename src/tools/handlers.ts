@@ -1450,7 +1450,11 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const agora = new Date().toLocaleString('pt-BR', { timeZone: config.tz });
     const temCobertura = !!plano && !args.endereco?.toString().includes('sem cobertura');
-    const titulo = plano ? `🛒 *Interesse em Contratação*` : `🔔 *Interesse de Cobertura*`;
+    
+    let titulo = `🔔 *Interesse de Cobertura*`;
+    if (args.tipo_interesse === 'nova_assinatura') titulo = `🛒 *Interesse em Contratação*`;
+    else if (args.tipo_interesse === 'mudanca_endereco') titulo = `🏠 *Mudança de Endereço*`;
+    else if (plano) titulo = `🛒 *Interesse em Contratação*`;
 
     const linhas = [
       titulo,
