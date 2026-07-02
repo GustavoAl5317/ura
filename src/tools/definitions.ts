@@ -358,7 +358,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     name: 'ignorar_ruido',
-    description: 'Chame esta ferramenta quando a fala captada do cliente for um ruído de fundo ou palavras isoladas em inglês (ex: "Thank you", "They see you going", "Bye"). Isso impede que você responda a alucinações do microfone.',
+    description: 'Chame esta ferramenta quando a fala captada do cliente for um ruído de fundo, palavras isoladas em inglês (ex: "Thank you", "Bye") ou alucinações em português (ex: "Obrigado por assistir", "Legendas por..."). Isso impede que você responda a alucinações do microfone. NUNCA dê uma resposta em áudio quando usar esta ferramenta.',
     parameters: {
       type: 'object',
       properties: {},
