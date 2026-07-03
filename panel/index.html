@@ -612,7 +612,12 @@
           </div>
           <div class="stat-info">
             <span class="stat-label">Créditos Carregados</span>
-            <span class="stat-value" id="oa-prepaid">—</span>
+            <div>
+              <span class="stat-value" id="oa-prepaid">—</span>
+              <button class="btn btn-sm btn-icon" onclick="editarPrepaid()" title="Editar Depósito" style="margin-left: 8px; vertical-align: middle;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+            </div>
             <span class="stat-sub">pré-pago na OpenAI</span>
           </div>
         </div>
@@ -1391,6 +1396,25 @@
       globalEvents = globalEvents.filter(e => e.id !== id);
       await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
       loadEvent();
+    }
+
+    async function editarPrepaid() {
+      const atual = document.getElementById('oa-prepaid').textContent.replace('$', '').trim();
+      const novo = prompt('Informe o valor total de Créditos já carregados na conta da OpenAI ($):', atual !== '—' ? atual : '0');
+      if (novo === null) return;
+      const val = parseFloat(novo.replace(',', '.'));
+      if (isNaN(val) || val < 0) return alert('Valor inválido.');
+      
+      try {
+        await api('/api/openai/config', {
+          method: 'POST',
+          body: JSON.stringify({ prepaidUsd: val })
+        });
+        showToast('Depósito configurado com sucesso!');
+        refresh(); // Reload stats
+      } catch (err) {
+        alert('Erro ao atualizar: ' + err.message);
+      }
     }
 
     // ══════════════════════════════════════════════════════════════════════

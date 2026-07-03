@@ -185,6 +185,36 @@ export function startAdminServer(): void {
     }
 
     // ── OpenAI ───────────────────────────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/openai/config') {
+      const body = JSON.parse(await readBody(req)) as { prepaidUsd?: number; budgetUsd?: number };
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.resolve(process.cwd(), '.env');
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+      
+      if (typeof body.prepaidUsd === 'number') {
+        config.admin.openaiPrepaidUsd = body.prepaidUsd;
+        if (envContent.includes('OPENAI_PREPAID_USD=')) {
+          envContent = envContent.replace(/(OPENAI_PREPAID_USD=).*/g, `$1${body.prepaidUsd}`);
+        } else {
+          envContent += `\nOPENAI_PREPAID_USD=${body.prepaidUsd}`;
+        }
+      }
+
+      if (typeof body.budgetUsd === 'number') {
+        config.admin.openaiBudgetUsd = body.budgetUsd;
+        if (envContent.includes('OPENAI_BUDGET_USD=')) {
+          envContent = envContent.replace(/(OPENAI_BUDGET_USD=).*/g, `$1${body.budgetUsd}`);
+        } else {
+          envContent += `\nOPENAI_BUDGET_USD=${body.budgetUsd}`;
+        }
+      }
+      
+      fs.writeFileSync(envPath, envContent.trim() + '\n');
+      await refreshOpenAiUsage(); // Update snapshot right away
+      return json(res, 200, { ok: true, prepaidUsd: config.admin.openaiPrepaidUsd, budgetUsd: config.admin.openaiBudgetUsd });
+    }
+
     if (req.method === 'GET' && pathname === '/api/openai/audit') {
       await refreshOpenAiAudit();
       return json(res, 200, getOpenAiAuditStatus() ?? { ok: false });
