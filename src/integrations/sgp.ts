@@ -474,7 +474,7 @@ export class SgpClient {
     const r = await this.postForm<{ viabilidade?: boolean }>('/api/ura/viabilidade/', {
       ...(params.cep ? { cep: params.cep.replace(/\D/g, '') } : {}),
       ...(params.logradouro ? { logradouro: params.logradouro } : {}),
-      ...(params.numero_inicial ? { numero_inicial: params.numero_inicial } : {}),
+      ...(params.numero_inicial ? { numero_inicial: params.numero_inicial, numero: params.numero_inicial } : {}),
       ...(params.numero_final ? { numero_final: params.numero_final } : {}),
       ...(params.bairro ? { bairro: params.bairro } : {}),
       ...(params.cidade ? { cidade: params.cidade } : {}),
