@@ -633,17 +633,27 @@
         </div>
       </div>
 
+      <!-- Info da Conta -->
+      <div class="card" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem; padding: 1rem 1.5rem;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        <div style="flex: 1;">
+          <span style="color: var(--text-muted); font-size: 0.85rem;">Conta OpenAI em uso:</span>
+          <strong style="margin-left: 0.5rem; color: var(--text);">administrativo@aquitelecom.com</strong>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">⚠️ A OpenAI não permite consultar o saldo via API. Configure o depósito manualmente acima.</span>
+      </div>
+
       <!-- Barra de Progresso -->
       <div class="card" style="margin-bottom: 2rem;" id="oa-progress-card">
         <div class="progress-container">
           <div class="progress-header">
-            <span class="progress-title">Consumo do Orçamento</span>
+            <span class="progress-title">Consumo do Depósito</span>
             <span class="progress-pct" id="oa-pct">0%</span>
           </div>
           <div class="progress-bar">
             <div class="progress-fill green" id="oa-fill" style="width: 0%;"></div>
           </div>
-          <div class="progress-detail" id="oa-progress-detail">Configure OPENAI_BUDGET_USD no .env para ativar o monitoramento de orçamento.</div>
+          <div class="progress-detail" id="oa-progress-detail">Configure o depósito clicando no ✏️ acima para ver a barra de consumo.</div>
         </div>
       </div>
 
