@@ -113,11 +113,18 @@ export async function refreshOpenAiUsage(): Promise<OpenAiUsageSnapshot> {
     snapshot.ok = true;
     snapshot.spendUsd = spendUsd;
     snapshot.totalUsd = spendUsd;
-    snapshot.note = `Gasto do mês (API OpenAI). Saldo de créditos: veja em platform.openai.com → Billing.`;
 
-    if (alertBudget > 0) {
+    // Saldo real: depósito - gasto
+    if (prepaid > 0) {
+      snapshot.remainingUsd = Math.max(0, Math.round((prepaid - spendUsd) * 100) / 100);
+      snapshot.percentUsed = Math.min(100, Math.round((spendUsd / prepaid) * 100));
+      snapshot.note = `Saldo: $${snapshot.remainingUsd.toFixed(2)} restante de $${prepaid.toFixed(2)} depositado.`;
+    } else if (alertBudget > 0) {
       snapshot.remainingUsd = Math.max(0, Math.round((alertBudget - spendUsd) * 100) / 100);
       snapshot.percentUsed = Math.min(100, Math.round((spendUsd / alertBudget) * 100));
+      snapshot.note = `Gasto do mês (API OpenAI). Configure o depósito no painel para ver o saldo real.`;
+    } else {
+      snapshot.note = `Gasto do mês: $${spendUsd.toFixed(2)}. Configure o depósito no painel para ver o saldo real.`;
     }
   } catch (err: unknown) {
     snapshot.ok = false;
