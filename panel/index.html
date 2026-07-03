@@ -32,6 +32,8 @@
       --danger-soft: rgba(239, 68, 68, 0.15);
       --purple: #a855f7;
       --purple-soft: rgba(168, 85, 247, 0.15);
+      --cyan: #06b6d4;
+      --cyan-soft: rgba(6, 182, 212, 0.15);
       
       --radius: 16px;
       --radius-sm: 8px;
@@ -115,6 +117,7 @@
       font-size: 0.95rem; font-weight: 500;
       transition: all 0.2s ease;
       cursor: pointer; border: 1px solid transparent;
+      position: relative;
     }
     .nav-item:hover { background: var(--surface-hover); color: var(--text); }
     .nav-item.active {
@@ -125,7 +128,23 @@
       content: ''; position: absolute; left: 0; width: 4px; height: 20px;
       background: var(--accent); border-radius: 0 4px 4px 0;
     }
-    .nav-item svg { width: 20px; height: 20px; opacity: 0.8; }
+    .nav-item svg { width: 20px; height: 20px; opacity: 0.8; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto;
+      background: var(--danger);
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 700;
+      min-width: 20px; height: 20px;
+      border-radius: 10px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+      animation: badgePop 0.3s ease;
+    }
+    .nav-badge.visible { display: flex; }
+    @keyframes badgePop { from { transform: scale(0); } to { transform: scale(1); } }
 
     /* Topbar */
     .topbar {
@@ -167,21 +186,38 @@
     .card-title svg { color: var(--text-muted); width: 18px; }
 
     /* Stats Grid */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
     .stat-box { display: flex; align-items: center; gap: 1.25rem; }
     .stat-icon {
       width: 56px; height: 56px; border-radius: 16px;
       display: flex; align-items: center; justify-content: center;
       background: var(--bg-elevated); border: 1px solid var(--border);
+      flex-shrink: 0;
     }
     .stat-icon svg { width: 28px; height: 28px; }
     .stat-icon.blue { color: var(--accent); background: var(--accent-soft); border-color: rgba(59,130,246,0.3); }
     .stat-icon.green { color: var(--ok); background: var(--ok-soft); border-color: rgba(34,197,94,0.3); }
     .stat-icon.purple { color: var(--purple); background: var(--purple-soft); border-color: rgba(168,85,247,0.3); }
-    .stat-info { display: flex; flex-direction: column; }
+    .stat-icon.warn { color: var(--warn); background: var(--warn-soft); border-color: rgba(245,158,11,0.3); }
+    .stat-icon.cyan { color: var(--cyan); background: var(--cyan-soft); border-color: rgba(6,182,212,0.3); }
+    .stat-icon.danger { color: var(--danger); background: var(--danger-soft); border-color: rgba(239,68,68,0.3); }
+    .stat-info { display: flex; flex-direction: column; min-width: 0; }
     .stat-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
-    .stat-value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .stat-value { font-size: 2rem; font-weight: 700; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stat-value.small { font-size: 1.4rem; }
     .stat-sub { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; }
+
+    /* Progress Bar */
+    .progress-container { margin-bottom: 2rem; }
+    .progress-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+    .progress-title { font-size: 0.95rem; font-weight: 600; }
+    .progress-pct { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); }
+    .progress-bar { width: 100%; height: 12px; background: var(--bg); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+    .progress-fill { height: 100%; border-radius: 6px; transition: width 1s cubic-bezier(.4,0,.2,1), background 0.5s ease; min-width: 2px; }
+    .progress-fill.green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .progress-fill.yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .progress-fill.red { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .progress-detail { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; }
 
     /* Live Monitor Workspace */
     .workspace {
@@ -249,6 +285,7 @@
     .btn-success:hover { background: #16a34a; }
     .btn-danger { background: var(--danger); color: white; box-shadow: 0 4px 12px var(--danger-soft); }
     .btn-danger:hover { background: #dc2626; }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
     
     .actions-bar { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
 
@@ -259,6 +296,54 @@
     td { padding: 1rem 1.25rem; font-size: 0.9rem; border-bottom: 1px solid var(--border); }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--surface-hover); }
+    tr.expandable { cursor: pointer; }
+    tr.expandable:hover td { background: var(--accent-soft); }
+
+    /* Expandable Row */
+    .expand-row { display: none; }
+    .expand-row.open { display: table-row; }
+    .expand-row td { padding: 0; background: var(--bg) !important; }
+    .expand-content { max-height: 400px; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+
+    /* Alert Items */
+    .alert-item {
+      display: flex; align-items: flex-start; gap: 1rem;
+      padding: 1.25rem 1.5rem;
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .alert-item.unread { border-left: 4px solid var(--danger); }
+    .alert-item.read { opacity: 0.6; }
+    .alert-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 1.2rem;
+    }
+    .alert-icon.critical { background: var(--danger-soft); color: var(--danger); }
+    .alert-icon.warn { background: var(--warn-soft); color: var(--warn); }
+    .alert-icon.info { background: var(--accent-soft); color: var(--accent); }
+    .alert-body { flex: 1; min-width: 0; }
+    .alert-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; }
+    .alert-msg { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+    .alert-time { font-size: 0.75rem; color: var(--text-muted); font-family: var(--mono); margin-top: 0.5rem; }
+    .alert-actions { flex-shrink: 0; display: flex; align-items: center; }
+
+    /* Config Info Chips */
+    .config-chips { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2rem; }
+    .config-chip {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1rem; border-radius: 99px;
+      background: var(--surface); border: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    .config-chip .chip-label { color: var(--text-muted); }
+    .config-chip .chip-value { font-weight: 600; font-family: var(--mono); color: var(--text); }
+
+    /* Section Titles */
+    .section-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.5rem; }
+    .section-title svg { width: 20px; height: 20px; color: var(--text-muted); }
 
     /* Login Overlay */
     #login-overlay {
@@ -275,6 +360,18 @@
     .form-control { width: 100%; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-family: var(--font); outline: none; }
     .form-control:focus { border-color: var(--accent); }
 
+    /* Search */
+    .search-bar { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .search-input {
+      flex: 1; min-width: 200px;
+      padding: 0.65rem 1rem; border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated); color: var(--text);
+      font-family: var(--font); font-size: 0.9rem; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--text-muted); }
+
     /* Toast */
     .toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--ok); color: white; padding: 1rem 1.5rem; border-radius: var(--radius-sm); font-weight: 500; box-shadow: var(--shadow); transform: translateY(100px); opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000; display: flex; align-items: center; gap: 0.75rem; }
     .toast.show { transform: translateY(0); opacity: 1; }
@@ -282,15 +379,20 @@
     .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: var(--text-muted); text-align: center; height: 100%; }
     .empty-state svg { width: 48px; height: 48px; opacity: 0.5; margin-bottom: 1rem; }
 
+    /* Not configured badge */
+    .not-configured { color: var(--text-muted); font-size: 0.85rem; font-style: italic; }
+
     @media (max-width: 1024px) {
       .workspace { grid-template-columns: 1fr; height: auto; }
       .chat-col { height: 600px; }
+      .stats-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
     }
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); }
       .sidebar.open { transform: translateX(0); }
       .main-content { margin-left: 0; width: 100%; }
       .hamburger { display: block !important; }
+      .page { padding: 1rem; }
     }
     .hamburger { display: none; background: none; border: none; color: white; cursor: pointer; padding: 0.5rem; }
     .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; backdrop-filter: blur(4px); }
@@ -330,13 +432,22 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
         Monitor ao Vivo
       </a>
+      <a class="nav-item" onclick="switchTab('history', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Histórico
+      </a>
+      <a class="nav-item" onclick="switchTab('openai', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Centro OpenAI
+      </a>
+      <a class="nav-item" onclick="switchTab('alerts', this)" id="nav-alerts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Alertas
+        <span class="nav-badge" id="alert-badge">0</span>
+      </a>
       <a class="nav-item" onclick="switchTab('events', this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M11 9h2M12 8v2"></path></svg>
         Avisos da IA
-      </a>
-      <a class="nav-item" onclick="switchTab('audit', this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Auditoria OpenAI
       </a>
     </nav>
   </aside>
@@ -355,7 +466,7 @@
       </div>
     </header>
 
-    <!-- Dashboard / Monitor -->
+    <!-- ═══════════ TAB: MONITOR AO VIVO ═══════════ -->
     <div id="tab-dashboard" class="page active">
       
       <div class="actions-bar">
@@ -365,8 +476,8 @@
         <button class="btn btn-danger" onclick="setUra(false)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> Desligar URA
         </button>
-        <button class="btn" onclick="refreshOpenAi()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Forçar Atualização
+        <button class="btn" onclick="refreshAll()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Atualizar
         </button>
       </div>
 
@@ -382,16 +493,6 @@
           </div>
         </div>
         <div class="card stat-box">
-          <div class="stat-icon purple">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Custo OpenAI (30d)</span>
-            <span class="stat-value" id="openai-usage">$0.00</span>
-            <span class="stat-sub" id="openai-sub">atualizado agora</span>
-          </div>
-        </div>
-        <div class="card stat-box">
           <div class="stat-icon green">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
@@ -401,11 +502,37 @@
             <span class="stat-sub">online e operante</span>
           </div>
         </div>
+        <div class="card stat-box">
+          <div class="stat-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Gasto OpenAI (30d)</span>
+            <span class="stat-value" id="openai-usage">$0.00</span>
+            <span class="stat-sub" id="openai-sub">atualizado agora</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon warn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Alertas Ativos</span>
+            <span class="stat-value" id="alert-count">0</span>
+            <span class="stat-sub" id="alert-count-sub">nenhum pendente</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Config Chips -->
+      <div class="config-chips" id="config-chips">
+        <div class="config-chip"><span class="chip-label">Modelo:</span> <span class="chip-value" id="chip-model">—</span></div>
+        <div class="config-chip"><span class="chip-label">Voz:</span> <span class="chip-value" id="chip-voice">—</span></div>
+        <div class="config-chip"><span class="chip-label">Temperatura:</span> <span class="chip-value" id="chip-temp">—</span></div>
       </div>
 
       <div class="workspace">
         <div class="call-list-col" id="sessions-list">
-          <!-- Calls populate here -->
           <div class="empty-state">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
             <p>Nenhuma ligação ativa</p>
@@ -427,23 +554,110 @@
       
     </div>
 
-    <!-- Events / Avisos -->
-    <div id="tab-events" class="page">
-      <div class="actions-bar" style="justify-content: flex-end;">
-        <button class="btn btn-primary" onclick="showAddEventModal()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Novo Aviso Geral
+    <!-- ═══════════ TAB: HISTÓRICO ═══════════ -->
+    <div id="tab-history" class="page">
+      <div class="search-bar">
+        <input type="text" class="search-input" id="history-search" placeholder="Buscar por nome ou telefone..." oninput="filterHistory()" />
+        <button class="btn" onclick="loadHistory()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Atualizar
         </button>
       </div>
-      <div id="events-container" style="display: grid; gap: 1.5rem; max-width: 900px; margin: 0 auto;"></div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px;"></th>
+              <th>Telefone</th>
+              <th>Cliente</th>
+              <th>Início</th>
+              <th>Duração</th>
+              <th>Resumo</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            <tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- Audit -->
-    <div id="tab-audit" class="page">
+    <!-- ═══════════ TAB: CENTRO OPENAI ═══════════ -->
+    <div id="tab-openai" class="page">
+      
+      <!-- Cards de Gasto -->
+      <div class="stats-grid" id="openai-stats">
+        <div class="card stat-box">
+          <div class="stat-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Gasto Atual (30 dias)</span>
+            <span class="stat-value" id="oa-spend">$0.00</span>
+            <span class="stat-sub" id="oa-period">—</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon warn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Orçamento Definido</span>
+            <span class="stat-value" id="oa-budget">—</span>
+            <span class="stat-sub" id="oa-budget-sub">limite para alertas</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Créditos Carregados</span>
+            <span class="stat-value" id="oa-prepaid">—</span>
+            <span class="stat-sub">pré-pago na OpenAI</span>
+          </div>
+        </div>
+        <div class="card stat-box">
+          <div class="stat-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Restante Estimado</span>
+            <span class="stat-value" id="oa-remaining">—</span>
+            <span class="stat-sub" id="oa-remaining-sub">orçamento - gasto</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Progresso -->
+      <div class="card" style="margin-bottom: 2rem;" id="oa-progress-card">
+        <div class="progress-container">
+          <div class="progress-header">
+            <span class="progress-title">Consumo do Orçamento</span>
+            <span class="progress-pct" id="oa-pct">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill green" id="oa-fill" style="width: 0%;"></div>
+          </div>
+          <div class="progress-detail" id="oa-progress-detail">Configure OPENAI_BUDGET_USD no .env para ativar o monitoramento de orçamento.</div>
+        </div>
+      </div>
+
+      <!-- Forçar atualização -->
+      <div class="actions-bar">
+        <button class="btn btn-primary" onclick="refreshOpenAi()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Sincronizar Gastos com OpenAI
+        </button>
+      </div>
+
+      <!-- Tabela de Auditoria -->
+      <div class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Auditoria de Acessos
+      </div>
       <div class="card" style="padding: 0; overflow: hidden;">
         <div class="chat-header">
-          <h3>Acessos OpenAI (Auditoria de Chaves)</h3>
-          <button class="btn" onclick="loadAudit()" style="padding: 0.4rem 0.8rem;">Atualizar</button>
+          <h3>Logins e Atividades na Conta OpenAI</h3>
+          <button class="btn btn-sm" onclick="loadAudit()">Atualizar</button>
         </div>
         <div class="table-container" style="border: none; border-radius: 0;">
           <table>
@@ -462,6 +676,31 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- ═══════════ TAB: ALERTAS ═══════════ -->
+    <div id="tab-alerts" class="page">
+      <div class="actions-bar" style="justify-content: space-between;">
+        <div class="section-title" style="margin: 0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Alertas do Sistema
+        </div>
+        <button class="btn" onclick="loadAlerts()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Atualizar
+        </button>
+      </div>
+      <div id="alerts-container" style="display: flex; flex-direction: column; gap: 1rem; max-width: 900px;"></div>
+    </div>
+
+    <!-- ═══════════ TAB: AVISOS DA IA ═══════════ -->
+    <div id="tab-events" class="page">
+      <div class="actions-bar" style="justify-content: flex-end;">
+        <button class="btn btn-primary" onclick="showAddEventModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Novo Aviso Geral
+        </button>
+      </div>
+      <div id="events-container" style="display: grid; gap: 1.5rem; max-width: 900px; margin: 0 auto;"></div>
     </div>
 
   </main>
@@ -506,8 +745,13 @@
     let selectedCallId = null;
     let evtSource = null;
     let globalEvents = [];
+    let globalAlerts = [];
+    let historyData = [];
+    let cachedOpenAi = null;
 
-    // --- Authentication ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  AUTH
+    // ══════════════════════════════════════════════════════════════════════
     function getKey() { return localStorage.getItem('ura_admin_key') || ''; }
     function saveKey(key) { localStorage.setItem('ura_admin_key', key); }
 
@@ -523,9 +767,7 @@
           document.getElementById('login-overlay').style.display = 'flex';
           document.getElementById('login-error').style.display = 'block';
         }
-      } catch (err) {
-        // network err
-      }
+      } catch (err) { /* network err */ }
     }
 
     async function doLogin() {
@@ -536,7 +778,9 @@
       await checkLogin();
     }
 
-    // --- Core UI ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  UI HELPERS
+    // ══════════════════════════════════════════════════════════════════════
     function toggleSidebar() {
       document.getElementById('sidebar').classList.toggle('open');
       document.getElementById('sidebar-overlay').style.display = 
@@ -550,12 +794,14 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       if (el) el.classList.add('active');
       
-      const titles = { 'dashboard': 'Monitor ao Vivo', 'events': 'Avisos da IA', 'audit': 'Auditoria OpenAI' };
+      const titles = { 'dashboard': 'Monitor ao Vivo', 'history': 'Histórico de Chamadas', 'openai': 'Centro OpenAI', 'alerts': 'Alertas do Sistema', 'events': 'Avisos da IA' };
       document.getElementById('page-title').textContent = titles[tabId];
       
       if (window.innerWidth <= 768) toggleSidebar();
       
-      if (tabId === 'audit') loadAudit();
+      if (tabId === 'history') loadHistory();
+      if (tabId === 'openai') { loadOpenAiCenter(); loadAudit(); }
+      if (tabId === 'alerts') loadAlerts();
       if (tabId === 'events') loadEvent();
     }
 
@@ -566,7 +812,9 @@
       setTimeout(() => t.classList.remove('show'), 3000);
     }
 
-    // --- API Helpers ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  API HELPERS
+    // ══════════════════════════════════════════════════════════════════════
     function headers() {
       const h = { 'Content-Type': 'application/json' };
       const k = getKey();
@@ -587,7 +835,12 @@
     function fmtTime(iso) {
       try { return new Date(iso).toLocaleTimeString('pt-BR'); } catch { return iso; }
     }
-
+    function fmtDateTime(iso) {
+      try { return new Date(iso).toLocaleString('pt-BR'); } catch { return iso; }
+    }
+    function fmtDate(iso) {
+      try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return iso; }
+    }
     function fmtUptime(sec) {
       if (sec < 60) return sec + 's';
       const h = Math.floor(sec / 3600);
@@ -595,12 +848,23 @@
       if (h > 0) return h + 'h ' + m + 'm';
       return m + 'm';
     }
-
+    function fmtDuration(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      if (m > 0) return m + 'min ' + s + 's';
+      return s + 's';
+    }
     function escapeHtml(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
+    function fmtUsd(v) {
+      if (v == null || isNaN(v)) return '—';
+      return '$' + Number(v).toFixed(2);
+    }
 
-    // --- Live Monitor ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  MONITOR AO VIVO
+    // ══════════════════════════════════════════════════════════════════════
     function renderSessions(sessions) {
       const el = document.getElementById('sessions-list');
       if (!sessions || !sessions.length) {
@@ -614,7 +878,6 @@
         return;
       }
 
-      // Evita recriar o DOM inteiro se as ligações forem as mesmas (para não perder estado hover)
       const currentIds = Array.from(el.querySelectorAll('.call-item')).map(x => x.dataset.id);
       const newIds = sessions.map(s => s.callId);
       if (JSON.stringify(currentIds) !== JSON.stringify(newIds)) {
@@ -629,7 +892,6 @@
           </div>
         `).join('');
       } else {
-        // Atualiza apenas os contadores
         sessions.forEach(s => {
           const item = el.querySelector(`.call-item[data-id="${s.callId}"]`);
           if (item) {
@@ -665,12 +927,11 @@
       title.textContent = 'Monitorando: ' + id.slice(0,8);
       status.style.display = 'inline-flex';
       feed.innerHTML = '';
-      refresh(); // força carregar eventos dessa sessao
+      refresh();
     }
 
     function appendEvent(ev, forceScroll = true) {
       const feed = document.getElementById('live-feed');
-      // Remove empty state se existir
       if (feed.querySelector('.empty-state')) feed.innerHTML = '';
       
       const div = document.createElement('div');
@@ -681,28 +942,13 @@
       
       if (ev.type === 'client_speech') {
         div.classList.add('row-client');
-        content = `
-          <div class="bubble bubble-client">
-            <div class="bubble-meta">Cliente · ${fmtTime(ev.at)}</div>
-            ${msg}
-          </div>
-        `;
+        content = `<div class="bubble bubble-client"><div class="bubble-meta">Cliente · ${fmtTime(ev.at)}</div>${msg}</div>`;
       } else if (ev.type === 'assistant_text') {
         div.classList.add('row-ai');
-        content = `
-          <div class="bubble bubble-ai">
-            <div class="bubble-meta">Ana (IA) · ${fmtTime(ev.at)}</div>
-            ${msg}
-          </div>
-        `;
+        content = `<div class="bubble bubble-ai"><div class="bubble-meta">Ana (IA) · ${fmtTime(ev.at)}</div>${msg}</div>`;
       } else if (ev.type.startsWith('tool')) {
         div.classList.add('row-tool');
-        content = `
-          <div class="bubble-tool">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            ${msg}
-          </div>
-        `;
+        content = `<div class="bubble-tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>${msg}</div>`;
       } else {
         div.classList.add('row-tool');
         content = `<div class="bubble-tool">${msg}</div>`;
@@ -710,11 +956,30 @@
       
       div.innerHTML = content;
       feed.appendChild(div);
-      
-      // Auto-scroll
-      if (forceScroll) {
-        feed.scrollTop = feed.scrollHeight;
-      }
+      if (forceScroll) feed.scrollTop = feed.scrollHeight;
+    }
+
+    function renderBubbles(events, container) {
+      container.innerHTML = '';
+      events.forEach(ev => {
+        const div = document.createElement('div');
+        div.className = 'bubble-row';
+        const msg = escapeHtml(ev.message);
+        if (ev.type === 'client_speech') {
+          div.classList.add('row-client');
+          div.innerHTML = `<div class="bubble bubble-client"><div class="bubble-meta">Cliente · ${fmtTime(ev.at)}</div>${msg}</div>`;
+        } else if (ev.type === 'assistant_text') {
+          div.classList.add('row-ai');
+          div.innerHTML = `<div class="bubble bubble-ai"><div class="bubble-meta">Ana (IA) · ${fmtTime(ev.at)}</div>${msg}</div>`;
+        } else if (ev.type && ev.type.startsWith('tool')) {
+          div.classList.add('row-tool');
+          div.innerHTML = `<div class="bubble-tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>${msg}</div>`;
+        } else {
+          div.classList.add('row-tool');
+          div.innerHTML = `<div class="bubble-tool">${msg}</div>`;
+        }
+        container.appendChild(div);
+      });
     }
 
     function connectStream() {
@@ -727,17 +992,13 @@
         try {
           const payload = JSON.parse(e.data);
           if (payload.type === 'event' && payload.event) {
-            if (payload.event.callId === selectedCallId) {
-              appendEvent(payload.event);
-            }
+            if (payload.event.callId === selectedCallId) appendEvent(payload.event);
           }
           if (payload.type === 'session_update' || payload.type === 'session_ended') refresh();
         } catch {}
       };
       
-      evtSource.onerror = () => {
-        setTimeout(connectStream, 5000); // Tenta reconectar em 5s se cair
-      };
+      evtSource.onerror = () => { setTimeout(connectStream, 5000); };
     }
 
     async function refresh() {
@@ -756,15 +1017,37 @@
           badge.innerHTML = '<span>URA Desligada</span>';
         }
 
+        // OpenAI quick stats
         const oa = data.openai;
+        cachedOpenAi = oa;
         if (oa) {
           const spend = oa.spendUsd ?? oa.totalUsd;
           document.getElementById('openai-usage').textContent = spend != null ? '$' + spend.toFixed(2) : (oa.ok ? '$0.00' : '—');
         }
 
+        // Config chips (from status if available)
+        if (data.config) {
+          if (data.config.model) document.getElementById('chip-model').textContent = data.config.model;
+          if (data.config.voice) document.getElementById('chip-voice').textContent = data.config.voice;
+          if (data.config.temperature != null) document.getElementById('chip-temp').textContent = data.config.temperature;
+        }
+
+        // Alert count
+        const alerts = data.alerts || [];
+        const unread = alerts.filter(a => !a.read).length;
+        document.getElementById('alert-count').textContent = unread;
+        document.getElementById('alert-count-sub').textContent = unread === 0 ? 'nenhum pendente' : unread + ' não lido(s)';
+        
+        const alertBadge = document.getElementById('alert-badge');
+        if (unread > 0) {
+          alertBadge.textContent = unread;
+          alertBadge.classList.add('visible');
+        } else {
+          alertBadge.classList.remove('visible');
+        }
+
         renderSessions(data.sessions || []);
 
-        // Popula feed se selecionado e vazio
         if (selectedCallId) {
           const s = (data.sessions || []).find(x => x.callId === selectedCallId);
           if (s?.events?.length) {
@@ -787,13 +1070,258 @@
       refresh();
     }
 
+    async function refreshAll() {
+      await refresh();
+      showToast('Dados atualizados.');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  HISTÓRICO DE CHAMADAS
+    // ══════════════════════════════════════════════════════════════════════
+    async function loadHistory() {
+      try {
+        const data = await api('/api/history?limit=100');
+        historyData = data.records || [];
+        renderHistory(historyData);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function filterHistory() {
+      const q = document.getElementById('history-search').value.toLowerCase().trim();
+      if (!q) return renderHistory(historyData);
+      const filtered = historyData.filter(r =>
+        (r.callerNumber || '').toLowerCase().includes(q) ||
+        (r.clienteNome || '').toLowerCase().includes(q)
+      );
+      renderHistory(filtered);
+    }
+
+    function renderHistory(records) {
+      const tbody = document.getElementById('history-tbody');
+      if (!records.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">Nenhuma chamada encontrada.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = records.map((r, i) => {
+        const summary = (r.summary || []).join(' • ') || '—';
+        const truncSummary = summary.length > 80 ? summary.slice(0, 80) + '...' : summary;
+        return `
+          <tr class="expandable" onclick="toggleHistoryRow(${i})">
+            <td style="text-align:center; color:var(--text-muted);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="transition:transform 0.2s;" id="arrow-${i}"><polyline points="6 9 12 15 18 9"/></svg>
+            </td>
+            <td style="font-family:var(--mono);">${escapeHtml(r.callerNumber) || '—'}</td>
+            <td>${escapeHtml(r.clienteNome) || '<span style="color:var(--text-muted)">Não identificado</span>'}</td>
+            <td style="font-family:var(--mono);">${fmtDateTime(r.startedAt)}</td>
+            <td>${fmtDuration(r.durationSec || 0)}</td>
+            <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(truncSummary)}</td>
+          </tr>
+          <tr class="expand-row" id="expand-${i}">
+            <td colspan="6">
+              <div class="expand-content" id="expand-content-${i}"></div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleHistoryRow(idx) {
+      const row = document.getElementById('expand-' + idx);
+      const arrow = document.getElementById('arrow-' + idx);
+      const isOpen = row.classList.contains('open');
+      
+      // Close all
+      document.querySelectorAll('.expand-row').forEach(r => r.classList.remove('open'));
+      document.querySelectorAll('[id^="arrow-"]').forEach(a => a.style.transform = '');
+      
+      if (!isOpen) {
+        row.classList.add('open');
+        arrow.style.transform = 'rotate(180deg)';
+        
+        const content = document.getElementById('expand-content-' + idx);
+        const record = historyData[idx];
+        if (record && record.events) {
+          renderBubbles(record.events.filter(e => e.type === 'client_speech' || e.type === 'assistant_text' || (e.type && e.type.startsWith('tool'))), content);
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  CENTRO OPENAI
+    // ══════════════════════════════════════════════════════════════════════
+    function loadOpenAiCenter() {
+      const oa = cachedOpenAi;
+      if (!oa) return;
+
+      const spend = oa.spendUsd ?? oa.totalUsd ?? 0;
+      document.getElementById('oa-spend').textContent = fmtUsd(spend);
+      
+      // Period
+      if (oa.periodStart && oa.periodEnd) {
+        document.getElementById('oa-period').textContent = `Período: ${fmtDate(oa.periodStart + 'T00:00:00')} — ${fmtDate(oa.periodEnd + 'T00:00:00')}`;
+      }
+
+      // Budget
+      if (oa.alertBudgetUsd && oa.alertBudgetUsd > 0) {
+        document.getElementById('oa-budget').textContent = fmtUsd(oa.alertBudgetUsd);
+        document.getElementById('oa-budget-sub').textContent = 'limite para alertas';
+      } else {
+        document.getElementById('oa-budget').innerHTML = '<span class="not-configured">Não configurado</span>';
+        document.getElementById('oa-budget-sub').textContent = 'defina OPENAI_BUDGET_USD';
+      }
+
+      // Prepaid
+      if (oa.prepaidUsd && oa.prepaidUsd > 0) {
+        document.getElementById('oa-prepaid').textContent = fmtUsd(oa.prepaidUsd);
+      } else {
+        document.getElementById('oa-prepaid').innerHTML = '<span class="not-configured">Não configurado</span>';
+      }
+
+      // Remaining
+      if (oa.remainingUsd != null) {
+        document.getElementById('oa-remaining').textContent = fmtUsd(oa.remainingUsd);
+        document.getElementById('oa-remaining-sub').textContent = 'orçamento - gasto';
+      } else if (oa.prepaidUsd && oa.prepaidUsd > 0) {
+        const est = Math.max(0, oa.prepaidUsd - spend);
+        document.getElementById('oa-remaining').textContent = fmtUsd(est);
+        document.getElementById('oa-remaining-sub').textContent = 'créditos - gasto (estimado)';
+      } else {
+        document.getElementById('oa-remaining').innerHTML = '<span class="not-configured">—</span>';
+        document.getElementById('oa-remaining-sub').textContent = 'configure orçamento ou créditos';
+      }
+
+      // Progress bar
+      const pct = oa.percentUsed ?? 0;
+      const fill = document.getElementById('oa-fill');
+      const pctEl = document.getElementById('oa-pct');
+      
+      if (oa.alertBudgetUsd && oa.alertBudgetUsd > 0) {
+        fill.style.width = Math.min(pct, 100) + '%';
+        pctEl.textContent = pct + '%';
+        
+        fill.className = 'progress-fill';
+        if (pct < 50) fill.classList.add('green');
+        else if (pct < 80) fill.classList.add('yellow');
+        else fill.classList.add('red');
+        
+        document.getElementById('oa-progress-detail').textContent = `${fmtUsd(spend)} gastos de ${fmtUsd(oa.alertBudgetUsd)} de orçamento`;
+      } else {
+        fill.style.width = '0%';
+        pctEl.textContent = '—';
+        document.getElementById('oa-progress-detail').textContent = 'Configure OPENAI_BUDGET_USD no .env para ativar o monitoramento de orçamento.';
+      }
+
+      // Checked at
+      if (oa.checkedAt) {
+        document.getElementById('openai-sub').textContent = 'atualizado ' + fmtTime(oa.checkedAt);
+      }
+    }
+
     async function refreshOpenAi() {
-      await api('/api/openai/usage');
+      const snap = await api('/api/openai/usage');
+      cachedOpenAi = snap;
+      loadOpenAiCenter();
       showToast('Gasto sincronizado com a OpenAI.');
       refresh();
     }
 
-    // --- Events Tab ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  AUDITORIA
+    // ══════════════════════════════════════════════════════════════════════
+    async function loadAudit() {
+      try {
+        const data = await api('/api/openai/audit/history');
+        const tbody = document.getElementById('audit-tbody');
+        if (!data.history || !data.history.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Nenhum acesso registrado.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.history.map(e => {
+          const date = new Date(e.effective_at * 1000).toLocaleString('pt-BR');
+          const actor = e.actor?.session?.user?.email || e.actor?.api_key?.user?.email || '-';
+          const err = e['login.failed']?.error_message || '';
+          
+          let t = e.type;
+          let icon = '📋';
+          if (t === 'login.succeeded') { t = '<span style="color:var(--ok)">✅ Login OK</span>'; icon = '✅'; }
+          else if (t === 'login.failed') { t = '<span style="color:var(--danger)">❌ Login Falhou</span>'; icon = '❌'; }
+          else if (t === 'api_key.created') { t = '<span style="color:var(--warn)">🔑 Chave Criada</span>'; icon = '🔑'; }
+          else if (t === 'api_key.deleted') { t = '<span style="color:var(--text-muted)">🗑️ Chave Removida</span>'; icon = '🗑️'; }
+          else if (t === 'api_key.updated') { t = '<span style="color:var(--accent)">✏️ Chave Editada</span>'; icon = '✏️'; }
+          
+          return `<tr>
+            <td style="font-family:var(--mono);">${date}</td>
+            <td>${t}</td>
+            <td>${escapeHtml(actor)}</td>
+            <td style="font-family:var(--mono);">${e.actor?.session?.ip_address || '-'}</td>
+            <td style="color:var(--danger);">${escapeHtml(err)}</td>
+          </tr>`;
+        }).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  ALERTAS DO SISTEMA
+    // ══════════════════════════════════════════════════════════════════════
+    async function loadAlerts() {
+      try {
+        const data = await api('/api/alerts');
+        globalAlerts = data.alerts || [];
+        renderAlerts();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderAlerts() {
+      const container = document.getElementById('alerts-container');
+      if (!globalAlerts.length) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <p>Nenhum alerta registrado. Tudo funcionando normalmente!</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = globalAlerts.map(a => {
+        const icons = { critical: '🔴', warn: '🟡', info: '🔵' };
+        const icon = icons[a.level] || '🔵';
+        const readClass = a.read ? 'read' : 'unread';
+        
+        return `
+          <div class="alert-item ${readClass}">
+            <div class="alert-icon ${a.level}">${icon}</div>
+            <div class="alert-body">
+              <div class="alert-title">${escapeHtml(a.title)}</div>
+              <div class="alert-msg">${escapeHtml(a.message)}</div>
+              <div class="alert-time">${fmtDateTime(a.at)}</div>
+            </div>
+            <div class="alert-actions">
+              ${!a.read ? `<button class="btn btn-sm" onclick="markAlertRead('${a.id}')">Marcar como lido</button>` : '<span style="color:var(--text-muted); font-size:0.8rem;">Lido</span>'}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function markAlertRead(id) {
+      await api('/api/alerts/read', { method: 'POST', body: JSON.stringify({ id }) });
+      const a = globalAlerts.find(x => x.id === id);
+      if (a) a.read = true;
+      renderAlerts();
+      refresh(); // atualiza badge
+      showToast('Alerta marcado como lido.');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  AVISOS DA IA (EVENTS)
+    // ══════════════════════════════════════════════════════════════════════
     function renderEvents() {
       const container = document.getElementById('events-container');
       if (!globalEvents || globalEvents.length === 0) {
@@ -826,6 +1354,9 @@
     function showAddEventModal() {
       document.getElementById('event-id').value = '';
       document.getElementById('event-text').value = '';
+      document.getElementById('event-start').value = '';
+      document.getElementById('event-end').value = '';
+      document.getElementById('event-active').checked = true;
       document.getElementById('event-modal').style.display = 'flex';
     }
     function hideAddEventModal() { document.getElementById('event-modal').style.display = 'none'; }
@@ -862,37 +1393,13 @@
       loadEvent();
     }
 
-    // --- Audit Tab ---
-    async function loadAudit() {
-      const data = await api('/api/openai/audit/history');
-      const tbody = document.getElementById('audit-tbody');
-      if (!data.history || !data.history.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Nenhum acesso registrado.</td></tr>';
-        return;
-      }
-      tbody.innerHTML = data.history.map(e => {
-        const date = new Date(e.effective_at * 1000).toLocaleString('pt-BR');
-        const actor = e.actor?.session?.user?.email || e.actor?.api_key?.user?.email || '-';
-        const err = e['login.failed']?.error_message || '';
-        let t = e.type;
-        if (t === 'login.succeeded') t = '<span style="color:var(--ok)">Login Ok</span>';
-        else if (t === 'login.failed') t = '<span style="color:var(--danger)">Login Falhou</span>';
-        
-        return `<tr>
-          <td style="font-family:var(--mono);">${date}</td>
-          <td>${t}</td>
-          <td>${actor}</td>
-          <td style="font-family:var(--mono);">${e.actor?.session?.ip_address || '-'}</td>
-          <td style="color:var(--danger);">${err}</td>
-        </tr>`;
-      }).join('');
-    }
-
-    // --- Init ---
+    // ══════════════════════════════════════════════════════════════════════
+    //  INIT
+    // ══════════════════════════════════════════════════════════════════════
     function initializeApp() {
       connectStream();
       refresh();
-      setInterval(refresh, 5000); // Polling suave de status
+      setInterval(refresh, 5000);
     }
     
     document.addEventListener("DOMContentLoaded", () => {

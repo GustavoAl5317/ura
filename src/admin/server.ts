@@ -106,6 +106,11 @@ export function startAdminServer(): void {
         openaiAudit: getOpenAiAuditStatus(),
         alerts: listAlerts(10),
         uptimeSec: Math.round(process.uptime()),
+        config: {
+          model: config.openai.realtimeModel,
+          voice: config.openai.voice,
+          temperature: config.openai.temperature,
+        },
       });
     }
 
