@@ -72,6 +72,7 @@ export type RealtimeEvent =
   | { type: 'response.output_audio_transcript.done'; transcript: string }
   // Transcrição do usuário
   | { type: 'conversation.item.input_audio_transcription.completed'; transcript: string }
+  | { type: 'conversation.item.input_audio_transcription.failed'; error?: unknown }
   | { type: 'input_audio_buffer.transcript'; transcript: string }
   | {
       type: 'response.function_call_arguments.done';
