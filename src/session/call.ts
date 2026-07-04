@@ -409,9 +409,6 @@ export class CallSession {
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
-      if (/internet|conex[aã]o|wi-?fi|wi fi|lent[ao]|caiu|cai|sem sinal|offline|n[aã]o conect|travou|inst[aá]vel|queda|sem internet|parou de funcionar|n[aã]o funciona|sem rede/i.test(text)) {
-        this.ctx.relatouProblemaTecnico = true;
-      }
       this.ctx.lastClientSpeech = text;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
