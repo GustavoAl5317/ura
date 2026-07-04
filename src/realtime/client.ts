@@ -392,11 +392,13 @@ export class RealtimeClient extends EventEmitter {
 
       case 'conversation.item.input_audio_transcription.completed':
       case 'input_audio_buffer.transcript':
+        logger.info(`[${this.callId}] RAW TRANSCRIPT EVENT: ${JSON.stringify(event)}`);
         if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
         break;
 
       case 'conversation.item.created':
         if (event.item?.role === 'user' && Array.isArray(event.item?.content)) {
+          logger.info(`[${this.callId}] RAW ITEM.CREATED CONTENT: ${JSON.stringify(event.item.content)}`);
           for (const c of event.item.content) {
             if (c.transcript?.trim()) {
               this.emit('userSpeech', c.transcript.trim());
@@ -404,6 +406,10 @@ export class RealtimeClient extends EventEmitter {
             }
           }
         }
+        break;
+
+      case 'conversation.item.input_audio_transcription.failed':
+        logger.warn(`[${this.callId}] TRANSCRIPT FAILED: ${JSON.stringify(event)}`);
         break;
 
       case 'error':
