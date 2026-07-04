@@ -395,6 +395,17 @@ export class RealtimeClient extends EventEmitter {
         if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
         break;
 
+      case 'conversation.item.created':
+        if (event.item?.role === 'user' && Array.isArray(event.item?.content)) {
+          for (const c of event.item.content) {
+            if (c.transcript?.trim()) {
+              this.emit('userSpeech', c.transcript.trim());
+              break;
+            }
+          }
+        }
+        break;
+
       case 'error':
         logger.error(`[${this.callId}] Realtime error`, event.error);
         break;
