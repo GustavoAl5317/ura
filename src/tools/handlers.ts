@@ -3,6 +3,7 @@ import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
 import { resolveCelularInformado } from '../utils/spokenNumbers';
+import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/address';
 import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
@@ -373,6 +374,14 @@ function resolverFaturaIdPriorizandoVencida(
     return maisAtrasada.id ?? maisAtrasada.numeroDocumento;
   }
   return undefined;
+}
+
+function faltandoEnderecoViabilidade(logradouro: string, numero: string, bairro: string): string {
+  const partes: string[] = [];
+  if (!logradouro) partes.push('rua/logradouro');
+  if (!numero) partes.push('número do imóvel');
+  if (!bairro) partes.push('bairro');
+  return partes.join(', ');
 }
 
 /** Celular informado pelo cliente — obrigatório para WhatsApp (não usa fixo da chamada automaticamente). */
@@ -1009,9 +1018,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
             ? `${msgBase} Inclua resumo_atendimento e resposta_cliente na tool.`
             : wppMotivo === 'falha_api_whatsapp' || wppMotivo === 'falha_api' || wppMotivo === 'erro_rede' || wppMotivo === 'nao_configurado'
               ? `${msgBase} Não foi possível enviar o WhatsApp agora. Peça outro número ou oriente pagar pelo app do banco. NÃO leia PIX, linha digitável ou link em voz alta.`
-              : msgBase;
-
-    const omitirDadosSensiveis = enviarWpp && !wppEnviado;
+              : wppEnviado
+                ? `${msgBase} Enviei o PIX e o boleto no WhatsApp. Confirme se o cliente recebeu. NUNCA leia PIX, linha digitável ou link em voz alta.`
+                : `${msgBase} NUNCA leia PIX, linha digitável ou link em voz alta — só por WhatsApp.`;
 
     return {
       sucesso: true,
@@ -1019,9 +1028,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       valor: valorFmt,
       valor_falado: valorPorExtenso(linkObj.valor),
       vencimento: linkObj.vencimento,
-      pix_copia_cola: omitirDadosSensiveis ? null : (pixCola || null),
-      link_boleto: omitirDadosSensiveis ? null : linkBoleto,
-      linha_digitavel: omitirDadosSensiveis ? null : linhaDigitavel,
+      pix_copia_cola: null,
+      link_boleto: null,
+      linha_digitavel: null,
       whatsapp_enviado: wppEnviado,
       whatsapp_motivo: wppMotivo ?? null,
       mensagem: msgWhatsapp,
@@ -1344,28 +1353,54 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Viabilidade e Planos ───────────────────────────────────────────────────
 
   client.registerTool('verificar_viabilidade', async (args) => {
-    const logradouro = args.logradouro ? String(args.logradouro).trim() : '';
-    const numero = args.numero ? String(args.numero).trim() : '';
+    let logradouro = args.logradouro ? String(args.logradouro).trim() : '';
+    let numero = args.numero ? String(args.numero).trim() : '';
     const bairro = args.bairro ? String(args.bairro).trim() : '';
     const cidade = args.cidade ? String(args.cidade).trim() : '';
     let cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
 
     // Viabilidade depende do endereço EXATO (a CTO mais próxima varia rua a rua).
     // Exige CEP válido OU endereço com rua + número + bairro. Nunca consulta só por bairro/cidade.
-    const cepValido = cepDigitos.length === 8;
-    const enderecoCompleto = !!logradouro && !!numero && !!bairro;
+    let cepValido = cepDigitos.length === 8;
+    let enderecoCompleto = !!logradouro && !!numero && !!bairro;
+
+    if (!cepValido && !enderecoCompleto && args.cep) {
+      const recovered = tryRecoverFromCepConfusion(String(args.cep), ctx.lastClientSpeech);
+      if (recovered) {
+        logradouro = logradouro || recovered.logradouro;
+        numero = numero || recovered.numero;
+        cepDigitos = '';
+        cepValido = false;
+        enderecoCompleto = !!logradouro && !!numero && !!bairro;
+        logger.info(`[${ctx.callId}] Endereço recuperado (CEP confundido com rua/casa)`, {
+          informado: String(args.cep),
+          logradouro,
+          numero,
+          cliente_falou: ctx.lastClientSpeech,
+        });
+      }
+    }
+
     if (!cepValido && !enderecoCompleto) {
+      if (args.cep && !cepValido && looksLikeEnderecoFalado(ctx.lastClientSpeech ?? String(args.cep))) {
+        return {
+          tem_cobertura: null,
+          erro: 'cep_confundido_com_endereco',
+          mensagem:
+            'O cliente falou ENDEREÇO (ex.: "Rua 830 casa 71"), não CEP. No Ceará há ruas com nome numérico — isso NÃO é CEP. ' +
+            'Use logradouro (ex.: "Rua 830"), numero (ex.: "71") e pergunte o bairro. Deixe o campo cep vazio.',
+        };
+      }
       return {
         tem_cobertura: null,
         erro: 'endereco_incompleto',
         mensagem:
-          'Endereço incompleto. Peça especificamente o dado que faltou (rua, número ou bairro) para o cliente. Não diga que não tem viabilidade ainda!',
+          `Endereço incompleto — falta: ${faltandoEnderecoViabilidade(logradouro, numero, bairro)}. ` +
+          'Pergunte especificamente o que falta (especialmente o bairro). Não diga que não tem viabilidade ainda!',
       };
     }
 
-    // Se o cliente forneceu um CEP, mas a IA entendeu um número inválido (mais ou menos de 8 dígitos)
-    // nós retornamos um erro claro para a IA pedir para o cliente repetir, em vez de tentar adivinhar.
-    if (args.cep && !cepValido) {
+    if (args.cep && !cepValido && !logradouro) {
       return {
         tem_cobertura: null,
         erro: 'cep_invalido',
@@ -1374,7 +1409,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       };
     }
 
-    let cepStr = args.cep ? String(args.cep) : '';
+    let cepStr = cepValido ? String(args.cep).replace(/\D/g, '') : '';
     const cidadeBusca = args.cidade ? String(args.cidade) : 'Fortaleza';
     const endStr = [logradouro, numero, bairro, cidadeBusca].filter(Boolean).join(', ');
 

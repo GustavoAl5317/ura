@@ -265,10 +265,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cep: { type: 'string', description: 'CEP do endereço (prioritário)' },
-        logradouro: { type: 'string' },
-        numero: { type: 'string' },
-        bairro: { type: 'string' },
+        cep: {
+          type: 'string',
+          description:
+            'CEP com exatamente 8 dígitos. NUNCA use para nome de rua numérica (ex.: "Rua 830" não é CEP). Se o cliente disser rua/avenida + número/casa, use logradouro e numero.',
+        },
+        logradouro: { type: 'string', description: 'Nome da rua/avenida (ex.: "Rua 830")' },
+        numero: { type: 'string', description: 'Número do imóvel (ex.: "71")' },
+        bairro: {
+          type: 'string',
+          description: 'Bairro — OBRIGATÓRIO quando informar logradouro (rua + número + bairro)',
+        },
         cidade: { type: 'string' },
       },
     },
@@ -290,7 +297,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         celular: {
           type: 'string',
           description:
-            'Número de celular/WhatsApp para contato (com DDD). Sempre pergunte ao cliente. Se ele não tiver ou não quiser informar, deixe em branco.',
+            'Celular com WhatsApp e DDD (11 dígitos). Pergunte: "Pode falar com o DDD?" e confirme dígito a dígito.',
         },
         email: { type: 'string', description: 'E-mail do interessado (opcional, não insistir se não tiver)' },
         endereco: {
