@@ -44,10 +44,10 @@ async function dispatchAlert(alert: AdminAlert): Promise<void> {
   const destino = config.admin.alertWhatsapp.trim();
   if (destino) {
     try {
-      const ok = destino.includes('@g.us')
+      const resultado = destino.includes('@g.us')
         ? await whatsapp.enviarGrupo(destino, texto)
         : await whatsapp.enviarTexto(destino, texto);
-      if (!ok) logger.warn('Alerta WhatsApp não enviado', { destino: destino.slice(0, 12) });
+      if (!resultado.enviado) logger.warn('Alerta WhatsApp não enviado', { destino: destino.slice(0, 12) });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Falha ao enviar alerta WhatsApp', { err: msg });

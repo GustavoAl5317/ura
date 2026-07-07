@@ -2,6 +2,7 @@ import { sgp, formatarEndereco } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
+import { resolveCelularInformado } from '../utils/spokenNumbers';
 import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
@@ -383,12 +384,26 @@ function resolverWhatsAppCliente(
   if (!tel) {
     return { numero: null, motivo: 'celular_nao_informado' };
   }
-  if (!whatsapp.isCelularBr(tel)) {
+
+  const resolvido = resolveCelularInformado(tel, ctx.lastClientSpeech);
+  if (!resolvido.numero) {
     return { numero: null, motivo: 'celular_invalido' };
   }
-  const numero = tel.replace(/\D/g, '');
-  ctx.celularWhatsApp = numero;
-  return { numero };
+  if (!whatsapp.isCelularBr(resolvido.numero)) {
+    return { numero: null, motivo: 'celular_invalido' };
+  }
+
+  if (resolvido.fonte === 'corrigido' || resolvido.fonte === 'fala') {
+    logger.info(`[${ctx.callId}] Celular WhatsApp corrigido pela transcrição`, {
+      informado: tel.replace(/\D/g, ''),
+      usado: resolvido.numero,
+      fonte: resolvido.fonte,
+      cliente_falou: ctx.lastClientSpeech,
+    });
+  }
+
+  ctx.celularWhatsApp = resolvido.numero;
+  return { numero: resolvido.numero };
 }
 
 interface EnvioWhatsappParams {
@@ -418,7 +433,7 @@ async function enviarWhatsappAtendimento(
   }
 
   const fatura = params.fatura ?? ctx.faturaWhatsApp;
-  const enviado = await whatsapp.enviarResumoAtendimento(destino.numero, {
+  const resultado = await whatsapp.enviarResumoAtendimento(destino.numero, {
     clienteNome: ctx.cliente.nome,
     resumoAtendimento: resumo,
     respostaCliente: resposta,
@@ -426,7 +441,10 @@ async function enviarWhatsappAtendimento(
     fatura,
   });
 
-  return { enviado, motivo: enviado ? undefined : 'falha_api_whatsapp' };
+  return {
+    enviado: resultado.enviado,
+    motivo: resultado.motivo ?? (resultado.enviado ? undefined : 'falha_api_whatsapp'),
+  };
 }
 
 /** Bloqueia ferramentas sensíveis até o titular confirmar identidade (fluxo CPF). */
@@ -983,11 +1001,17 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const msgWhatsapp = wppMotivo === 'celular_nao_informado'
       ? `${msgBase} Pergunte ao cliente qual celular com WhatsApp usar e tente de novo.`
-      : wppMotivo === 'resumo_ou_resposta_ausente'
-        ? `${msgBase} Inclua resumo_atendimento e resposta_cliente na tool.`
-        : wppMotivo === 'falha_api_whatsapp'
-          ? `${msgBase} Falha ao enviar WhatsApp — informe o PIX verbalmente ou tente de novo.`
-          : msgBase;
+      : wppMotivo === 'celular_invalido'
+        ? `${msgBase} O número informado não é celular válido. Peça o DDD e os 9 dígitos, confirmando um a um.`
+        : wppMotivo === 'numero_sem_whatsapp'
+          ? `${msgBase} O número informado não tem WhatsApp. Confirme o celular dígito a dígito com o cliente e tente de novo. NÃO leia PIX, linha digitável ou link em voz alta.`
+          : wppMotivo === 'resumo_ou_resposta_ausente'
+            ? `${msgBase} Inclua resumo_atendimento e resposta_cliente na tool.`
+            : wppMotivo === 'falha_api_whatsapp' || wppMotivo === 'falha_api' || wppMotivo === 'erro_rede' || wppMotivo === 'nao_configurado'
+              ? `${msgBase} Não foi possível enviar o WhatsApp agora. Peça outro número ou oriente pagar pelo app do banco. NÃO leia PIX, linha digitável ou link em voz alta.`
+              : msgBase;
+
+    const omitirDadosSensiveis = enviarWpp && !wppEnviado;
 
     return {
       sucesso: true,
@@ -995,9 +1019,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       valor: valorFmt,
       valor_falado: valorPorExtenso(linkObj.valor),
       vencimento: linkObj.vencimento,
-      pix_copia_cola: pixCola || null,
-      link_boleto: linkBoleto,
-      linha_digitavel: linhaDigitavel,
+      pix_copia_cola: omitirDadosSensiveis ? null : (pixCola || null),
+      link_boleto: omitirDadosSensiveis ? null : linkBoleto,
+      linha_digitavel: omitirDadosSensiveis ? null : linhaDigitavel,
       whatsapp_enviado: wppEnviado,
       whatsapp_motivo: wppMotivo ?? null,
       mensagem: msgWhatsapp,
@@ -1475,7 +1499,8 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     let enviado = false;
     if (config.whatsapp.salesGroupId) {
-      enviado = await whatsapp.enviarGrupo(config.whatsapp.salesGroupId, linhas);
+      const resultado = await whatsapp.enviarGrupo(config.whatsapp.salesGroupId, linhas);
+      enviado = resultado.enviado;
     }
 
     ctx.log.push(`Interesse registrado: ${nome} — ${endereco}`);

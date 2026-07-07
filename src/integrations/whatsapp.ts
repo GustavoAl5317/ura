@@ -1,6 +1,17 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
+
+export type WhatsappMotivo =
+  | 'nao_configurado'
+  | 'numero_sem_whatsapp'
+  | 'falha_api'
+  | 'erro_rede';
+
+export interface WhatsappSendResult {
+  enviado: boolean;
+  motivo?: WhatsappMotivo;
+}
 
 export class WhatsAppClient {
   private http: AxiosInstance | null = null;
@@ -36,66 +47,50 @@ export class WhatsAppClient {
     return !!(config.whatsapp.apiUrl && config.whatsapp.instance && config.whatsapp.apiKey);
   }
 
-  // Evolution API varia por versão. Tentamos formatos compatíveis sem trocar em erro 500
-  // (500 costuma ser instância/desconexão — trocar o payload piora e mascara a causa).
-  private async postSendText(number: string, text: string): Promise<void> {
-    const path = `/message/sendText/${config.whatsapp.instance}`;
-    const modern = { 
-      number, 
-      text
-    };
-    const classic = {
-      number,
-      textMessage: { text },
-      options: { delay: 1000, presence: 'composing' as const },
-    };
-
-    try {
-      await this.client.post(path, modern);
-      return;
-    } catch (errModern: any) {
-      const status = errModern.response?.status;
-      const body = JSON.stringify(errModern.response?.data ?? '');
-
-      if (status === 500) {
-        logger.warn('WhatsApp: erro 500 (Evolution). Não retentando para evitar duplicação.', { number });
-        throw errModern;
-      }
-
-      // 400 por schema — tenta formato clássico só se não exigir "text" na raiz
-      if ((status === 400 || status === 422) && !body.includes('requires property "text"')) {
-        logger.info('WhatsApp: formato moderno falhou, tentando formato clássico', { status, bodyModern: body });
-        await this.client.post(path, classic);
-        return;
-      }
-
-      throw errModern;
+  private parseSendError(err: unknown): { motivo: WhatsappMotivo; status?: number; body: string } {
+    const ax = err as AxiosError;
+    const status = ax.response?.status;
+    const body = JSON.stringify(ax.response?.data ?? '');
+    if (body.includes('"exists":false') || body.includes('exists":false')) {
+      return { motivo: 'numero_sem_whatsapp', status, body };
     }
+    if (status && status >= 400 && status < 500) {
+      return { motivo: 'falha_api', status, body };
+    }
+    return { motivo: 'erro_rede', status, body };
   }
 
-  async enviarTexto(para: string, mensagem: string): Promise<boolean> {
+  private async postSendText(number: string, text: string): Promise<void> {
+    const path = `/message/sendText/${config.whatsapp.instance}`;
+    await this.client.post(path, { number, text });
+  }
+
+  async enviarTexto(para: string, mensagem: string): Promise<WhatsappSendResult> {
     if (!this.available) {
       logger.error('WhatsApp não configurado', {
         temApiUrl: !!config.whatsapp.apiUrl,
         temInstance: !!config.whatsapp.instance,
         temApiKey: !!config.whatsapp.apiKey,
       });
-      return false;
+      return { enviado: false, motivo: 'nao_configurado' };
     }
     const numero = this.normalize(para);
     try {
       await this.postSendText(numero, mensagem);
       logger.info('WhatsApp enviado', { para: numero });
-      return true;
-    } catch (err: any) {
+      return { enviado: true };
+    } catch (err: unknown) {
+      const { motivo, status, body } = this.parseSendError(err);
+      const ax = err as AxiosError;
       logger.error('WhatsApp erro', {
         para: numero,
+        motivo,
         url: `${config.whatsapp.apiUrl}/message/sendText/${config.whatsapp.instance}`,
-        status: err.response?.status,
-        body: JSON.stringify(err.response?.data)?.slice(0, 300),
-        err: err.message,
+        status,
+        body: body.slice(0, 300),
+        err: ax.message,
       });
-      return false;
+      return { enviado: false, motivo };
     }
   }
 
@@ -161,32 +156,35 @@ export class WhatsAppClient {
       linkBoleto?: string | null;
       linhaDigitavel?: string | null;
     };
-  }): Promise<boolean> {
+  }): Promise<WhatsappSendResult> {
     const mensagem = this.montarMensagemAtendimento(params);
     return this.enviarTexto(para, mensagem);
   }
 
-  async enviarGrupo(grupoId: string, mensagem: string): Promise<boolean> {
+  async enviarGrupo(grupoId: string, mensagem: string): Promise<WhatsappSendResult> {
     if (!this.available) {
       logger.error('WhatsApp não configurado (grupo)', {
         temApiUrl: !!config.whatsapp.apiUrl,
         temInstance: !!config.whatsapp.instance,
         temApiKey: !!config.whatsapp.apiKey,
       });
-      return false;
+      return { enviado: false, motivo: 'nao_configurado' };
     }
     try {
       const formattedGrupo = grupoId.includes('@g.us') ? grupoId : `${grupoId}@g.us`;
       await this.postSendText(formattedGrupo, mensagem);
-      return true;
-    } catch (err: any) {
+      return { enviado: true };
+    } catch (err: unknown) {
+      const { motivo, status, body } = this.parseSendError(err);
+      const ax = err as AxiosError;
       logger.error('WhatsApp grupo erro', {
         grupoId,
-        status: err.response?.status,
-        body: JSON.stringify(err.response?.data)?.slice(0, 300),
-        err: err.message,
+        motivo,
+        status,
+        body: body.slice(0, 300),
+        err: ax.message,
       });
-      return false;
+      return { enviado: false, motivo };
     }
   }
 }
