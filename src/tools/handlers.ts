@@ -1498,34 +1498,66 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   });
 
   client.registerTool('registrar_interesse', async (args) => {
-    const nome = String(args.nome ?? '').trim();
+    const tipoInteresse = args.tipo_interesse ? String(args.tipo_interesse) : '';
+    const nomeArg = String(args.nome ?? '').trim();
+    const nome = nomeArg || (tipoInteresse === 'mudanca_endereco' ? ctx.cliente?.nome?.trim() : '') || '';
     const email = args.email ? String(args.email).trim() : null;
-    const endereco = String(args.endereco ?? ctx.enderecoConsultado ?? '').trim();
+    const enderecoNovo = String(args.endereco ?? ctx.enderecoConsultado ?? '').trim();
     const plano = args.plano_interesse ? String(args.plano_interesse).trim() : null;
     const horario = args.melhor_horario ? String(args.melhor_horario) : null;
-    // Celular informado pelo cliente tem prioridade; se não informar, usa o número da chamada.
-    const celularInformado = args.celular ? String(args.celular).replace(/\D/g, '') : '';
-    const telefone = celularInformado || ctx.callerNumber || null;
 
-    if (!nome || !endereco) {
-      return { sucesso: false, mensagem: 'Nome e endereço são obrigatórios.' };
+    const celularResolvido = args.celular
+      ? resolveCelularInformado(String(args.celular), ctx.lastClientSpeech)
+      : null;
+    const telefone =
+      celularResolvido?.numero ||
+      ctx.celularWhatsApp ||
+      (args.celular ? String(args.celular).replace(/\D/g, '') : '') ||
+      ctx.callerNumber ||
+      null;
+
+    if (!nome || !enderecoNovo) {
+      return {
+        sucesso: false,
+        mensagem:
+          tipoInteresse === 'mudanca_endereco'
+            ? 'Identifique o cliente por CPF, consulte financeiro e viabilidade no novo endereço. Celular com DDD é obrigatório.'
+            : 'Nome e endereço são obrigatórios.',
+      };
+    }
+
+    if ((tipoInteresse === 'nova_assinatura' || tipoInteresse === 'mudanca_endereco') && !telefone) {
+      return {
+        sucesso: false,
+        mensagem: 'Celular com DDD é obrigatório. Pergunte ao cliente e confirme dígito a dígito.',
+      };
     }
 
     const agora = new Date().toLocaleString('pt-BR', { timeZone: config.tz });
     const temCobertura = !!plano && !args.endereco?.toString().includes('sem cobertura');
-    
+    const contratoId = ctx.cliente?.contratoId;
+    const enderecoAtual = ctx.cliente ? formatarEndereco(ctx.cliente.endereco) : null;
+
     let titulo = `🔔 *Interesse de Cobertura*`;
-    if (args.tipo_interesse === 'nova_assinatura') titulo = `🛒 *Interesse em Contratação*`;
-    else if (args.tipo_interesse === 'mudanca_endereco') titulo = `🏠 *Mudança de Endereço*`;
+    if (tipoInteresse === 'nova_assinatura') titulo = `🛒 *Interesse em Contratação*`;
+    else if (tipoInteresse === 'mudanca_endereco') titulo = `🏠 *Mudança de Endereço*`;
     else if (plano) titulo = `🛒 *Interesse em Contratação*`;
 
     const linhas = [
       titulo,
       ``,
       `👤 *Nome:* ${nome}`,
+      tipoInteresse === 'mudanca_endereco' && contratoId
+        ? `📋 *Contrato:* ${contratoId}`
+        : null,
       telefone ? `📱 *Telefone:* ${telefone}` : null,
       email ? `📧 *E-mail:* ${email}` : null,
-      `📍 *Endereço:* ${endereco}`,
+      tipoInteresse === 'mudanca_endereco' && enderecoAtual
+        ? `🏠 *Endereço atual:* ${enderecoAtual}`
+        : null,
+      tipoInteresse === 'mudanca_endereco'
+        ? `📍 *Novo endereço:* ${enderecoNovo}`
+        : `📍 *Endereço:* ${enderecoNovo}`,
       plano ? `📦 *Plano de interesse:* ${plano}` : null,
       horario ? `🕐 *Melhor horário:* ${horario}` : null,
       ``,
@@ -1538,13 +1570,21 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       enviado = resultado.enviado;
     }
 
-    ctx.log.push(`Interesse registrado: ${nome} — ${endereco}`);
-    logger.info(`[${ctx.callId}] Interesse cobertura registrado: ${nome}`, { endereco, enviado });
+    ctx.log.push(`Interesse registrado: ${nome} — ${enderecoNovo}`);
+    logger.info(`[${ctx.callId}] Interesse registrado: ${nome}`, {
+      tipo: tipoInteresse,
+      endereco: enderecoNovo,
+      contratoId,
+      enviado,
+    });
 
     return {
       sucesso: true,
       whatsapp_enviado: enviado,
-      mensagem: `Interesse registrado com sucesso para ${nome}.`,
+      mensagem:
+        tipoInteresse === 'mudanca_endereco'
+          ? `Solicitação de mudança registrada para ${nome}${contratoId ? ` (contrato ${contratoId})` : ''}. A equipe entrará em contato.`
+          : `Interesse registrado com sucesso para ${nome}.`,
     };
   });
 

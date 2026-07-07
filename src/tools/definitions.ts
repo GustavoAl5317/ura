@@ -284,16 +284,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'registrar_interesse',
     description:
-      'Registra o interesse do cliente. Use APÓS perguntar e coletar o nome e o celular do cliente. Nunca chame esta ferramenta com nome vazio, você DEVE perguntar o nome antes.',
+      'Registra interesse do cliente no grupo de vendas via WhatsApp. Para mudanca_endereco: use APÓS CPF, consultar_financeiro e verificar_viabilidade no novo endereço.',
     parameters: {
       type: 'object',
       properties: {
         tipo_interesse: {
           type: 'string',
           enum: ['nova_assinatura', 'mudanca_endereco', 'interesse_cobertura'],
-          description: 'O tipo da solicitação do cliente',
+          description: 'Tipo da solicitação. mudanca_endereco = cliente cadastrado quer mudar de endereço.',
         },
-        nome: { type: 'string', description: 'Nome completo do interessado (Obrigatório! Pergunte antes de chamar)' },
+        nome: {
+          type: 'string',
+          description:
+            'Nome completo. Para mudanca_endereco com cliente já identificado, pode omitir — usa o cadastro.',
+        },
         celular: {
           type: 'string',
           description:
@@ -302,7 +306,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         email: { type: 'string', description: 'E-mail do interessado (opcional, não insistir se não tiver)' },
         endereco: {
           type: 'string',
-          description: 'Endereço consultado no formato "Rua X, 123, Bairro, Cidade/UF, CEP"',
+          description:
+            'Endereço consultado. Para mudanca_endereco: o NOVO endereço (onde o cliente quer mudar).',
         },
         plano_interesse: {
           type: 'string',
@@ -313,7 +318,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'Melhor horário para contato (ex: manhã, tarde, noite)',
         },
       },
-      required: ['nome', 'endereco'],
+      required: ['endereco'],
     },
   },
   {
