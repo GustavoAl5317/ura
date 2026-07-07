@@ -6,6 +6,27 @@ import type { RealtimeEvent, ToolDefinition, RealtimeSessionConfig, TurnDetectio
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
+type TranscriptionConfig = {
+  model: string;
+  language?: string;
+  delay?: string;
+  prompt?: string;
+};
+
+function buildTranscriptionCfg(): TranscriptionConfig {
+  const model = config.openai.transcriptionModel;
+  const cfg: TranscriptionConfig = { model };
+  if (model === 'gpt-realtime-whisper') {
+    cfg.language = 'pt';
+    cfg.delay = config.openai.transcriptionDelay;
+  } else if (!config.openai.realtimeModel.startsWith('gpt-realtime')) {
+    cfg.language = 'pt';
+    cfg.prompt =
+      'O cliente está falando em português do Brasil. Ele vai dizer números como CPF, telefone, e responder perguntas.';
+  }
+  return cfg;
+}
+
 export class RealtimeClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private tools = new Map<string, ToolHandler>();
@@ -91,10 +112,7 @@ export class RealtimeClient extends EventEmitter {
             ...turnFlags,
           };
 
-    const transcriptionCfg = {
-      model: config.openai.transcriptionModel,
-      language: 'pt' as const,
-    };
+    const transcriptionCfg = buildTranscriptionCfg();
 
     const sessionCfg: RealtimeSessionConfig = isNewSchema
       ? {
@@ -370,11 +388,8 @@ export class RealtimeClient extends EventEmitter {
       case 'session.updated':
         if (!this.transcriptionReinforced) {
           this.transcriptionReinforced = true;
-          const reinforceCfg = {
-            model: config.openai.transcriptionModel,
-            language: 'pt' as const,
-          };
-          logger.info(`[${this.callId}] Reforçando transcrição (${config.openai.transcriptionModel})`);
+          const reinforceCfg = buildTranscriptionCfg();
+          logger.info(`[${this.callId}] Reforçando transcrição (${reinforceCfg.model})`);
           this.send({
             type: 'session.update',
             session: this.useNewSchema
@@ -429,10 +444,16 @@ export class RealtimeClient extends EventEmitter {
         }
         break;
 
-      case 'conversation.item.input_audio_transcription.failed':
-        logger.warn(`[${this.callId}] 👤 Transcrição do cliente FALHOU`);
+      case 'conversation.item.input_audio_transcription.failed': {
+        const err = (event as { error?: { type?: string; message?: string } }).error;
+        logger.warn(`[${this.callId}] 👤 Transcrição do cliente FALHOU`, {
+          model: config.openai.transcriptionModel,
+          type: err?.type,
+          message: err?.message,
+        });
         this.emit('transcriptFailed');
         break;
+      }
 
       case 'error':
         logger.error(`[${this.callId}] Realtime error`, event.error);

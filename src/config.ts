@@ -56,7 +56,13 @@ export const config = {
     apiKey: req('OPENAI_API_KEY'),
     realtimeModel: opt('REALTIME_MODEL', 'gpt-realtime-2025-08-28'),
     realtimeSchema: opt('OPENAI_REALTIME_SCHEMA', 'ga'),
-    transcriptionModel: opt('OPENAI_TRANSCRIPTION_MODEL', 'gpt-4o-mini-transcribe'),
+    transcriptionModel: opt('OPENAI_TRANSCRIPTION_MODEL', 'gpt-realtime-whisper'),
+    transcriptionDelay: opt('OPENAI_TRANSCRIPTION_DELAY', 'low') as
+      | 'minimal'
+      | 'low'
+      | 'medium'
+      | 'high'
+      | 'xhigh',
     voice: opt('OPENAI_VOICE', 'shimmer'),
     temperature: optFloat('TEMPERATURE', 0.65),
     maxTokens: optInt('MAX_TOKENS', 768),
