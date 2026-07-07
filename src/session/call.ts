@@ -18,6 +18,7 @@ import { logger } from '../logger';
 import { getWaitSound } from '../audio/wait-sound';
 import { sessionRegistry } from '../admin/registry';
 import { saveCallHistory } from '../admin/history';
+import { parseCpfFromSpeech } from '../utils/spokenNumbers';
 
 const SILENCE_WARN_MS  = 12_000;
 const RESPONSE_STALL_MS = 12_000;
@@ -425,6 +426,22 @@ export class CallSession {
       this.ctx.lastClientSpeech = text;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
+
+      const cpfExtraido = parseCpfFromSpeech(text);
+      if (cpfExtraido) {
+        const g1 = cpfExtraido.slice(0, 3);
+        const g2 = cpfExtraido.slice(3, 6);
+        const g3 = cpfExtraido.slice(6, 9);
+        const g4 = cpfExtraido.slice(9, 11);
+        logger.info(`[${callId}] CPF extraído da fala: ${cpfExtraido}`);
+        this.rt.appendContextNote(
+          `CPF extraído automaticamente da fala do cliente: ${cpfExtraido} ` +
+            `(grupos ${g1}, ${g2}, ${g3}, ${g4}). ` +
+            `Ao confirmar, repita EXATAMENTE como o cliente falou: "${text}". ` +
+            `PROIBIDO inventar outros dígitos ou converter errado para dígito a dígito. ` +
+            `Ao chamar buscar_cliente_por_cpf, use somente "${cpfExtraido}".`,
+        );
+      }
 
       // Não cria fallback se:
       // 1) Timer do speechStop já ativo (caminho rápido)

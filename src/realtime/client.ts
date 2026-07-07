@@ -199,6 +199,18 @@ export class RealtimeClient extends EventEmitter {
     this.createResponse(true, "Responda adequadamente à instrução do sistema que acabou de ser enviada. Fale com o cliente de forma natural.");
   }
 
+  /** Injeta contexto sem disparar resposta — usado antes do speechStop gerar a fala. */
+  appendContextNote(text: string): void {
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: `[CONTEXTO DO SISTEMA]\n${text}` }],
+      },
+    });
+  }
+
   createResponse(force = false, instructions?: string): boolean {
     if (!force && (this.responseActive || this.responsePending)) {
       logger.warn(`[${this.callId}] createResponse bloqueado (active=${this.responseActive}, pending=${this.responsePending})`);

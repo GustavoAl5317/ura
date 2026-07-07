@@ -449,6 +449,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M11 9h2M12 8v2"></path></svg>
         Avisos da IA
       </a>
+      <a class="nav-item" onclick="switchTab('farewells', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
+        Despedidas
+      </a>
     </nav>
   </aside>
 
@@ -718,6 +722,23 @@
       <div id="events-container" style="display: grid; gap: 1.5rem; max-width: 900px; margin: 0 auto;"></div>
     </div>
 
+    <!-- ═══════════ TAB: DESPEDIDAS ═══════════ -->
+    <div id="tab-farewells" class="page">
+      <div style="max-width: 900px; margin: 0 auto;">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
+            Configure a frase de agradecimento que a IA fala ao encerrar, para cada tipo de atendimento.
+            A IA escolhe a frase conforme o assunto (venda, suporte, financeiro) e usa a <strong>Geral</strong> quando nenhuma se encaixa.
+            Você pode usar as tags <code>{empresa}</code> (nome da empresa) e <code>{saudacao}</code> (vira "um ótimo dia", "uma ótima tarde" ou "uma ótima noite" conforme o horário).
+          </p>
+        </div>
+        <div id="farewells-container" style="display: grid; gap: 1.25rem;"></div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+          <button class="btn btn-primary" onclick="saveFarewells()">Salvar Despedidas</button>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Modals -->
@@ -809,7 +830,7 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       if (el) el.classList.add('active');
       
-      const titles = { 'dashboard': 'Monitor ao Vivo', 'history': 'Histórico de Chamadas', 'openai': 'Centro OpenAI', 'alerts': 'Alertas do Sistema', 'events': 'Avisos da IA' };
+      const titles = { 'dashboard': 'Monitor ao Vivo', 'history': 'Histórico de Chamadas', 'openai': 'Centro OpenAI', 'alerts': 'Alertas do Sistema', 'events': 'Avisos da IA', 'farewells': 'Despedidas' };
       document.getElementById('page-title').textContent = titles[tabId];
       
       if (window.innerWidth <= 768) toggleSidebar();
@@ -818,6 +839,7 @@
       if (tabId === 'openai') { loadOpenAiCenter(); loadAudit(); }
       if (tabId === 'alerts') loadAlerts();
       if (tabId === 'events') loadEvent();
+      if (tabId === 'farewells') loadFarewells();
     }
 
     function showToast(msg) {
@@ -1406,6 +1428,50 @@
       globalEvents = globalEvents.filter(e => e.id !== id);
       await api('/api/events', { method: 'POST', body: JSON.stringify({ events: globalEvents }) });
       loadEvent();
+    }
+
+    let globalFarewells = [];
+
+    function renderFarewells() {
+      const container = document.getElementById('farewells-container');
+      if (!globalFarewells || globalFarewells.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhuma despedida configurada.</div>';
+        return;
+      }
+      container.innerHTML = globalFarewells.map(f => `
+        <div class="card" style="border-left: 4px solid ${f.enabled ? 'var(--ok)' : 'var(--text-muted)'};">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.75rem;">
+            <label class="form-label" style="margin:0; font-size: 1rem;">${escapeHtml(f.label)}</label>
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; color: var(--text-muted); font-size: 0.85rem;">
+              <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleFarewell('${f.id}', this.checked)" style="width: 18px; height: 18px;" />
+              Ativa
+            </label>
+          </div>
+          <textarea class="form-control" style="min-height: 80px; resize: vertical;" onchange="updateFarewellText('${f.id}', this.value)" placeholder="Ex: A {empresa} agradece por nos escolher! Tenha {saudacao}!">${escapeHtml(f.message)}</textarea>
+        </div>
+      `).join('');
+    }
+
+    async function loadFarewells() {
+      const data = await api('/api/farewells');
+      globalFarewells = data.farewells || [];
+      renderFarewells();
+    }
+
+    function updateFarewellText(id, value) {
+      const f = globalFarewells.find(x => x.id === id);
+      if (f) f.message = value;
+    }
+
+    function toggleFarewell(id, checked) {
+      const f = globalFarewells.find(x => x.id === id);
+      if (f) f.enabled = checked;
+    }
+
+    async function saveFarewells() {
+      await api('/api/farewells', { method: 'POST', body: JSON.stringify({ farewells: globalFarewells }) });
+      loadFarewells();
+      showToast('Despedidas salvas!');
     }
 
     async function editarPrepaid() {

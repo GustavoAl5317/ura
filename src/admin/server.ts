@@ -10,6 +10,7 @@ import { listAlerts, markAlertRead } from './alerts';
 import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor, getAuditHistory } from './openai-audit-monitor';
 import { getOpenAiSnapshot, refreshOpenAiUsage, startOpenAiMonitor } from './openai-monitor';
 import { getAllEvents, setEvents, UraEvent } from './events';
+import { getAllFarewells, setFarewells, Farewell } from './farewells';
 
 const PANEL_DIR = path.join(process.cwd(), 'panel');
 
@@ -138,6 +139,16 @@ export function startAdminServer(): void {
       const body = JSON.parse(await readBody(req)) as { events?: UraEvent[] };
       setEvents(body.events || []);
       return json(res, 200, { ok: true, events: getAllEvents() });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/farewells') {
+      return json(res, 200, { farewells: getAllFarewells() });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/farewells') {
+      const body = JSON.parse(await readBody(req)) as { farewells?: Farewell[] };
+      const saved = setFarewells(body.farewells || []);
+      return json(res, 200, { ok: true, farewells: saved });
     }
 
     if (req.method === 'GET' && pathname === '/api/openai/audit/history') {

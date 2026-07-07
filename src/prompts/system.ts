@@ -2,6 +2,7 @@ import { config } from '../config';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
+import { buildFarewellPromptBlock } from '../admin/farewells';
 
 export function buildSystemPrompt(ctx: CallContext): string {
   const h = new Date().getHours();
@@ -17,6 +18,8 @@ export function buildSystemPrompt(ctx: CallContext): string {
   const artigo = isMale ? 'o' : 'a';
   const genero = isMale ? 'masculino' : 'feminino';
   const apresentacao = `${saudacaoInicial} Aqui é ${artigo} ${agente} da ${empresa}, tudo bem com você?`;
+  const saudacaoFinal = h < 12 ? 'um ótimo dia' : h < 18 ? 'uma ótima tarde' : 'uma ótima noite';
+  const despedidas = buildFarewellPromptBlock(empresa, saudacaoFinal);
 
   const activeEvents = getActiveEvents();
   const eventoTexto = activeEvents.length > 0
@@ -419,7 +422,8 @@ NÃO transfira (resolva você mesma) quando:
 
 ═══ ENCERRAMENTO ════════════════════════════════════════════════════
 • Sempre pergunte: "Posso te ajudar em mais alguma coisa?"
-• Despedida (OBRIGATÓRIO): "Agradecemos o contato, a empresa ${empresa} deseja um ótimo ${h < 12 ? 'dia' : h < 18 ? 'dia' : 'fim de noite'}!"
+• DESPEDIDA (OBRIGATÓRIO) — escolha a frase conforme o tipo de atendimento e fale-a como está escrita (pode acrescentar o nome do cliente no começo):
+${despedidas}
 • Após confirmar titular ou abrir consulta: NUNCA encerre por silêncio se estiver aguardando o sistema.
 • Se o sistema avisar sobre silêncio, e você estiver aguardando resposta do cliente, pergunte: "Alô, está me ouvindo?". Se não houver resposta após isso, use encerrar_atendimento.
 

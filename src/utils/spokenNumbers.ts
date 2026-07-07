@@ -45,6 +45,30 @@ const TWO_DIGIT_WORD: Record<string, string> = {
   dezenove: '19',
 };
 
+const HUNDREDS: Record<string, number> = {
+  cem: 100,
+  cento: 100,
+  duzentos: 200,
+  trezentos: 300,
+  quatrocentos: 400,
+  quinhentos: 500,
+  seiscentos: 600,
+  setecentos: 700,
+  oitocentos: 800,
+  novecentos: 900,
+};
+
+const TENS: Record<string, number> = {
+  vinte: 20,
+  trinta: 30,
+  quarenta: 40,
+  cinquenta: 50,
+  sessenta: 60,
+  setenta: 70,
+  oitenta: 80,
+  noventa: 90,
+};
+
 function normalizeToken(tok: string): string {
   return tok
     .normalize('NFD')
@@ -135,6 +159,204 @@ function looksLikePhoneDictation(text: string): boolean {
     /\b(onze|doze|treze|quatorze|quinze|dezesseis|dezessete|dezoito|dezenove|trinta)\b/.test(t) ||
     digitsFromSpoken(text).length >= 10
   );
+}
+
+function tokenizeSpeech(text: string): string[] {
+  return applyPhoneSttFixes(text)
+    .replace(/[,.-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(normalizeToken);
+}
+
+function collectDigitRun(
+  tokens: string[],
+  start: number,
+  maxLen: number,
+): { digits: string; end: number } | null {
+  let i = start;
+  let out = '';
+  while (i < tokens.length && out.length < maxLen) {
+    const tok = tokens[i]!;
+    if (tok === 'e' && out.length > 0) {
+      i += 1;
+      continue;
+    }
+    if (DIGIT_WORD[tok]) {
+      out += DIGIT_WORD[tok];
+      i += 1;
+      continue;
+    }
+    if (/^\d+$/.test(tok)) {
+      out += tok.slice(0, maxLen - out.length);
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  return out ? { digits: out, end: i } : null;
+}
+
+function parseTensAndUnits(tokens: string[], start: number): { value: number; end: number } | null {
+  let i = start;
+  let value = 0;
+  const startI = i;
+
+  if (i < tokens.length && TENS[tokens[i]!] !== undefined) {
+    value += TENS[tokens[i]!]!;
+    i += 1;
+  }
+
+  if (i < tokens.length && tokens[i]! === 'e') i += 1;
+
+  if (i < tokens.length && TWO_DIGIT_WORD[tokens[i]!]) {
+    value += parseInt(TWO_DIGIT_WORD[tokens[i]!]!, 10);
+    i += 1;
+  } else if (i < tokens.length && DIGIT_WORD[tokens[i]!]) {
+    value += parseInt(DIGIT_WORD[tokens[i]!]!, 10);
+    i += 1;
+  }
+
+  if (i === startI) return null;
+  return { value, end: i };
+}
+
+function parseOneCpfGroup(
+  tokens: string[],
+  start: number,
+  maxDigits: number,
+): { digits: string; end: number } | null {
+  if (maxDigits === 2) {
+    const run = collectDigitRun(tokens, start, 2);
+    if (run) {
+      return { digits: run.digits.padStart(2, '0').slice(-2), end: run.end };
+    }
+    const small = parseTensAndUnits(tokens, start);
+    if (small) {
+      return { digits: String(small.value).padStart(2, '0').slice(-2), end: small.end };
+    }
+    return null;
+  }
+
+  let i = start;
+  let value = 0;
+  const startI = i;
+
+  if (i < tokens.length && HUNDREDS[tokens[i]!] !== undefined) {
+    value += HUNDREDS[tokens[i]!]!;
+    i += 1;
+  }
+
+  if (i < tokens.length && tokens[i]! === 'e') i += 1;
+
+  const rest = parseTensAndUnits(tokens, i);
+  if (rest) {
+    value += rest.value;
+    i = rest.end;
+  } else if (i === startI) {
+    const run = collectDigitRun(tokens, start, 3);
+    if (run) {
+      return { digits: run.digits.padStart(3, '0').slice(-3), end: run.end };
+    }
+    return null;
+  }
+
+  if (i === startI) return null;
+  return { digits: String(value).padStart(3, '0').slice(-3), end: i };
+}
+
+/** Extrai CPF (11 dígitos) de fala agrupada (ex.: "oitocentos... sessenta e nove...") ou dígito a dígito. */
+export function parseCpfFromSpeech(text: string): string | null {
+  if (!text?.trim()) return null;
+
+  const hasGrouped =
+    /\b(oitocentos|novecentos|seiscentos|setecentos|duzentos|trezentos|quatrocentos|quinhentos|cento|cem)\b/i.test(
+      text,
+    );
+
+  const tryGrouped = (): string | null => {
+    const tokens = tokenizeSpeech(text);
+    const groups: string[] = [];
+    let i = 0;
+
+    while (i < tokens.length && groups.length < 4) {
+      const isLast = groups.length === 3;
+      const parsed = parseOneCpfGroup(tokens, i, isLast ? 2 : 3);
+      if (!parsed) break;
+      groups.push(parsed.digits);
+      i = parsed.end;
+    }
+
+    if (groups.length === 4) {
+      const cpf = groups.join('');
+      return cpf.length === 11 ? cpf : null;
+    }
+    return null;
+  };
+
+  const acceptDigitCpf = (digits: string): string | null => {
+    if (digits.length !== 11) return null;
+    if (isCelularBrDigits(digits) && looksLikePhoneDictation(text)) return null;
+    return digits;
+  };
+
+  const looksLikePhoneDdd = /\b(onze|doze|treze|quatorze|quinze|dezesseis|dezessete|dezoito|dezenove)\b/i.test(
+    text,
+  );
+
+  if (hasGrouped) {
+    const grouped = tryGrouped();
+    if (grouped) return grouped;
+  }
+
+  if (!hasGrouped && looksLikePhoneDdd) return null;
+
+  const tokens = tokenizeSpeech(text);
+  const digitRun = collectDigitRun(tokens, 0, 11);
+  const fromDigits = acceptDigitCpf(digitRun?.digits ?? '');
+  if (fromDigits) return fromDigits;
+
+  if (!hasGrouped) {
+    const grouped = tryGrouped();
+    if (grouped) return grouped;
+  }
+
+  return acceptDigitCpf(digitsFromSpoken(text));
+}
+
+export function looksLikeCpfDictation(text: string): boolean {
+  if (looksLikePhoneDictation(text) && parseCelularFromSpeech(text)) return false;
+  const t = text.toLowerCase();
+  if (
+    /\b(oitocentos|novecentos|seiscentos|setecentos|duzentos|trezentos|quatrocentos|quinhentos|cento|cem)\b/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  const d = digitsFromSpoken(text);
+  return d.length >= 9 && d.length <= 11;
+}
+
+/** Normaliza CPF informado pelo modelo, com fallback na última fala do cliente. */
+export function resolveCpfInformado(
+  informado: string,
+  ultimaFala?: string,
+): { cpf: string | null; fonte?: 'informado' | 'fala' | 'corrigido' } {
+  const digitosInformado = informado.replace(/\D/g, '');
+  const daFala = ultimaFala ? parseCpfFromSpeech(ultimaFala) : null;
+
+  if (
+    digitosInformado.length === 11 &&
+    daFala &&
+    daFala !== digitosInformado &&
+    looksLikeCpfDictation(ultimaFala!)
+  ) {
+    return { cpf: daFala, fonte: 'corrigido' };
+  }
+  if (digitosInformado.length === 11) return { cpf: digitosInformado, fonte: 'informado' };
+  if (daFala) return { cpf: daFala, fonte: 'fala' };
+  return { cpf: null };
 }
 
 /** Normaliza celular informado pelo modelo, com fallback na última fala do cliente. */

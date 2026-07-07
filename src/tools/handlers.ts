@@ -2,7 +2,7 @@ import { sgp, formatarEndereco } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
-import { resolveCelularInformado } from '../utils/spokenNumbers';
+import { resolveCelularInformado, resolveCpfInformado } from '../utils/spokenNumbers';
 import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/address';
 import { config } from '../config';
 import { logger } from '../logger';
@@ -622,7 +622,16 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
   // ── Identificação ─────────────────────────────────────────────────────────
 
   client.registerTool('buscar_cliente_por_cpf', async (args) => {
-    const digitos = cpfDigitos(String(args.cpf ?? ''));
+    const informado = String(args.cpf ?? '');
+    const resolvido = resolveCpfInformado(informado, ctx.lastClientSpeech);
+    const digitos = resolvido.cpf ?? cpfDigitos(informado);
+
+    if (resolvido.fonte === 'corrigido') {
+      logger.info(`[${ctx.callId}] CPF corrigido pela fala do cliente`, {
+        informado: cpfDigitos(informado),
+        corrigido: digitos,
+      });
+    }
     if (digitos.length !== 11) {
       return {
         encontrado: false,
