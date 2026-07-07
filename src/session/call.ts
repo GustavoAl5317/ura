@@ -407,6 +407,19 @@ export class CallSession {
       this.scheduleUserResponse(callId);
     });
 
+    this.rt.on('transcriptFailed', () => {
+      if (this.userResponseTimer) {
+        clearTimeout(this.userResponseTimer);
+        this.userResponseTimer = null;
+      }
+      this.rt.injectSystemNote(
+        '[SISTEMA] A transcrição do áudio FALHOU — você NÃO sabe o que o cliente disse. ' +
+        'PROIBIDO dizer "entendi", assumir problema de internet ou pedir CPF. ' +
+        'Diga só: "Desculpa, não consegui ouvir bem. Pode repetir, por favor?"',
+      );
+      this.scheduleUserResponse(callId, 0, 300);
+    });
+
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
       this.ctx.lastClientSpeech = text;

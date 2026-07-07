@@ -18,6 +18,8 @@ export class RealtimeClient extends EventEmitter {
   private toolPreambleHook: ((name: string) => Promise<void>) | null = null;
   private toolChain: Promise<void> = Promise.resolve();
   private responseTextEmitted = false;
+  private useNewSchema = false;
+  private transcriptionReinforced = false;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -52,7 +54,7 @@ export class RealtimeClient extends EventEmitter {
       setTimeout(() => reject(new Error('Realtime WS connect timeout')), 15_000);
     });
 
-    logger.info(`[${callId}] Realtime WebSocket conectado (model=${model})`);
+    logger.info(`[${callId}] Realtime WebSocket conectado (model=${model}, transcription=${config.openai.transcriptionModel})`);
 
     this.responseActive = false;
     this.responsePending = false;
@@ -71,6 +73,8 @@ export class RealtimeClient extends EventEmitter {
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
     const outputModalities: ('text' | 'audio')[] = useAudio ? ['audio'] : ['text'];
     const isNewSchema = model.startsWith('gpt-realtime');
+    this.useNewSchema = isNewSchema;
+    this.transcriptionReinforced = false;
 
     const turnFlags = {
       create_response: false,
@@ -87,6 +91,11 @@ export class RealtimeClient extends EventEmitter {
             ...turnFlags,
           };
 
+    const transcriptionCfg = {
+      model: config.openai.transcriptionModel,
+      language: 'pt' as const,
+    };
+
     const sessionCfg: RealtimeSessionConfig = isNewSchema
       ? {
           type: 'realtime',
@@ -96,7 +105,7 @@ export class RealtimeClient extends EventEmitter {
             input: {
               format: { type: 'audio/pcm', rate: 24000 },
               turn_detection: newTurnDetection,
-              transcription: { model: 'whisper-1' },
+              transcription: transcriptionCfg,
             },
             ...(useAudio
               ? {
@@ -117,11 +126,7 @@ export class RealtimeClient extends EventEmitter {
           voice: config.openai.voice,
           input_audio_format: 'pcm16',
           output_audio_format: 'pcm16',
-          input_audio_transcription: { 
-            model: 'whisper-1',
-            language: 'pt',
-            prompt: 'O cliente está falando em português do Brasil. Ele vai dizer números como CPF, telefone, e responder perguntas. Zero, um, dois, três, quatro, cinco, seis, sete, oito, nove, dez.'
-          },
+          input_audio_transcription: transcriptionCfg,
           turn_detection: config.vad.type === 'semantic_vad'
             ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: false, interrupt_response: config.vad.interruptResponse }
             : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: false, interrupt_response: config.vad.interruptResponse },
@@ -363,6 +368,20 @@ export class RealtimeClient extends EventEmitter {
         break;
 
       case 'session.updated':
+        if (!this.transcriptionReinforced) {
+          this.transcriptionReinforced = true;
+          const reinforceCfg = {
+            model: config.openai.transcriptionModel,
+            language: 'pt' as const,
+          };
+          logger.info(`[${this.callId}] Reforçando transcrição (${config.openai.transcriptionModel})`);
+          this.send({
+            type: 'session.update',
+            session: this.useNewSchema
+              ? { type: 'realtime', audio: { input: { transcription: reinforceCfg } } }
+              : { type: 'realtime', input_audio_transcription: reinforceCfg },
+          });
+        }
         this.emit('sessionReady');
         break;
 
@@ -392,15 +411,17 @@ export class RealtimeClient extends EventEmitter {
 
       case 'conversation.item.input_audio_transcription.completed':
       case 'input_audio_buffer.transcript':
-        logger.info(`[${this.callId}] RAW TRANSCRIPT EVENT: ${JSON.stringify(event)}`);
-        if (event.transcript?.trim()) this.emit('userSpeech', event.transcript.trim());
+        if (event.transcript?.trim()) {
+          logger.info(`[${this.callId}] 👤 Cliente disse: ${event.transcript.trim()}`);
+          this.emit('userSpeech', event.transcript.trim());
+        }
         break;
 
       case 'conversation.item.created':
         if (event.item?.role === 'user' && Array.isArray(event.item?.content)) {
-          logger.info(`[${this.callId}] RAW ITEM.CREATED CONTENT: ${JSON.stringify(event.item.content)}`);
           for (const c of event.item.content) {
             if (c.transcript?.trim()) {
+              logger.info(`[${this.callId}] 👤 Cliente disse: ${c.transcript.trim()}`);
               this.emit('userSpeech', c.transcript.trim());
               break;
             }
@@ -409,7 +430,8 @@ export class RealtimeClient extends EventEmitter {
         break;
 
       case 'conversation.item.input_audio_transcription.failed':
-        logger.warn(`[${this.callId}] TRANSCRIPT FAILED: ${JSON.stringify(event)}`);
+        logger.warn(`[${this.callId}] 👤 Transcrição do cliente FALHOU`);
+        this.emit('transcriptFailed');
         break;
 
       case 'error':
