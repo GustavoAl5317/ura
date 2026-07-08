@@ -5,6 +5,12 @@ import { upsample8to24, downsample24to8 } from '../audio/resampler';
 import { AudioPacer, SLIN_CHUNK_BYTES, writeAudioSocketFrame } from '../audio/pacer';
 import { MicRingBuffer } from '../audio/mic-ring';
 import { synthesize, synthesizeStream } from '../tts/elevenlabs';
+import { synthesizeOpenAi, synthesizeOpenAiStream } from '../tts/openai';
+import {
+  isElevenLabsCircuitOpen,
+  isElevenLabsQuotaOrAuthError,
+  markElevenLabsUnavailable,
+} from '../tts/circuit';
 import { registerTools, buildFinanceiroSpeech } from '../tools/handlers';
 import { createContext } from './context';
 import { assignAgentVoice } from './voice-rotation';
@@ -129,6 +135,7 @@ export class CallSession {
     const agent = assignAgentVoice();
     this.ctx.agentName = agent.name;
     this.ctx.voiceId = agent.voiceId;
+    this.ctx.openaiVoice = agent.openaiVoice;
     this.ctx.agentGender = agent.gender;
     if (reg?.channel) this.ctx.asteriskChannel = reg.channel;
     logger.info(`[${uuid}] Chamada iniciada`, {
@@ -137,6 +144,8 @@ export class CallSession {
       agente: agent.name,
       genero: agent.gender === 'm' ? 'masculino' : 'feminino',
       voiceId: agent.voiceId ? `${agent.voiceId.slice(0, 6)}…` : '(vazio)',
+      openaiVoice: agent.openaiVoice,
+      ttsFallback: isElevenLabsCircuitOpen() ? 'openai' : undefined,
     });
 
     sessionRegistry.register(uuid, { callerNumber, channel: reg?.channel });
@@ -167,7 +176,7 @@ export class CallSession {
 
     const instructions = buildSystemPrompt(this.ctx);
     try {
-      await this.rt.connect(uuid, instructions, TOOL_DEFINITIONS);
+      await this.rt.connect(uuid, instructions, TOOL_DEFINITIONS, this.ctx.openaiVoice);
       logger.info(`[${uuid}] Sessão pronta`);
       this.pacer.start();
       this.resetSilenceTimer();
@@ -775,11 +784,11 @@ export class CallSession {
     const task = this.ttsQueue.then(async () => {
       this.pacer.setHoldStream(true);
       try {
-        await synthesizeStream(text, (pcm8k) => {
+        await this.runTtsStream(text, (pcm8k) => {
           if (gen !== this.ttsGeneration) return;
           this.stopTypingSound();
           this.pacer.enqueue(pcm8k);
-        }, this.ctx.voiceId);
+        });
         if (gen === this.ttsGeneration) {
           this.stopTypingSound();
           await this.pacer.drain();
@@ -804,11 +813,34 @@ export class CallSession {
     });
   }
 
+  /** Preferência: ElevenLabs; se crédito/auth falhar, OpenAI Speech (voz marin/cedar por gênero). */
+  private async runTtsStream(text: string, onPcm8k: (chunk: Buffer) => void): Promise<void> {
+    const preferEleven = config.tts.provider === 'elevenlabs' && !isElevenLabsCircuitOpen();
+    const openaiVoice = this.ctx.openaiVoice || (this.ctx.agentGender === 'm' ? config.openai.voiceMale : config.openai.voice);
+
+    if (!preferEleven) {
+      await synthesizeOpenAiStream(text, onPcm8k, openaiVoice);
+      return;
+    }
+
+    try {
+      await synthesizeStream(text, onPcm8k, this.ctx.voiceId);
+    } catch (err: any) {
+      if (isElevenLabsQuotaOrAuthError(err)) {
+        markElevenLabsUnavailable(err?.message || String(err?.response?.status || 'unknown'));
+        logger.warn(`[${this.ctx.callId}] Fallback TTS → OpenAI (${openaiVoice})`);
+        await synthesizeOpenAiStream(text, onPcm8k, openaiVoice);
+        return;
+      }
+      throw err;
+    }
+  }
+
   private async synthesizeAndSend(text: string): Promise<void> {
     const gen = this.ttsGeneration;
     this.stopTypingSound();
-    
-    // Correção fonética para a ElevenLabs ler siglas e "mega" corretamente em português
+
+    // Correção fonética para a ElevenLabs / OpenAI ler siglas e "mega" corretamente em português
     const normalizedText = text
       .replace(/\bMB\b/g, 'megabytes')
       .replace(/\bGB\b/g, 'gigabytes')
@@ -818,21 +850,22 @@ export class CallSession {
       .replace(/\bOLT\b/gi, 'ó éle tê')
       .replace(/\bPON\b/gi, 'pôn');
 
-    const fmt = config.tts.elevenlabs.outputFormat;
-    logger.info(`[${this.ctx.callId}] TTS ElevenLabs (${normalizedText.length} chars, ${fmt})`);
+    const usingOpenAi = config.tts.provider !== 'elevenlabs' || isElevenLabsCircuitOpen();
+    const providerLabel = usingOpenAi ? 'OpenAI' : 'ElevenLabs';
+    logger.info(`[${this.ctx.callId}] TTS ${providerLabel} (${normalizedText.length} chars)`);
     this.pacer.setHoldStream(true);
     try {
-      await synthesizeStream(normalizedText, (pcm8k) => {
+      await this.runTtsStream(normalizedText, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
         this.pacer.enqueue(pcm8k);
-      }, this.ctx.voiceId);
+      });
       if (gen !== this.ttsGeneration) return;
       await this.pacer.drain();
       if (gen !== this.ttsGeneration) return;
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
       if (gen === this.ttsGeneration) {
-        logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message, format: fmt });
+        logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message, provider: providerLabel });
       }
     } finally {
       if (gen === this.ttsGeneration) {
@@ -1009,10 +1042,25 @@ export class CallSession {
 
     if (config.tts.provider === 'elevenlabs' && !this.socket.destroyed) {
       try {
-        const pcm = await synthesize(
-          'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
-          this.ctx.voiceId,
-        );
+        const openaiVoice = this.ctx.openaiVoice || config.openai.voice;
+        const pcm = isElevenLabsCircuitOpen()
+          ? await synthesizeOpenAi(
+              'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
+              openaiVoice,
+            )
+          : await synthesize(
+              'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
+              this.ctx.voiceId,
+            ).catch(async (err: any) => {
+              if (isElevenLabsQuotaOrAuthError(err)) {
+                markElevenLabsUnavailable(err?.message || 'quota');
+                return synthesizeOpenAi(
+                  'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
+                  openaiVoice,
+                );
+              }
+              throw err;
+            });
         this.pacer.enqueue(pcm);
         await sleep(Math.ceil(pcm.length / SLIN_CHUNK_BYTES) * 20 + 200);
       } catch {

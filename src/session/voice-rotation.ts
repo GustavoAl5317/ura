@@ -3,7 +3,10 @@ import { logger } from '../logger';
 
 export interface AgentVoice {
   name: string;
+  /** ID ElevenLabs (usado quando TTS_PROVIDER=elevenlabs) */
   voiceId: string;
+  /** Voz OpenAI Realtime / Speech API (fallback ou TTS nativo) */
+  openaiVoice: string;
   gender: 'f' | 'm';
 }
 
@@ -14,12 +17,14 @@ export function assignAgentVoice(): AgentVoice {
   const female: AgentVoice = {
     name: config.company.agentName,
     voiceId: config.tts.elevenlabs.voiceId,
+    openaiVoice: config.openai.voice,
     gender: 'f',
   };
   const maleId = config.tts.elevenlabs.voiceIdMale;
   const male: AgentVoice = {
     name: config.company.agentNameMale,
     voiceId: maleId,
+    openaiVoice: config.openai.voiceMale || 'cedar',
     gender: 'm',
   };
 
@@ -43,6 +48,6 @@ export function logVoiceRotationConfig(): void {
     return;
   }
   logger.info(
-    `  Vozes  : alternância ${config.company.agentName} ↔ ${config.company.agentNameMale} (ElevenLabs)`,
+    `  Vozes  : alternância ${config.company.agentName}(${config.openai.voice}) ↔ ${config.company.agentNameMale}(${config.openai.voiceMale}) — ElevenLabs com fallback OpenAI`,
   );
 }

@@ -47,6 +47,8 @@ export interface CallContext {
   /** Agente desta chamada (nome + voz ElevenLabs) */
   agentName?: string;
   voiceId?: string;
+  /** Voz OpenAI (Realtime ou Speech API) — feminina/masculina conforme o agente */
+  openaiVoice?: string;
   /** Gênero do agente para concordância no prompt e TTS */
   agentGender?: 'f' | 'm';
 

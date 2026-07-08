@@ -63,13 +63,16 @@ export const config = {
       | 'medium'
       | 'high'
       | 'xhigh',
-    voice: opt('OPENAI_VOICE', 'shimmer'),
+    voice: opt('OPENAI_VOICE', 'marin'),
+    voiceMale: opt('OPENAI_VOICE_MALE', 'cedar'),
     temperature: optFloat('TEMPERATURE', 0.65),
     maxTokens: optInt('MAX_TOKENS', 768),
   },
 
   tts: {
     provider: opt('TTS_PROVIDER', 'openai') as 'openai' | 'elevenlabs',
+    /** Modelo HTTP para fallback quando ElevenLabs falha (créditos/auth) */
+    openaiSpeechModel: opt('OPENAI_SPEECH_MODEL', 'gpt-4o-mini-tts'),
     elevenlabs: {
       apiKey: opt('ELEVENLABS_API_KEY'),
       voiceId: opt('ELEVENLABS_VOICE_ID'),

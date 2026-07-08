@@ -50,7 +50,7 @@ export class RealtimeClient extends EventEmitter {
     this.toolPreambleHook = hook;
   }
 
-  async connect(callId: string, instructions: string, toolDefs: ToolDefinition[]): Promise<void> {
+  async connect(callId: string, instructions: string, toolDefs: ToolDefinition[], openaiVoice?: string): Promise<void> {
     this.callId = callId;
 
     let model = config.openai.realtimeModel;
@@ -96,6 +96,7 @@ export class RealtimeClient extends EventEmitter {
     const isNewSchema = model.startsWith('gpt-realtime');
     this.useNewSchema = isNewSchema;
     this.transcriptionReinforced = false;
+    const voice = openaiVoice || config.openai.voice;
 
     const turnFlags = {
       create_response: false,
@@ -129,7 +130,7 @@ export class RealtimeClient extends EventEmitter {
               ? {
                   output: {
                     format: { type: 'audio/pcm', rate: 24000 },
-                    voice: config.openai.voice,
+                    voice,
                   },
                 }
               : {}),
@@ -141,7 +142,7 @@ export class RealtimeClient extends EventEmitter {
           type: 'realtime',
           modalities,
           instructions,
-          voice: config.openai.voice,
+          voice,
           input_audio_format: 'pcm16',
           output_audio_format: 'pcm16',
           input_audio_transcription: transcriptionCfg,

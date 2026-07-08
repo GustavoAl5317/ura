@@ -29,7 +29,7 @@ async function main() {
   if (config.zabbix.enabled) {
     logger.info(`  Zabbix : ${config.zabbix.baseUrl || '(URL não definida)'}`);
   }
-  logger.info(`  TTS    : ${config.tts.provider}${config.tts.provider === 'elevenlabs' ? ` (voice ${config.tts.elevenlabs.voiceId?.slice(0, 6) || '?'}…, fmt ${config.tts.elevenlabs.outputFormat})` : ''}`);
+  logger.info(`  TTS    : ${config.tts.provider}${config.tts.provider === 'elevenlabs' ? ` (voice ${config.tts.elevenlabs.voiceId?.slice(0, 6) || '?'}…, fmt ${config.tts.elevenlabs.outputFormat}, fallback OpenAI ${config.openai.voice}/${config.openai.voiceMale})` : ` (OpenAI ${config.openai.voice}${config.tts.elevenlabs.alternateVoices ? `/${config.openai.voiceMale}` : ''})`}`);
   logger.info(`  URA    : ${isUraEnabled() ? 'LIGADA' : 'DESLIGADA (chamadas → dialplan atendente)'}`);
   logger.info(`  VAD    : ${config.vad.type} / ${config.vad.eagerness} | interrupt=${config.vad.interruptResponse ? 'on' : 'off'} | manual_response`);
   const bufStart = Math.max(config.audio.preBufferMs, config.audio.startBufferMs);
