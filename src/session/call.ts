@@ -81,6 +81,7 @@ export class CallSession {
   private pendingFalaObrigatoria: string | null = null;
   private autoFinanceiroTimer: ReturnType<typeof setTimeout> | null = null;
   private autoMassivaTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoPlanosTimer: ReturnType<typeof setTimeout> | null = null;
   private financeiroTtsTimer: ReturnType<typeof setTimeout> | null = null;
   private useElevenLabsTts = false;
   private readonly micRing: MicRingBuffer;
@@ -296,10 +297,9 @@ export class CallSession {
 
     this.rt.on('audio', (pcm24k: Buffer) => {
       if (usesExternalTts()) return;
-      if (this.waitingAnaAfterTool && this.toolsInFlight === 0) {
-        this.fillerCancel.cancelled = true;
-        this.fillerLoopRunning = false;
-        this.waitingAnaAfterTool = false;
+      if (this.fillerLoopRunning) {
+        this.stopWaitSound();
+        if (this.toolsInFlight === 0) this.waitingAnaAfterTool = false;
       }
 
       this.pacer.enqueue(downsample24to8(pcm24k), true);
@@ -318,6 +318,7 @@ export class CallSession {
         this.clearFinanceiroTts();
         this.pendingFalaObrigatoria = null;
         this.waitingAnaAfterTool = false;
+        this.stopWaitSound();
         logger.info(`[${callId}] 🤖 ${this.agentLabel()} (texto): ${text.trim()}`);
         sessionRegistry.emit(callId, 'assistant_text', text.trim());
         if (this.ctx.precisaConsultarFinanceiro && /vou (consultar|verificar|checar|dar uma olhad)/i.test(text)) {
@@ -365,6 +366,10 @@ export class CallSession {
       if (name === 'consultar_financeiro') {
         this.ctx.consultaFinanceiraFeita = true;
       }
+      if (name === 'consultar_planos') {
+        this.ctx.consultaPlanosFeita = true;
+        this.clearAutoPlanos();
+      }
       if (this.toolsInFlight === 0) {
         this.armPostToolSpeechWatchdog(callId);
         if (name === 'confirmar_titular_contrato') {
@@ -377,6 +382,11 @@ export class CallSession {
           const r = result as { sucesso?: boolean } | undefined;
           if (r?.sucesso) {
             this.armAutoFinanceiro(callId);
+          }
+        } else if (name === 'verificar_viabilidade') {
+          const r = result as { tem_cobertura?: boolean } | undefined;
+          if (r?.tem_cobertura) {
+            this.armAutoPlanos(callId);
           }
         }
       }
@@ -760,6 +770,28 @@ export class CallSession {
     if (this.autoMassivaTimer) {
       clearTimeout(this.autoMassivaTimer);
       this.autoMassivaTimer = null;
+    }
+  }
+
+  /** Após viabilidade com cobertura, garante consultar_planos se o modelo não chamar. */
+  private armAutoPlanos(callId: string): void {
+    this.clearAutoPlanos();
+    this.autoPlanosTimer = setTimeout(() => {
+      this.autoPlanosTimer = null;
+      if (this.tearing || this.socket.destroyed || this.ctx.consultaPlanosFeita) return;
+      if (this.toolsInFlight > 0 || this.rt.isResponseActive() || this.rt.isResponsePending()) {
+        this.armAutoPlanos(callId);
+        return;
+      }
+      logger.info(`[${callId}] Auto: consultar_planos após viabilidade com cobertura`);
+      void this.rt.runServerTool('consultar_planos', {});
+    }, 800);
+  }
+
+  private clearAutoPlanos(): void {
+    if (this.autoPlanosTimer) {
+      clearTimeout(this.autoPlanosTimer);
+      this.autoPlanosTimer = null;
     }
   }
 
@@ -1180,6 +1212,7 @@ export class CallSession {
     if (this.titularFollowUpTimer) clearTimeout(this.titularFollowUpTimer);
     if (this.autoFinanceiroTimer) clearTimeout(this.autoFinanceiroTimer);
     if (this.autoMassivaTimer) clearTimeout(this.autoMassivaTimer);
+    if (this.autoPlanosTimer) clearTimeout(this.autoPlanosTimer);
     if (this.financeiroTtsTimer) clearTimeout(this.financeiroTtsTimer);
     if (this.falaObrigatoriaTimer) clearTimeout(this.falaObrigatoriaTimer);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);

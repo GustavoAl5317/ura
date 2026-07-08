@@ -985,6 +985,10 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     const linkBoleto = linkObj.link;
     const linhaDigitavel = linkObj.linhadigitavel;
     const valorFmt = valorPorExtenso(linkObj.valor);
+    const temPix = !!pixCola;
+    const temBoleto = !!linkBoleto;
+    const temLinha = !!linhaDigitavel;
+    const temPagamento = temPix || temBoleto || temLinha;
 
     ctx.faturaWhatsApp = {
       valor: valorFmt,
@@ -1006,16 +1010,27 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       });
       wppEnviado = resultado.enviado;
       wppMotivo = resultado.motivo;
-      if (!wppEnviado) {
-        logger.warn(`[${ctx.callId}] WhatsApp não enviado`, { motivo: wppMotivo });
+      if (wppEnviado) {
+        logger.info(`[${ctx.callId}] WhatsApp fatura`, {
+          temPix,
+          temBoleto,
+          temLinha,
+          fatura_id: linkObj.fatura,
+        });
+      } else {
+        logger.warn(`[${ctx.callId}] WhatsApp não enviado`, { motivo: wppMotivo, temPix, temBoleto, temLinha });
       }
     }
 
     ctx.log.push(`Segunda via gerada (fatura ${linkObj.fatura}, R$${linkObj.valor})`);
 
-    const msgBase = pixCola
-      ? 'PIX Copia e Cola e boleto gerados com sucesso.'
-      : 'Boleto gerado. PIX indisponível para esta fatura.';
+    const msgBase = temPix
+      ? temBoleto || temLinha
+        ? 'PIX e boleto gerados com sucesso.'
+        : 'PIX gerado com sucesso.'
+      : temBoleto || temLinha
+        ? 'Boleto gerado. PIX indisponível para esta fatura.'
+        : 'Fatura localizada, mas o sistema não retornou PIX nem boleto.';
 
     const msgWhatsapp = wppMotivo === 'celular_nao_informado'
       ? `${msgBase} Pergunte ao cliente qual celular com WhatsApp usar e tente de novo.`
@@ -1028,7 +1043,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
             : wppMotivo === 'falha_api_whatsapp' || wppMotivo === 'falha_api' || wppMotivo === 'erro_rede' || wppMotivo === 'nao_configurado'
               ? `${msgBase} Não foi possível enviar o WhatsApp agora. Peça outro número ou oriente pagar pelo app do banco. NÃO leia PIX, linha digitável ou link em voz alta.`
               : wppEnviado
-                ? `${msgBase} Enviei o PIX e o boleto no WhatsApp. Confirme se o cliente recebeu. NUNCA leia PIX, linha digitável ou link em voz alta.`
+                ? temPagamento
+                  ? `${msgBase} Enviei no WhatsApp. Confirme se o cliente recebeu. NUNCA leia PIX, linha digitável ou link em voz alta.`
+                  : `${msgBase} Enviei só o resumo no WhatsApp (sem PIX/boleto). Oriente o cliente a pagar pelo app do banco ou peça outro número. NÃO leia códigos em voz alta.`
                 : `${msgBase} NUNCA leia PIX, linha digitável ou link em voz alta — só por WhatsApp.`;
 
     return {

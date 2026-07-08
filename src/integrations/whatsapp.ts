@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
 
@@ -11,6 +11,8 @@ export type WhatsappMotivo =
 export interface WhatsappSendResult {
   enviado: boolean;
   motivo?: WhatsappMotivo;
+  messageId?: string;
+  remoteJid?: string;
 }
 
 export class WhatsAppClient {
@@ -20,7 +22,7 @@ export class WhatsAppClient {
     if (!this.http) {
       this.http = axios.create({
         baseURL: config.whatsapp.apiUrl,
-        timeout: 10_000,
+        timeout: 15_000,
         headers: {
           apikey: config.whatsapp.apiKey,
           'Content-Type': 'application/json',
@@ -60,9 +62,73 @@ export class WhatsAppClient {
     return { motivo: 'erro_rede', status, body };
   }
 
-  private async postSendText(number: string, text: string): Promise<void> {
+  private extractSendMeta(data: unknown): { ok: boolean; messageId?: string; remoteJid?: string; status?: string } {
+    if (!data || typeof data !== 'object') return { ok: false };
+    const row = data as Record<string, unknown>;
+    if (row.success === false || row.error) return { ok: false, status: String(row.status ?? 'error') };
+
+    const key = row.key as Record<string, unknown> | undefined;
+    const messageId = typeof key?.id === 'string' ? key.id : undefined;
+    const remoteJid = typeof key?.remoteJid === 'string' ? key.remoteJid : undefined;
+    const status = typeof row.status === 'string' ? row.status : undefined;
+
+    if (messageId || remoteJid || row.message) {
+      return { ok: true, messageId, remoteJid, status };
+    }
+    return { ok: false, status };
+  }
+
+  /** Verifica se o número tem WhatsApp (Evolution API). null = não foi possível verificar. */
+  private async verificarNumeroWhatsApp(number: string): Promise<boolean | null> {
+    try {
+      const res = await this.client.post(
+        `/chat/whatsappNumbers/${config.whatsapp.instance}`,
+        { numbers: [number] },
+      );
+      const rows = Array.isArray(res.data) ? res.data : [];
+      if (!rows.length) return null;
+      return rows.some((r: { exists?: boolean }) => r.exists === true);
+    } catch (err: unknown) {
+      const ax = err as AxiosError;
+      logger.warn('WhatsApp: verificação de número indisponível', {
+        number,
+        status: ax.response?.status,
+        err: ax.message,
+      });
+      return null;
+    }
+  }
+
+  // Evolution API varia por versão — tenta formato moderno e clássico.
+  private async postSendText(number: string, text: string): Promise<AxiosResponse> {
     const path = `/message/sendText/${config.whatsapp.instance}`;
-    await this.client.post(path, { number, text });
+    const modern = { number, text };
+    const classic = {
+      number,
+      textMessage: { text },
+      options: { delay: 1000, presence: 'composing' as const },
+    };
+
+    try {
+      return await this.client.post(path, modern);
+    } catch (errModern: unknown) {
+      const ax = errModern as AxiosError;
+      const status = ax.response?.status;
+      const body = JSON.stringify(ax.response?.data ?? '');
+
+      if (status === 500) {
+        logger.warn('WhatsApp: erro 500, retentando', { number });
+        await new Promise((r) => setTimeout(r, 800));
+        return await this.client.post(path, modern);
+      }
+
+      if ((status === 400 || status === 422) && !body.includes('requires property "text"')) {
+        logger.info('WhatsApp: formato moderno falhou, tentando clássico', { number, status });
+        return await this.client.post(path, classic);
+      }
+
+      throw errModern;
+    }
   }
 
   async enviarTexto(para: string, mensagem: string): Promise<WhatsappSendResult> {
@@ -74,11 +140,34 @@ export class WhatsAppClient {
       });
       return { enviado: false, motivo: 'nao_configurado' };
     }
+
     const numero = this.normalize(para);
+    const existe = await this.verificarNumeroWhatsApp(numero);
+    if (existe === false) {
+      logger.warn('WhatsApp: número sem conta WhatsApp', { para: numero });
+      return { enviado: false, motivo: 'numero_sem_whatsapp' };
+    }
+
     try {
-      await this.postSendText(numero, mensagem);
-      logger.info('WhatsApp enviado', { para: numero });
-      return { enviado: true };
+      const res = await this.postSendText(numero, mensagem);
+      const meta = this.extractSendMeta(res.data);
+      if (!meta.ok) {
+        logger.error('WhatsApp: API respondeu sem confirmação de mensagem', {
+          para: numero,
+          statusHttp: res.status,
+          body: JSON.stringify(res.data ?? '').slice(0, 400),
+        });
+        return { enviado: false, motivo: 'falha_api' };
+      }
+
+      logger.info('WhatsApp enviado', {
+        para: numero,
+        chars: mensagem.length,
+        messageId: meta.messageId,
+        remoteJid: meta.remoteJid,
+        status: meta.status,
+      });
+      return { enviado: true, messageId: meta.messageId, remoteJid: meta.remoteJid };
     } catch (err: unknown) {
       const { motivo, status, body } = this.parseSendError(err);
       const ax = err as AxiosError;
@@ -87,7 +176,7 @@ export class WhatsAppClient {
         motivo,
         url: `${config.whatsapp.apiUrl}/message/sendText/${config.whatsapp.instance}`,
         status,
-        body: body.slice(0, 300),
+        body: body.slice(0, 400),
         err: ax.message,
       });
       return { enviado: false, motivo };
@@ -172,8 +261,12 @@ export class WhatsAppClient {
     }
     try {
       const formattedGrupo = grupoId.includes('@g.us') ? grupoId : `${grupoId}@g.us`;
-      await this.postSendText(formattedGrupo, mensagem);
-      return { enviado: true };
+      const res = await this.postSendText(formattedGrupo, mensagem);
+      const meta = this.extractSendMeta(res.data);
+      if (!meta.ok) {
+        return { enviado: false, motivo: 'falha_api' };
+      }
+      return { enviado: true, messageId: meta.messageId, remoteJid: meta.remoteJid };
     } catch (err: unknown) {
       const { motivo, status, body } = this.parseSendError(err);
       const ax = err as AxiosError;
@@ -181,7 +274,7 @@ export class WhatsAppClient {
         grupoId,
         motivo,
         status,
-        body: body.slice(0, 300),
+        body: body.slice(0, 400),
         err: ax.message,
       });
       return { enviado: false, motivo };

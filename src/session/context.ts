@@ -59,6 +59,7 @@ export interface CallContext {
   precisaConsultarFinanceiro?: boolean;
   consultaFinanceiraFeita?: boolean;
   consultaMassivaFeita?: boolean;
+  consultaPlanosFeita?: boolean;
   /** Cliente relatou queda/lentidão/etc. — encadear verificar_massiva após financeiro */
   relatouProblemaTecnico?: boolean;
   /** Se o cliente tem faturas atrasadas ou bloqueio financeiro */
