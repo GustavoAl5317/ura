@@ -256,11 +256,13 @@ export class CallSession {
   }
 
   private setupRealtimeEvents(callId: string): void {
-    const useElevenLabsTts = config.tts.provider === 'elevenlabs';
-    this.useElevenLabsTts = useElevenLabsTts;
-    logger.info(`[${callId}] Pipeline áudio: ${useElevenLabsTts ? 'OpenAI texto → ElevenLabs voz' : 'OpenAI áudio nativo'}`);
+    const configuredEleven = config.tts.provider === 'elevenlabs';
+    this.useElevenLabsTts = configuredEleven && !isElevenLabsCircuitOpen();
+    logger.info(`[${callId}] Pipeline áudio: ${this.useElevenLabsTts ? 'OpenAI texto → ElevenLabs voz (fallback OpenAI)' : 'OpenAI áudio nativo'}`);
 
-    this.rt.onToolPreamble((name) => this.runToolPreamble(callId, name, useElevenLabsTts));
+    const usesExternalTts = () => this.useElevenLabsTts && !this.rt.isNativeAudioForced();
+
+    this.rt.onToolPreamble((name) => this.runToolPreamble(callId, name, usesExternalTts()));
 
     this.rt.on('responsePendingTimeout', () => {
       if (this.tearing || this.socket.destroyed || this.clientSpeaking) return;
@@ -277,14 +279,13 @@ export class CallSession {
       }
       this.pendingSpeechStop = false;
       this.respondedSinceLastSpeech = true;
-      // Com ElevenLabs o áudio é local — holdStream bloqueava o mic por 15s sem TTS da OpenAI
-      if (!useElevenLabsTts) {
+      if (!usesExternalTts()) {
         this.pacer.setHoldStream(true);
       }
     });
 
     this.rt.on('audio', (pcm24k: Buffer) => {
-      if (useElevenLabsTts) return;
+      if (usesExternalTts()) return;
       if (this.waitingAnaAfterTool && this.toolsInFlight === 0) {
         this.fillerCancel.cancelled = true;
         this.fillerLoopRunning = false;
@@ -313,7 +314,7 @@ export class CallSession {
           this.armTitularFollowUpWatchdog(callId);
         }
       }
-      if (this.useElevenLabsTts && text.trim()) {
+      if (usesExternalTts() && text.trim()) {
         this.stopTypingSound();
         this.enqueueTTS(() => this.synthesizeAndSend(text));
       }
@@ -332,7 +333,7 @@ export class CallSession {
     this.rt.on('toolSlowdown', () => {
       logger.info(`[${callId}] 🤖 ${this.agentLabel()} (lentidão na consulta): Só mais um minutinho tá? Estou terminando.`);
       sessionRegistry.emit(callId, 'assistant_text', 'Só mais um minutinho tá? Estou terminando.');
-      if (this.useElevenLabsTts) {
+      if (usesExternalTts()) {
         this.enqueueTTS(() => this.synthesizeAndSend('Só mais um minutinho tá? Estou terminando.'));
       }
       this.startTypingSound();
@@ -514,7 +515,7 @@ export class CallSession {
     };
 
     this.rt.on('audioOutputDone', () => {
-      if (!useElevenLabsTts) scheduleHoldRelease();
+      if (!usesExternalTts()) scheduleHoldRelease();
     });
 
     this.rt.on('responseDone', () => {
@@ -522,7 +523,7 @@ export class CallSession {
         this.armAutoMassiva(callId);
       }
       this.clearResponseStallWatchdog();
-      if (useElevenLabsTts) {
+      if (usesExternalTts()) {
         this.pacer.setHoldStream(false);
         if (this.releaseHoldTimer) {
           clearTimeout(this.releaseHoldTimer);
@@ -813,13 +814,30 @@ export class CallSession {
     });
   }
 
-  /** Preferência: ElevenLabs; se crédito/auth falhar, OpenAI Speech (voz marin/cedar por gênero). */
+  /** Preferência: ElevenLabs; se crédito/auth falhar, OpenAI Speech; se Speech 403, áudio nativo Realtime. */
   private async runTtsStream(text: string, onPcm8k: (chunk: Buffer) => void): Promise<void> {
     const preferEleven = config.tts.provider === 'elevenlabs' && !isElevenLabsCircuitOpen();
     const openaiVoice = this.ctx.openaiVoice || (this.ctx.agentGender === 'm' ? config.openai.voiceMale : config.openai.voice);
+    const gender = this.ctx.agentGender;
+
+    const speakOpenAiHttp = async () => {
+      await synthesizeOpenAiStream(text, onPcm8k, openaiVoice, gender);
+    };
+
+    const failToNative = (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[${this.ctx.callId}] OpenAI Speech falhou — ativando áudio nativo Realtime`, { err: msg });
+      this.useElevenLabsTts = false;
+      this.rt.enableNativeAudioOutput(openaiVoice);
+    };
 
     if (!preferEleven) {
-      await synthesizeOpenAiStream(text, onPcm8k, openaiVoice);
+      try {
+        await speakOpenAiHttp();
+      } catch (err) {
+        failToNative(err);
+        throw err;
+      }
       return;
     }
 
@@ -828,8 +846,13 @@ export class CallSession {
     } catch (err: any) {
       if (isElevenLabsQuotaOrAuthError(err)) {
         markElevenLabsUnavailable(err?.message || String(err?.response?.status || 'unknown'));
-        logger.warn(`[${this.ctx.callId}] Fallback TTS → OpenAI (${openaiVoice})`);
-        await synthesizeOpenAiStream(text, onPcm8k, openaiVoice);
+        logger.warn(`[${this.ctx.callId}] Fallback TTS → OpenAI HTTP (${openaiVoice})`);
+        try {
+          await speakOpenAiHttp();
+        } catch (httpErr) {
+          failToNative(httpErr);
+          throw httpErr;
+        }
         return;
       }
       throw err;
@@ -837,10 +860,15 @@ export class CallSession {
   }
 
   private async synthesizeAndSend(text: string): Promise<void> {
+    // Se já migrou para áudio nativo, não sintetiza por HTTP nesta fala (próximas replies já vêm com áudio).
+    if (this.rt.isNativeAudioForced()) {
+      logger.info(`[${this.ctx.callId}] TTS nativo Realtime — pulando síntese externa desta fala`);
+      return;
+    }
+
     const gen = this.ttsGeneration;
     this.stopTypingSound();
 
-    // Correção fonética para a ElevenLabs / OpenAI ler siglas e "mega" corretamente em português
     const normalizedText = text
       .replace(/\bMB\b/g, 'megabytes')
       .replace(/\bGB\b/g, 'gigabytes')
@@ -866,6 +894,10 @@ export class CallSession {
     } catch (err: any) {
       if (gen === this.ttsGeneration) {
         logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message, provider: providerLabel });
+        // Já ativou native no runTtsStream — pede uma nova fala só em áudio se ainda não falou
+        if (this.rt.isNativeAudioForced() && !this.assistantTextInResponse) {
+          this.rt.createResponse(true, 'Repita a última mensagem em voz para o cliente, de forma breve.');
+        }
       }
     } finally {
       if (gen === this.ttsGeneration) {
@@ -1047,6 +1079,7 @@ export class CallSession {
           ? await synthesizeOpenAi(
               'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
               openaiVoice,
+              this.ctx.agentGender,
             )
           : await synthesize(
               'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
@@ -1057,6 +1090,7 @@ export class CallSession {
                 return synthesizeOpenAi(
                   'Tive uma instabilidade no sistema. Vou te transferir para um de nossos atendentes agora.',
                   openaiVoice,
+                  this.ctx.agentGender,
                 );
               }
               throw err;

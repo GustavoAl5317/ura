@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { config } from '../config';
 import { logger } from '../logger';
+import { isElevenLabsCircuitOpen } from '../tts/circuit';
 import type { RealtimeEvent, ToolDefinition, RealtimeSessionConfig, TurnDetectionConfig } from './types';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
@@ -41,6 +42,8 @@ export class RealtimeClient extends EventEmitter {
   private responseTextEmitted = false;
   private useNewSchema = false;
   private transcriptionReinforced = false;
+  /** Mid-call: ElevenLabs caiu — passa a emitir áudio nativo do Realtime. */
+  private nativeAudioForced = false;
 
   registerTool(name: string, handler: ToolHandler): void {
     this.tools.set(name, handler);
@@ -90,7 +93,9 @@ export class RealtimeClient extends EventEmitter {
       this.emit('error', err);
     });
 
-    const useAudio = config.tts.provider === 'openai';
+    // Áudio nativo se TTS_PROVIDER=openai OU se ElevenLabs já caiu (circuit aberto)
+    const useAudio = config.tts.provider === 'openai' || isElevenLabsCircuitOpen();
+    if (useAudio && config.tts.provider === 'elevenlabs') this.nativeAudioForced = true;
     const modalities: ('text' | 'audio')[] = useAudio ? ['text', 'audio'] : ['text'];
     const outputModalities: ('text' | 'audio')[] = useAudio ? ['audio'] : ['text'];
     const isNewSchema = model.startsWith('gpt-realtime');
@@ -210,6 +215,43 @@ export class RealtimeClient extends EventEmitter {
         content: [{ type: 'input_text', text: `[CONTEXTO DO SISTEMA]\n${text}` }],
       },
     });
+  }
+
+  /** Mid-call: habilita áudio nativo do Realtime (quando ElevenLabs + Speech HTTP falham). */
+  enableNativeAudioOutput(voice?: string): void {
+    if (this.nativeAudioForced) return;
+    this.nativeAudioForced = true;
+    const v = voice || config.openai.voice;
+    logger.warn(`[${this.callId}] Habilitando áudio nativo Realtime (voz ${v})`);
+    if (this.useNewSchema) {
+      this.send({
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          output_modalities: ['audio'],
+          audio: {
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice: v,
+            },
+          },
+        },
+      });
+    } else {
+      this.send({
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          modalities: ['text', 'audio'],
+          voice: v,
+          output_audio_format: 'pcm16',
+        },
+      });
+    }
+  }
+
+  isNativeAudioForced(): boolean {
+    return this.nativeAudioForced;
   }
 
   createResponse(force = false, instructions?: string): boolean {
@@ -348,7 +390,7 @@ export class RealtimeClient extends EventEmitter {
     switch (event.type) {
       case 'response.audio.delta':
       case 'response.output_audio.delta': {
-        if (config.tts.provider !== 'openai') break;
+        if (config.tts.provider !== 'openai' && !this.nativeAudioForced) break;
         const buf = Buffer.from(event.delta, 'base64');
         logger.debug(`[${this.callId}] audio chunk bytes=${buf.length}`);
         this.emit('audio', buf);
@@ -356,7 +398,7 @@ export class RealtimeClient extends EventEmitter {
       }
 
       case 'response.output_audio.done':
-        if (config.tts.provider === 'openai') this.emit('audioOutputDone');
+        if (config.tts.provider === 'openai' || this.nativeAudioForced) this.emit('audioOutputDone');
         break;
 
       case 'response.text.delta':
