@@ -1,8 +1,11 @@
 import { logger } from '../logger';
 
-/** Circuit breaker: após falha de crédito/auth da ElevenLabs, usa OpenAI TTS até reiniciar o processo. */
+/** Circuit breaker: após falha de crédito/auth da ElevenLabs, usa OpenAI (nativo) até reiniciar. */
 let elevenLabsUnavailable = false;
 let lastReason = '';
+
+/** /v1/audio/speech bloqueado (403) nesta conta — não insistir. */
+let speechHttpUnavailable = false;
 
 const QUOTA_STATUS = new Set([401, 402, 403, 429]);
 
@@ -19,6 +22,16 @@ export function markElevenLabsUnavailable(reason: string): void {
 
 export function getElevenLabsCircuitReason(): string {
   return lastReason;
+}
+
+export function isSpeechHttpUnavailable(): boolean {
+  return speechHttpUnavailable;
+}
+
+export function markSpeechHttpUnavailable(reason: string): void {
+  if (speechHttpUnavailable) return;
+  speechHttpUnavailable = true;
+  logger.warn(`OpenAI Speech HTTP indisponível nesta conta — usando só Realtime nativo`, { reason });
 }
 
 /** Detecta erros típicos de chave inválida / sem crédito / quota. */

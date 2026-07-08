@@ -71,8 +71,13 @@ export const config = {
 
   tts: {
     provider: opt('TTS_PROVIDER', 'openai') as 'openai' | 'elevenlabs',
-    /** Modelo HTTP para fallback quando ElevenLabs falha (créditos/auth) */
+    /** Modelo HTTP para fallback (só se OPENAI_SPEECH_FALLBACK=1) */
     openaiSpeechModel: opt('OPENAI_SPEECH_MODEL', 'gpt-4o-mini-tts'),
+    /**
+     * 1 = tenta /v1/audio/speech antes do áudio nativo Realtime.
+     * 0 (padrão) = ElevenLabs cai → vai direto para voz nativa (evita 403 em muitas contas).
+     */
+    openaiSpeechFallback: optBool('OPENAI_SPEECH_FALLBACK', false),
     elevenlabs: {
       apiKey: opt('ELEVENLABS_API_KEY'),
       voiceId: opt('ELEVENLABS_VOICE_ID'),

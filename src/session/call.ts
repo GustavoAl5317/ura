@@ -9,6 +9,7 @@ import { synthesizeOpenAi, synthesizeOpenAiStream } from '../tts/openai';
 import {
   isElevenLabsCircuitOpen,
   isElevenLabsQuotaOrAuthError,
+  isSpeechHttpUnavailable,
   markElevenLabsUnavailable,
 } from '../tts/circuit';
 import { registerTools, buildFinanceiroSpeech } from '../tools/handlers';
@@ -814,31 +815,37 @@ export class CallSession {
     });
   }
 
-  /** Preferência: ElevenLabs; se crédito/auth falhar, OpenAI Speech; se Speech 403, áudio nativo Realtime. */
+  /** Preferência: ElevenLabs → (opcional) Speech HTTP → áudio nativo Realtime. */
+  private switchToNativeRealtime(text: string, openaiVoice: string): void {
+    this.useElevenLabsTts = false;
+    this.rt.enableNativeAudioOutput(openaiVoice);
+    // Reproduz a fala que ficou muda (saudação etc.) via Realtime com áudio
+    const safe = text.replace(/"/g, "'").slice(0, 500);
+    this.rt.createResponse(
+      true,
+      `Fale AGORA em voz alta para o cliente, exatamente esta frase, sem acrescentar nada: "${safe}"`,
+    );
+  }
+
   private async runTtsStream(text: string, onPcm8k: (chunk: Buffer) => void): Promise<void> {
     const preferEleven = config.tts.provider === 'elevenlabs' && !isElevenLabsCircuitOpen();
     const openaiVoice = this.ctx.openaiVoice || (this.ctx.agentGender === 'm' ? config.openai.voiceMale : config.openai.voice);
     const gender = this.ctx.agentGender;
-
-    const speakOpenAiHttp = async () => {
-      await synthesizeOpenAiStream(text, onPcm8k, openaiVoice, gender);
-    };
-
-    const failToNative = (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[${this.ctx.callId}] OpenAI Speech falhou — ativando áudio nativo Realtime`, { err: msg });
-      this.useElevenLabsTts = false;
-      this.rt.enableNativeAudioOutput(openaiVoice);
-    };
+    const trySpeechHttp = config.tts.openaiSpeechFallback && !isSpeechHttpUnavailable();
 
     if (!preferEleven) {
-      try {
-        await speakOpenAiHttp();
-      } catch (err) {
-        failToNative(err);
-        throw err;
+      if (trySpeechHttp) {
+        try {
+          await synthesizeOpenAiStream(text, onPcm8k, openaiVoice, gender);
+          return;
+        } catch (err) {
+          logger.warn(`[${this.ctx.callId}] Speech HTTP falhou — Realtime nativo`, {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
-      return;
+      this.switchToNativeRealtime(text, openaiVoice);
+      throw new Error('migrado para Realtime nativo');
     }
 
     try {
@@ -846,14 +853,21 @@ export class CallSession {
     } catch (err: any) {
       if (isElevenLabsQuotaOrAuthError(err)) {
         markElevenLabsUnavailable(err?.message || String(err?.response?.status || 'unknown'));
-        logger.warn(`[${this.ctx.callId}] Fallback TTS → OpenAI HTTP (${openaiVoice})`);
-        try {
-          await speakOpenAiHttp();
-        } catch (httpErr) {
-          failToNative(httpErr);
-          throw httpErr;
+        if (trySpeechHttp) {
+          logger.warn(`[${this.ctx.callId}] Fallback TTS → OpenAI HTTP (${openaiVoice})`);
+          try {
+            await synthesizeOpenAiStream(text, onPcm8k, openaiVoice, gender);
+            return;
+          } catch (httpErr) {
+            logger.warn(`[${this.ctx.callId}] Speech HTTP falhou — Realtime nativo`, {
+              err: httpErr instanceof Error ? httpErr.message : String(httpErr),
+            });
+          }
+        } else {
+          logger.warn(`[${this.ctx.callId}] Fallback TTS → Realtime nativo (${openaiVoice})`);
         }
-        return;
+        this.switchToNativeRealtime(text, openaiVoice);
+        throw new Error('migrado para Realtime nativo');
       }
       throw err;
     }
@@ -892,12 +906,10 @@ export class CallSession {
       if (gen !== this.ttsGeneration) return;
       await sleep(config.audio.endPauseMs);
     } catch (err: any) {
-      if (gen === this.ttsGeneration) {
+      if (gen === this.ttsGeneration && !this.rt.isNativeAudioForced()) {
         logger.error(`[${this.ctx.callId}] TTS erro`, { err: err.message, provider: providerLabel });
-        // Já ativou native no runTtsStream — pede uma nova fala só em áudio se ainda não falou
-        if (this.rt.isNativeAudioForced() && !this.assistantTextInResponse) {
-          this.rt.createResponse(true, 'Repita a última mensagem em voz para o cliente, de forma breve.');
-        }
+      } else if (this.rt.isNativeAudioForced()) {
+        logger.info(`[${this.ctx.callId}] Áudio passado para Realtime nativo`);
       }
     } finally {
       if (gen === this.ttsGeneration) {
