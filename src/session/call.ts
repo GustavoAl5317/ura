@@ -819,11 +819,21 @@ export class CallSession {
   private switchToNativeRealtime(text: string, openaiVoice: string): void {
     this.useElevenLabsTts = false;
     this.rt.enableNativeAudioOutput(openaiVoice);
-    // Reproduz a fala que ficou muda (saudação etc.) via Realtime com áudio
+
+    const agente = this.ctx.agentName || 'Ana';
     const safe = text.replace(/"/g, "'").slice(0, 500);
+
+    // Só muda a voz — a frase e o fluxo do prompt continuam iguais
+    this.rt.appendContextNote(
+      `A síntese de voz externa falhou. A partir de agora use a voz nativa OpenAI. ` +
+        `Você continua sendo ${agente}. NÃO mude o fluxo de atendimento: apresentação, espera do cliente, ` +
+        `CPF, ferramentas e regras do sistema permanecem exatamente as mesmas. Só a voz mudou.`,
+    );
+
     this.rt.createResponse(
       true,
-      `Fale AGORA em voz alta para o cliente, exatamente esta frase, sem acrescentar nada: "${safe}"`,
+      `Você é ${agente}. Fale EM VOZ ALTA para o cliente, EXATAMENTE esta frase (sem adicionar nem omitir nada): "${safe}" ` +
+        `Depois PARE e AGUARDE o cliente responder — uma pergunta por vez, no fluxo normal do atendimento.`,
     );
   }
 

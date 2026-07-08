@@ -222,7 +222,7 @@ export class RealtimeClient extends EventEmitter {
     if (this.nativeAudioForced) return;
     this.nativeAudioForced = true;
     const v = voice || config.openai.voice;
-    logger.warn(`[${this.callId}] Habilitando áudio nativo Realtime (voz ${v})`);
+    logger.warn(`[${this.callId}] Habilitando áudio nativo Realtime (voz ${v}) — fluxo de atendimento inalterado`);
     if (this.useNewSchema) {
       this.send({
         type: 'session.update',
