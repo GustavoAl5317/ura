@@ -205,15 +205,24 @@ export class CallSession {
     return this.ctx.agentName ?? config.company.agentName;
   }
 
+  private isAssistantAudible(): boolean {
+    return (
+      this.pacer.isPlaying() ||
+      this.fillerLoopRunning ||
+      this.rt.isResponseActive() ||
+      this.rt.isResponsePending()
+    );
+  }
+
   private isMicBlocked(): boolean {
     if (this.toolsInFlight > 0 || this.waitingAnaAfterTool) {
       return true;
     }
-    if (this.useElevenLabsTts) {
-      // Mic aberto durante TTS e geração OpenAI — só anti-eco pós-fala (barge-in real)
+    // Mic aberto enquanto o assistente fala — só anti-eco pós-fala (barge-in real)
+    if (this.isAssistantAudible()) {
       return this.pacer.isEchoGated();
     }
-    return this.rt.isResponseActive() || this.pacer.isMicGated();
+    return false;
   }
 
   /** Mais paciência na coleta de CPF; resposta rápida após identificação. */
@@ -345,6 +354,7 @@ export class CallSession {
       this.toolsInFlight = Math.max(0, this.toolsInFlight - 1);
       if (this.toolsInFlight === 0) {
         this.waitingAnaAfterTool = true;
+        this.startTypingSound();
       }
       if (name) {
         this.lastToolName = name;
@@ -384,9 +394,8 @@ export class CallSession {
         this.userResponseTimer = null;
       }
 
-      // ElevenLabs: só interrompe com áudio real na linha — ruído no início não pode cancelar texto/TTS
-      const anaAudivel = this.pacer.isPlaying() || this.fillerLoopRunning;
-      if (!anaAudivel) return;
+      // Só interrompe com áudio real na linha — ruído no início não pode cancelar fala/TTS
+      if (!this.isAssistantAudible()) return;
 
       const armMs = config.vad.interruptArmMs;
       if (this.interruptArmTimer) clearTimeout(this.interruptArmTimer);
@@ -571,6 +580,9 @@ export class CallSession {
           }, 400);
         }
       } else {
+        if (this.waitingAnaAfterTool && !this.assistantTextInResponse && this.toolsInFlight === 0) {
+          if (!this.fillerLoopRunning) this.startTypingSound();
+        }
         scheduleHoldRelease();
       }
       this.textBuf = '';
@@ -766,9 +778,15 @@ export class CallSession {
   }
 
   private async runToolPreamble(callId: string, name: string, useElevenLabsTts: boolean): Promise<void> {
-    if (this.assistantTextInResponse || this.textBuf.trim().length > 0) return;
+    if (this.assistantTextInResponse || this.textBuf.trim().length > 0) {
+      if (this.toolsInFlight > 0) this.scheduleTypingSound();
+      return;
+    }
     const phrase = TOOL_PREAMBLES[name];
-    if (!phrase) return;
+    if (!phrase) {
+      if (this.toolsInFlight > 0) this.scheduleTypingSound();
+      return;
+    }
 
     logger.info(`[${callId}] 🤖 ${this.agentLabel()} (pré-consulta): ${phrase}`);
     sessionRegistry.emit(callId, 'assistant_text', phrase);
@@ -776,6 +794,8 @@ export class CallSession {
     if (useElevenLabsTts) {
       await this.speakToolPreamble(phrase);
       if (this.toolsInFlight > 0) this.startTypingSound();
+    } else if (this.toolsInFlight > 0) {
+      this.scheduleTypingSound();
     }
   }
 
@@ -1009,7 +1029,6 @@ export class CallSession {
   }
 
   private startTypingSound(): void {
-    if (!this.useElevenLabsTts) return;
     if (this.toolsInFlight <= 0 && !this.waitingAnaAfterTool) return;
     this.stopWaitSound();
     this.fillerCancel = { cancelled: false };
