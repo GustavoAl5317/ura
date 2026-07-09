@@ -289,6 +289,45 @@ export interface FinanceiroSpeechInput {
 }
 
 /** Texto completo para TTS quando o modelo fica mudo após consultar_financeiro. */
+export interface MassivaSpeechInput {
+  tem_massiva?: boolean;
+  afeta_cliente?: boolean;
+  mensagem_ura?: string;
+  descricao?: string;
+  data_previsao_fim?: string;
+  manutencao_regional_nao_confirmada?: boolean;
+}
+
+function formatarDataFalada(iso: string): string | null {
+  const [y, mStr, d] = iso.split(/[T\s]/)[0]?.split('-') ?? [];
+  if (!d || !mStr || !y) return null;
+  const m = parseInt(mStr, 10);
+  const meses = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const nomeMes = meses[m] || mStr;
+  return `${d} de ${nomeMes}`;
+}
+
+/** Texto para TTS quando o modelo fica mudo após verificar_massiva. */
+export function buildMassivaSpeech(result: MassivaSpeechInput): string | null {
+  if (result.manutencao_regional_nao_confirmada) {
+    return 'Não confirmei falha na rede do seu endereço. Vou seguir com as outras verificações.';
+  }
+  if (result.tem_massiva && result.afeta_cliente) {
+    const msg = result.mensagem_ura?.trim() || result.descricao?.trim();
+    let speech = msg
+      ? `Identifiquei um problema na rede na sua região. ${msg}`
+      : 'Há um problema na rede que pode estar afetando sua conexão. Nossa equipe já está trabalhando nisso.';
+    const prev = result.data_previsao_fim ? formatarDataFalada(result.data_previsao_fim) : null;
+    if (prev) speech += ` A previsão de normalização é até ${prev}.`;
+    speech += ' Peço desculpas pelo transtorno.';
+    return speech;
+  }
+  if (result.tem_massiva === false) {
+    return 'Verifiquei a rede aqui e não encontrei nenhum problema geral na sua região.';
+  }
+  return null;
+}
+
 export function buildFinanceiroSpeech(result: FinanceiroSpeechInput): string | null {
   const parts: string[] = [];
   if (result.fala_obrigatoria?.trim()) parts.push(result.fala_obrigatoria.trim());
@@ -384,6 +423,13 @@ function faltandoEnderecoViabilidade(logradouro: string, numero: string, bairro:
   return partes.join(', ');
 }
 
+function formatarCelularFalado(numero: string): string {
+  const d = numero.replace(/\D/g, '');
+  const local = d.startsWith('55') ? d.slice(2) : d;
+  if (local.length !== 11) return numero;
+  return `DDD ${local.slice(0, 2)}, ${local.slice(2, 7)} ${local.slice(7)}`;
+}
+
 /** Celular informado pelo cliente — obrigatório para WhatsApp (não usa fixo da chamada automaticamente). */
 function resolverWhatsAppCliente(
   ctx: CallContext,
@@ -411,12 +457,16 @@ function resolverWhatsAppCliente(
     });
   }
 
-  ctx.celularWhatsApp = resolvido.numero;
+  if (ctx.celularWhatsApp !== resolvido.numero) {
+    ctx.celularWhatsApp = resolvido.numero;
+    ctx.celularWhatsAppConfirmado = false;
+  }
   return { numero: resolvido.numero };
 }
 
 interface EnvioWhatsappParams {
   celular_whatsapp?: string;
+  celular_confirmado?: boolean;
   resumo_atendimento?: string;
   resposta_cliente?: string;
   fatura?: CallContext['faturaWhatsApp'];
@@ -425,7 +475,7 @@ interface EnvioWhatsappParams {
 async function enviarWhatsappAtendimento(
   ctx: CallContext,
   params: EnvioWhatsappParams,
-): Promise<{ enviado: boolean; motivo?: string }> {
+): Promise<{ enviado: boolean; motivo?: string; orientacao?: string }> {
   if (!ctx.cliente) {
     return { enviado: false, motivo: 'cliente_nao_identificado' };
   }
@@ -439,6 +489,20 @@ async function enviarWhatsappAtendimento(
   const destino = resolverWhatsAppCliente(ctx, params.celular_whatsapp);
   if (!destino.numero) {
     return { enviado: false, motivo: destino.motivo };
+  }
+
+  if (params.celular_confirmado === true) {
+    ctx.celularWhatsAppConfirmado = true;
+  }
+  if (!ctx.celularWhatsAppConfirmado) {
+    return {
+      enviado: false,
+      motivo: 'celular_nao_confirmado',
+      orientacao:
+        `O número ${formatarCelularFalado(destino.numero)} ainda não foi confirmado. ` +
+        'Repita o número dígito a dígito e pergunte se está correto. ' +
+        'Só envie após o cliente confirmar (sim/certo) ou use celular_confirmado=true.',
+    };
   }
 
   const fatura = params.fatura ?? ctx.faturaWhatsApp;
@@ -1004,6 +1068,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     if (enviarWpp) {
       const resultado = await enviarWhatsappAtendimento(ctx, {
         celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+        celular_confirmado: args.celular_confirmado === true,
         resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
         resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
         fatura: ctx.faturaWhatsApp,
@@ -1034,7 +1099,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const msgWhatsapp = wppMotivo === 'celular_nao_informado'
       ? `${msgBase} Pergunte ao cliente qual celular com WhatsApp usar e tente de novo.`
-      : wppMotivo === 'celular_invalido'
+      : wppMotivo === 'celular_nao_confirmado'
+        ? `${msgBase} Repita o número dígito a dígito, confirme com o cliente e só então envie. NÃO leia PIX, linha digitável ou link em voz alta.`
+        : wppMotivo === 'celular_invalido'
         ? `${msgBase} O número informado não é celular válido. Peça o DDD e os 9 dígitos, confirmando um a um.`
         : wppMotivo === 'numero_sem_whatsapp'
           ? `${msgBase} O número informado não tem WhatsApp. Confirme o celular dígito a dígito com o cliente e tente de novo. NÃO leia PIX, linha digitável ou link em voz alta.`
@@ -1294,6 +1361,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
     if (enviarWpp && aberto) {
       const resultado = await enviarWhatsappAtendimento(ctx, {
         celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+        celular_confirmado: args.celular_confirmado === true,
         resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
         resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
       });
@@ -1312,7 +1380,9 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       orientacao: aberto
         ? enviarWpp && wppEnviado
           ? 'Protocolo e resumo enviados por WhatsApp. Confirme com o cliente que recebeu.'
-          : 'Fale imediatamente ao cliente: "Abri um chamado pra você, o protocolo é [número]. Nossa equipe técnica vai verificar."'
+          : enviarWpp && wppMotivo === 'celular_nao_confirmado'
+            ? 'Confirme o número de WhatsApp com o cliente antes de enviar. Informe o protocolo em voz alta.'
+            : 'Fale imediatamente ao cliente: "Abri um chamado pra você, o protocolo é [número]. Nossa equipe técnica vai verificar."'
         : undefined,
     };
   });
@@ -1323,6 +1393,7 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
 
     const resultado = await enviarWhatsappAtendimento(ctx, {
       celular_whatsapp: args.celular_whatsapp ? String(args.celular_whatsapp) : undefined,
+      celular_confirmado: args.celular_confirmado === true,
       resumo_atendimento: args.resumo_atendimento ? String(args.resumo_atendimento) : undefined,
       resposta_cliente: args.resposta_cliente ? String(args.resposta_cliente) : undefined,
     });
@@ -1338,12 +1409,14 @@ export function registerTools(client: RealtimeClient, ctx: CallContext): void {
       protocolos_incluidos: ctx.protocolos,
       fatura_incluida: !!ctx.faturaWhatsApp,
       mensagem: resultado.enviado
-        ? 'Resumo enviado por WhatsApp com protocolo e fatura (se houver).'
-        : resultado.motivo === 'celular_nao_informado'
-          ? 'Pergunte ao cliente qual celular com WhatsApp usar.'
-          : resultado.motivo === 'resumo_ou_resposta_ausente'
-            ? 'Preencha resumo_atendimento e resposta_cliente.'
-            : 'Não foi possível enviar o WhatsApp agora.',
+        ? 'Resumo enviado por WhatsApp. Confirme com o cliente que recebeu.'
+        : resultado.motivo === 'celular_nao_confirmado'
+          ? 'Confirme o número de WhatsApp com o cliente antes de enviar.'
+          : resultado.motivo === 'celular_nao_informado'
+            ? 'Pergunte ao cliente qual celular com WhatsApp usar.'
+            : resultado.motivo === 'resumo_ou_resposta_ausente'
+              ? 'Preencha resumo_atendimento e resposta_cliente.'
+              : 'Não foi possível enviar o WhatsApp agora.',
     };
   });
 

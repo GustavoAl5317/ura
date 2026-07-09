@@ -56,6 +56,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description:
             'Celular com WhatsApp informado pelo cliente (com DDD). SEMPRE pergunte qual número usar — pode ser diferente do telefone da ligação.',
         },
+        celular_confirmado: {
+          type: 'boolean',
+          description:
+            'true SOMENTE após o cliente confirmar o número (sim/certo). Se false ou omitido, o envio é bloqueado até confirmar.',
+        },
         resumo_atendimento: {
           type: 'string',
           description:
@@ -180,6 +185,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           description: 'Celular com WhatsApp informado pelo cliente (com DDD)',
         },
+        celular_confirmado: {
+          type: 'boolean',
+          description:
+            'true SOMENTE após o cliente confirmar o número (sim/certo). Se false ou omitido, o envio é bloqueado.',
+        },
         resumo_atendimento: {
           type: 'string',
           description: 'Resumo do que foi feito na ligação até abrir o chamado',
@@ -203,6 +213,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         celular_whatsapp: {
           type: 'string',
           description: 'Celular com WhatsApp informado pelo cliente (com DDD)',
+        },
+        celular_confirmado: {
+          type: 'boolean',
+          description:
+            'true SOMENTE após o cliente confirmar o número (sim/certo). Se false ou omitido, o envio é bloqueado.',
         },
         resumo_atendimento: {
           type: 'string',

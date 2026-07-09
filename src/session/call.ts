@@ -12,7 +12,7 @@ import {
   isSpeechHttpUnavailable,
   markElevenLabsUnavailable,
 } from '../tts/circuit';
-import { registerTools, buildFinanceiroSpeech } from '../tools/handlers';
+import { registerTools, buildFinanceiroSpeech, buildMassivaSpeech } from '../tools/handlers';
 import { createContext } from './context';
 import { assignAgentVoice } from './voice-rotation';
 import { buildSystemPrompt } from '../prompts/system';
@@ -365,6 +365,18 @@ export class CallSession {
       }
       if (name === 'consultar_financeiro') {
         this.ctx.consultaFinanceiraFeita = true;
+        const speech = buildFinanceiroSpeech(result as Parameters<typeof buildFinanceiroSpeech>[0]);
+        if (speech) {
+          this.pendingFalaObrigatoria = speech;
+          this.armFalaObrigatoriaFallback(callId, speech);
+        }
+      }
+      if (name === 'verificar_massiva') {
+        const speech = buildMassivaSpeech(result as Parameters<typeof buildMassivaSpeech>[0]);
+        if (speech) {
+          this.pendingFalaObrigatoria = speech;
+          this.armFalaObrigatoriaFallback(callId, speech);
+        }
       }
       if (name === 'consultar_planos') {
         this.ctx.consultaPlanosFeita = true;
@@ -457,6 +469,23 @@ export class CallSession {
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 
+      if (/internet|conex[aã]o|wi-?fi|wi fi|lent[ao]|caiu|cai|sem sinal|offline|n[aã]o conect|travou|inst[aá]vel|queda|sem internet|parou de funcionar|n[aã]o funciona|sem rede/i.test(text)) {
+        this.ctx.relatouProblemaTecnico = true;
+      }
+
+      if (this.ctx.celularWhatsApp && !this.ctx.celularWhatsAppConfirmado) {
+        const t = text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+        if (
+          /^(sim|isso|certo|correto|confirmo|pode mandar|pode enviar|manda|esse mesmo|e esse|exato|positivo|uhum)\b/.test(t) ||
+          /\b(est[aá] certo|ta certo|t[aá] certo|isso mesmo)\b/.test(t)
+        ) {
+          this.ctx.celularWhatsAppConfirmado = true;
+          logger.info(`[${callId}] Celular WhatsApp confirmado pelo cliente`, {
+            numero: this.ctx.celularWhatsApp,
+          });
+        }
+      }
+
       const cpfExtraido = parseCpfFromSpeech(text);
       if (cpfExtraido) {
         const g1 = cpfExtraido.slice(0, 3);
@@ -539,7 +568,13 @@ export class CallSession {
     });
 
     this.rt.on('responseDone', () => {
-      if (this.ctx.contratoSelecionado && this.ctx.consultaFinanceiraFeita && !this.ctx.consultaMassivaFeita && !this.ctx.financeiroBloqueado) {
+      if (
+        this.ctx.relatouProblemaTecnico &&
+        this.ctx.contratoSelecionado &&
+        this.ctx.consultaFinanceiraFeita &&
+        !this.ctx.consultaMassivaFeita &&
+        !this.ctx.financeiroBloqueado
+      ) {
         this.armAutoMassiva(callId);
       }
       this.clearResponseStallWatchdog();

@@ -27,8 +27,9 @@ export interface CallContext {
   // Último endereço consultado na viabilidade (usado no registrar_interesse)
   enderecoConsultado?: string;
 
-  // WhatsApp — celular confirmado pelo cliente nesta chamada
+  // WhatsApp — celular informado e confirmado pelo cliente nesta chamada
   celularWhatsApp?: string;
+  celularWhatsAppConfirmado?: boolean;
   protocolos: string[];
   faturaWhatsApp?: {
     valor: string;
