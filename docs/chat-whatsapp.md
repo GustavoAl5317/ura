@@ -1,0 +1,61 @@
+# Atendente de Chat (WhatsApp)
+
+Atendente de texto que **reaproveita 100% das consultas e da lógica de negócio da URA de voz**.
+As mesmas ferramentas (CPF, financeiro, 2ª via/PIX, massiva, Zabbix, ONU, chamado, viabilidade,
+planos, etc.) rodam num loop de chat com a OpenAI, e as respostas voltam pelo WhatsApp.
+
+## Como funciona
+
+```
+Cliente (WhatsApp) ──▶ Evolution API ──webhook──▶ [CHAT_WEBHOOK_PORT]/webhook
+                                                        │
+                                          ChatSessionStore (1 sessão por número)
+                                                        │
+                                       loop OpenAI Chat Completions + function calling
+                                                        │
+                              registerTools() ← MESMOS handlers da URA (src/tools/handlers.ts)
+                                                        │
+                        SGP · Geosite · Zabbix · WhatsApp (envio) ──▶ resposta no mesmo chat
+```
+
+- **Motor:** [`src/chat/session.ts`](../src/chat/session.ts) — sessão por número, histórico e loop agêntico.
+- **Ferramentas:** as definições da URA ([`src/tools/definitions.ts`](../src/tools/definitions.ts)) são
+  convertidas para o formato da Chat Completions em [`src/chat/definitions.ts`](../src/chat/definitions.ts)
+  (exceto `ignorar_ruido`, que só existe por causa de ruído de áudio). Os handlers de negócio
+  ([`src/tools/handlers.ts`](../src/tools/handlers.ts)) são registrados **sem alteração** via a
+  interface `ToolRegistrar`.
+- **Overrides de chat:** [`src/chat/overrides.ts`](../src/chat/overrides.ts) adapta `transferir_para_atendente`
+  (avisa um grupo humano em vez de transferir via AMI) e `encerrar_atendimento`, e injeta o número do
+  cliente nas ferramentas de envio (o WhatsApp dele é o próprio remetente — não precisa pedir/confirmar).
+- **Prompt:** [`src/chat/prompt.ts`](../src/chat/prompt.ts) — mesmos fluxos da voz (técnico, lentidão,
+  financeiro, cancelamento, mudança de endereço, vendas), sem regras de áudio (ruído, pronúncia,
+  "falar em silêncio", barge-in) e com estilo de chat.
+- **Webhook:** [`src/chat/webhook.ts`](../src/chat/webhook.ts) — recebe `messages.upsert`, ignora
+  mensagens próprias/grupos/status e responde pelo mesmo número.
+
+## Identificação do cliente
+
+Mantém o fluxo da URA: pede **CPF** e **confirma o titular** antes de qualquer consulta
+(financeiro, massiva, ONU). O número do WhatsApp **não** é usado para autenticar.
+
+## Configuração
+
+1. Preencha as variáveis `CHAT_*` no `.env` (veja `.env.example`). O bloco `WHATSAPP_*`
+   (Evolution) já existente é reutilizado para **enviar** as respostas.
+2. Na Evolution API, cadastre um **webhook** apontando para:
+   ```
+   http://<host-da-ura>:9022/webhook
+   ```
+   com o evento **`MESSAGES_UPSERT`** habilitado. Se definir `CHAT_WEBHOOK_TOKEN`, inclua-o
+   como `?token=...` na URL ou no header `apikey`/`Authorization`.
+3. Suba a URA normalmente (`npm run dev` ou `npm start`). O log deve mostrar
+   `Chat WhatsApp escutando webhook na porta 9022`.
+
+## Observações
+
+- **Faturas/PIX/boleto e protocolos** são entregues na própria conversa (as ferramentas de envio
+  usam automaticamente o número do cliente).
+- Uma sessão por número, descartada após `CHAT_SESSION_IDLE_MIN` minutos de inatividade ou ao
+  encerrar o atendimento.
+- Roda no mesmo processo da URA de voz, sem afetá-la. Para rodar só o chat, desative os demais
+  serviços ou use `CHAT_ENABLED=0` para desligar apenas o chat.

@@ -4,6 +4,7 @@ import { logger } from './logger';
 import { startSidecar } from './http/sidecar';
 import { startAudioSocketServer } from './audiosocket/server';
 import { startAdminServer } from './admin/server';
+import { startChatServer } from './chat/webhook';
 import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
 import { BUILD_ID } from './build';
@@ -37,11 +38,15 @@ async function main() {
     `  Audio  : ring=${config.audio.inputRingMs}ms start=${bufStart}ms min=${config.audio.minBufferMs}ms max=${config.audio.maxBufferMs}ms mute=${config.audio.inputMuteMs}ms`,
   );
   logger.info(`  Admin  : ${config.admin.enabled ? `porta ${config.admin.port}` : 'desabilitado'}`);
+  logger.info(`  Chat   : ${config.chat.inMain ? (config.chat.enabled ? `porta ${config.chat.webhookPort} (${config.chat.model})` : 'desabilitado') : 'processo separado (chat-only)'}`);
   logger.info('══════════════════════════════════════════');
 
   startSidecar();
   startAudioSocketServer();
   startAdminServer();
+  // Por padrão o chat roda em processo separado (chat-only.ts) para NÃO impactar a
+  // URA de voz. Só sobe aqui se CHAT_IN_MAIN=1 for explicitamente definido.
+  if (config.chat.inMain) startChatServer();
 }
 
 main().catch((err) => {

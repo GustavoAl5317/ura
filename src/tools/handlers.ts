@@ -7,7 +7,7 @@ import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/ad
 import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
-import type { RealtimeClient } from '../realtime/client';
+import type { ToolRegistrar } from './registrar';
 import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
@@ -672,7 +672,7 @@ function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
     .slice(0, max);
 }
 
-export function registerTools(client: RealtimeClient, ctx: CallContext): void {
+export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
 
   /** Pré-carrega faturas, massiva e ONU em paralelo — consultas seguintes usam cache. */
   const prefetchConsultas = (contratoId: number) => {

@@ -156,6 +156,32 @@ export const config = {
     salesGroupId: opt('WHATSAPP_SALES_GROUP_ID'),
   },
 
+  chat: {
+    /** Liga o atendente de chat do WhatsApp (webhook Evolution + loop OpenAI). */
+    enabled: optBool('CHAT_ENABLED', true),
+    /**
+     * Subir o chat DENTRO do processo da URA de voz (index.ts). Padrão: false —
+     * a URA de voz NÃO é afetada. Rode o chat como processo separado (chat-only.ts).
+     */
+    inMain: optBool('CHAT_IN_MAIN', false),
+    /** Porta do webhook que recebe eventos da Evolution API (messages.upsert). */
+    webhookPort: optInt('CHAT_WEBHOOK_PORT', 9022),
+    /** Token opcional exigido no header/query do webhook (?token= ou apikey). */
+    webhookToken: opt('CHAT_WEBHOOK_TOKEN', '').trim(),
+    /** Modelo OpenAI de texto que conduz o atendimento (function calling). */
+    model: opt('CHAT_MODEL', 'gpt-4o'),
+    temperature: optFloat('CHAT_TEMPERATURE', 0.4),
+    maxTokens: optInt('CHAT_MAX_TOKENS', 700),
+    /** Máx. de rodadas de ferramentas por mensagem (proteção contra loop). */
+    maxToolRounds: optInt('CHAT_MAX_TOOL_ROUNDS', 8),
+    /** Minutos de inatividade até a sessão do cliente ser descartada. */
+    sessionIdleMin: optInt('CHAT_SESSION_IDLE_MIN', 30),
+    /** Também atende mensagens vindas de grupos (@g.us). Padrão: só conversas 1:1. */
+    atenderGrupos: optBool('CHAT_ATENDER_GRUPOS', false),
+    /** Grupo/nº (@g.us ou DDD) que recebe avisos de transferência p/ humano. */
+    handoffGroupId: opt('CHAT_HANDOFF_GROUP_ID', '').trim(),
+  },
+
   ami: {
     host: opt('AST_AMI_HOST', '127.0.0.1'),
     port: optInt('AST_AMI_PORT', 5038),

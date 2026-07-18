@@ -6,6 +6,9 @@ export interface CallContext {
   asteriskChannel?: string;
   startedAt: Date;
 
+  /** Canal do atendimento: 'voz' (URA/Asterisk) ou 'chat' (WhatsApp texto). */
+  canal?: 'voz' | 'chat';
+
   // Dados do cliente (preenchidos após identificação)
   cliente?: SgpCliente;
   titulos?: SgpTitulo[];          // faturas em aberto (lazy loaded)
