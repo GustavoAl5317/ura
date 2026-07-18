@@ -42,7 +42,7 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
         '',
         `💬 *Resumo:* ${resumo || '-'}`,
       ].filter((l) => l !== null).join('\n');
-      await whatsapp.enviarGrupo(config.chat.handoffGroupId, texto);
+      await whatsapp.enviarGrupo(config.chat.handoffGroupId, texto, ctx.whatsappInstance);
     }
 
     return {

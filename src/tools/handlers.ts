@@ -512,7 +512,7 @@ async function enviarWhatsappAtendimento(
     respostaCliente: resposta,
     protocolos: ctx.protocolos.length ? [...ctx.protocolos] : undefined,
     fatura,
-  });
+  }, ctx.whatsappInstance);
 
   return {
     enviado: resultado.enviado,
@@ -1665,7 +1665,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
 
     let enviado = false;
     if (config.whatsapp.salesGroupId) {
-      const resultado = await whatsapp.enviarGrupo(config.whatsapp.salesGroupId, linhas);
+      const resultado = await whatsapp.enviarGrupo(config.whatsapp.salesGroupId, linhas, ctx.whatsappInstance);
       enviado = resultado.enviado;
     }
 

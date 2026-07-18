@@ -57,8 +57,8 @@ function tokenValido(req: http.IncomingMessage): boolean {
   return qToken === config.chat.webhookToken || bearer === config.chat.webhookToken;
 }
 
-/** Processa uma mensagem recebida e responde pelo mesmo WhatsApp. */
-async function processarMensagem(msg: EvolutionMessage): Promise<void> {
+/** Processa uma mensagem recebida e responde pela MESMA instância que recebeu. */
+async function processarMensagem(msg: EvolutionMessage, instance: string): Promise<void> {
   const key = msg.key;
   const remoteJid = key?.remoteJid;
   if (!remoteJid || key?.fromMe) return;                       // ignora nossas próprias mensagens
@@ -66,31 +66,38 @@ async function processarMensagem(msg: EvolutionMessage): Promise<void> {
   const isGrupo = remoteJid.endsWith('@g.us');
   if (isGrupo && !config.chat.atenderGrupos) return;
 
+  // Allowlist de instâncias (evita responder em números com atendimento humano).
+  if (config.chat.allowedInstances.length && !config.chat.allowedInstances.includes(instance)) {
+    logger.debug(`[chat] instância ${instance} fora da allowlist — ignorando`);
+    return;
+  }
+
   const texto = extrairTexto(msg.message);
   if (!texto) return;                                          // mídia sem legenda, reações, etc.
 
   const numero = remoteJid.split('@')[0];
-  logger.info(`[chat] ⬇️  ${numero}: ${texto}`);
+  logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto}`);
 
-  const session = store.get(remoteJid, numero);
+  const session = store.get(remoteJid, numero, instance);
   let resposta: string | null = null;
   try {
     resposta = await session.handle(texto);
   } catch (err: unknown) {
     logger.error('[chat] erro ao processar mensagem', {
       remoteJid,
+      instance,
       err: err instanceof Error ? err.message : String(err),
     });
     resposta = 'Desculpe, tive uma instabilidade aqui 😕 pode me mandar de novo?';
   }
 
   if (resposta && resposta.trim()) {
-    logger.info(`[chat] ⬆️  ${numero}: ${resposta}`);
-    await whatsapp.enviarTexto(numero, resposta.trim());
+    logger.info(`[chat] ⬆️  [${instance}] ${numero}: ${resposta}`);
+    await whatsapp.enviarTexto(numero, resposta.trim(), instance);
   }
 
   if (session.encerrada) {
-    store.drop(remoteJid);
+    store.drop(remoteJid, instance);
   }
 }
 
@@ -152,9 +159,10 @@ export function startChatServer(): void {
         return;
       }
 
+      const instance = String(payload.instance ?? payload.instanceName ?? config.whatsapp.instance);
       const mensagens = extrairMensagens(payload);
       for (const m of mensagens) {
-        void processarMensagem(m);
+        void processarMensagem(m, instance);
       }
     });
   });

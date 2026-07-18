@@ -178,6 +178,13 @@ export const config = {
     sessionIdleMin: optInt('CHAT_SESSION_IDLE_MIN', 30),
     /** Também atende mensagens vindas de grupos (@g.us). Padrão: só conversas 1:1. */
     atenderGrupos: optBool('CHAT_ATENDER_GRUPOS', false),
+    /**
+     * Lista branca de instâncias Evolution que o chat atende (nomes separados por vírgula).
+     * Vazio = atende qualquer instância que apontar o webhook. Use para não responder
+     * acidentalmente em números que ainda têm atendimento humano.
+     */
+    allowedInstances: opt('CHAT_ALLOWED_INSTANCES', '')
+      .split(',').map((s) => s.trim()).filter(Boolean),
     /** Grupo/nº (@g.us ou DDD) que recebe avisos de transferência p/ humano. */
     handoffGroupId: opt('CHAT_HANDOFF_GROUP_ID', '').trim(),
   },

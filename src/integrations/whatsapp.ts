@@ -45,8 +45,13 @@ export class WhatsAppClient {
     return local.length === 11 && local[2] === '9';
   }
 
-  private get available(): boolean {
-    return !!(config.whatsapp.apiUrl && config.whatsapp.instance && config.whatsapp.apiKey);
+  /** Instância a usar: override (canal chat multi-número) ou a padrão do config (voz). */
+  private resolveInstance(instance?: string): string {
+    return (instance && instance.trim()) || config.whatsapp.instance;
+  }
+
+  private isAvailable(instance?: string): boolean {
+    return !!(config.whatsapp.apiUrl && this.resolveInstance(instance) && config.whatsapp.apiKey);
   }
 
   private parseSendError(err: unknown): { motivo: WhatsappMotivo; status?: number; body: string } {
@@ -79,10 +84,10 @@ export class WhatsAppClient {
   }
 
   /** Verifica se o número tem WhatsApp (Evolution API). null = não foi possível verificar. */
-  private async verificarNumeroWhatsApp(number: string): Promise<boolean | null> {
+  private async verificarNumeroWhatsApp(number: string, instance?: string): Promise<boolean | null> {
     try {
       const res = await this.client.post(
-        `/chat/whatsappNumbers/${config.whatsapp.instance}`,
+        `/chat/whatsappNumbers/${this.resolveInstance(instance)}`,
         { numbers: [number] },
       );
       const rows = Array.isArray(res.data) ? res.data : [];
@@ -100,8 +105,8 @@ export class WhatsAppClient {
   }
 
   // Evolution API varia por versão — tenta formato moderno e clássico.
-  private async postSendText(number: string, text: string): Promise<AxiosResponse> {
-    const path = `/message/sendText/${config.whatsapp.instance}`;
+  private async postSendText(number: string, text: string, instance?: string): Promise<AxiosResponse> {
+    const path = `/message/sendText/${this.resolveInstance(instance)}`;
     const modern = { number, text };
     const classic = {
       number,
@@ -131,25 +136,25 @@ export class WhatsAppClient {
     }
   }
 
-  async enviarTexto(para: string, mensagem: string): Promise<WhatsappSendResult> {
-    if (!this.available) {
+  async enviarTexto(para: string, mensagem: string, instance?: string): Promise<WhatsappSendResult> {
+    if (!this.isAvailable(instance)) {
       logger.error('WhatsApp não configurado', {
         temApiUrl: !!config.whatsapp.apiUrl,
-        temInstance: !!config.whatsapp.instance,
+        temInstance: !!this.resolveInstance(instance),
         temApiKey: !!config.whatsapp.apiKey,
       });
       return { enviado: false, motivo: 'nao_configurado' };
     }
 
     const numero = this.normalize(para);
-    const existe = await this.verificarNumeroWhatsApp(numero);
+    const existe = await this.verificarNumeroWhatsApp(numero, instance);
     if (existe === false) {
       logger.warn('WhatsApp: número sem conta WhatsApp', { para: numero });
       return { enviado: false, motivo: 'numero_sem_whatsapp' };
     }
 
     try {
-      const res = await this.postSendText(numero, mensagem);
+      const res = await this.postSendText(numero, mensagem, instance);
       const meta = this.extractSendMeta(res.data);
       if (!meta.ok) {
         logger.error('WhatsApp: API respondeu sem confirmação de mensagem', {
@@ -245,23 +250,23 @@ export class WhatsAppClient {
       linkBoleto?: string | null;
       linhaDigitavel?: string | null;
     };
-  }): Promise<WhatsappSendResult> {
+  }, instance?: string): Promise<WhatsappSendResult> {
     const mensagem = this.montarMensagemAtendimento(params);
-    return this.enviarTexto(para, mensagem);
+    return this.enviarTexto(para, mensagem, instance);
   }
 
-  async enviarGrupo(grupoId: string, mensagem: string): Promise<WhatsappSendResult> {
-    if (!this.available) {
+  async enviarGrupo(grupoId: string, mensagem: string, instance?: string): Promise<WhatsappSendResult> {
+    if (!this.isAvailable(instance)) {
       logger.error('WhatsApp não configurado (grupo)', {
         temApiUrl: !!config.whatsapp.apiUrl,
-        temInstance: !!config.whatsapp.instance,
+        temInstance: !!this.resolveInstance(instance),
         temApiKey: !!config.whatsapp.apiKey,
       });
       return { enviado: false, motivo: 'nao_configurado' };
     }
     try {
       const formattedGrupo = grupoId.includes('@g.us') ? grupoId : `${grupoId}@g.us`;
-      const res = await this.postSendText(formattedGrupo, mensagem);
+      const res = await this.postSendText(formattedGrupo, mensagem, instance);
       const meta = this.extractSendMeta(res.data);
       if (!meta.ok) {
         return { enviado: false, motivo: 'falha_api' };

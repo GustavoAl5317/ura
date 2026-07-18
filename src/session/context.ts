@@ -9,6 +9,9 @@ export interface CallContext {
   /** Canal do atendimento: 'voz' (URA/Asterisk) ou 'chat' (WhatsApp texto). */
   canal?: 'voz' | 'chat';
 
+  /** Instância Evolution que enviará as mensagens (chat multi-número). Vazio = padrão do config. */
+  whatsappInstance?: string;
+
   // Dados do cliente (preenchidos após identificação)
   cliente?: SgpCliente;
   titulos?: SgpTitulo[];          // faturas em aberto (lazy loaded)

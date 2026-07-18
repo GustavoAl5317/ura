@@ -21,10 +21,12 @@ export class ChatSession {
   lastActivity = Date.now();
   private chain: Promise<string | null> = Promise.resolve(null);
 
-  constructor(readonly remoteJid: string, numero: string) {
+  constructor(readonly remoteJid: string, numero: string, instance?: string) {
     this.ctx = createContext(remoteJid, numero);
     this.ctx.canal = 'chat';
     this.ctx.agentName = config.company.agentName;
+    // Responde/entrega pela MESMA instância Evolution que recebeu a mensagem.
+    this.ctx.whatsappInstance = instance;
     // No chat já sabemos o WhatsApp do cliente (é o remetente): pré-confirmado.
     this.ctx.celularWhatsApp = numero;
     this.ctx.celularWhatsAppConfirmado = true;
@@ -138,21 +140,22 @@ export class ChatSessionStore {
     }, 60_000).unref?.();
   }
 
-  get(remoteJid: string, numero: string): ChatSession {
-    let s = this.sessions.get(remoteJid);
+  get(remoteJid: string, numero: string, instance?: string): ChatSession {
+    const key = `${instance ?? ''}:${remoteJid}`;
+    let s = this.sessions.get(key);
     if (s && s.encerrada) {
-      this.sessions.delete(remoteJid);
+      this.sessions.delete(key);
       s = undefined;
     }
     if (!s) {
-      s = new ChatSession(remoteJid, numero);
-      this.sessions.set(remoteJid, s);
-      logger.info(`[chat] Nova sessão para ${numero} (${remoteJid})`);
+      s = new ChatSession(remoteJid, numero, instance);
+      this.sessions.set(key, s);
+      logger.info(`[chat] Nova sessão para ${numero} (${remoteJid}) via instância ${instance ?? '(padrão)'}`);
     }
     return s;
   }
 
-  drop(remoteJid: string): void {
-    this.sessions.delete(remoteJid);
+  drop(remoteJid: string, instance?: string): void {
+    this.sessions.delete(`${instance ?? ''}:${remoteJid}`);
   }
 }
