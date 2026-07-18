@@ -50,6 +50,11 @@ export class WhatsAppClient {
     return (instance && instance.trim()) || config.whatsapp.instance;
   }
 
+  /** Nome da instância pronto para URL (encoda espaços/símbolos, ex.: "1777 - AQUI"). */
+  private instancePath(instance?: string): string {
+    return encodeURIComponent(this.resolveInstance(instance));
+  }
+
   private isAvailable(instance?: string): boolean {
     return !!(config.whatsapp.apiUrl && this.resolveInstance(instance) && config.whatsapp.apiKey);
   }
@@ -87,7 +92,7 @@ export class WhatsAppClient {
   private async verificarNumeroWhatsApp(number: string, instance?: string): Promise<boolean | null> {
     try {
       const res = await this.client.post(
-        `/chat/whatsappNumbers/${this.resolveInstance(instance)}`,
+        `/chat/whatsappNumbers/${this.instancePath(instance)}`,
         { numbers: [number] },
       );
       const rows = Array.isArray(res.data) ? res.data : [];
@@ -106,7 +111,7 @@ export class WhatsAppClient {
 
   // Evolution API varia por versão — tenta formato moderno e clássico.
   private async postSendText(number: string, text: string, instance?: string): Promise<AxiosResponse> {
-    const path = `/message/sendText/${this.resolveInstance(instance)}`;
+    const path = `/message/sendText/${this.instancePath(instance)}`;
     const modern = { number, text };
     const classic = {
       number,
