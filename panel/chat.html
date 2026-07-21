@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atendimento — Aquitelecom</title>
+<style>
+  :root{
+    /* WhatsApp base */
+    --green:#00a884; --green-deep:#008069; --green-ink:#005c4b;
+    --wall:#efeae2; --panel:#f0f2f5; --surface:#ffffff;
+    --out:#d9fdd3; --in:#ffffff;
+    --ink:#111b21; --muted:#667781; --line:#e9edef; --line-2:#d1d7db;
+    /* Atendente no comando */
+    --take:#b26b00; --take-soft:#fff6e5; --take-line:#f0c476;
+    /* Telemetria */
+    --tele:#3f4a54; --tele-bg:#eef1f3; --tele-line:#d8dee3;
+    --danger:#c0392b;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --rail:340px; --dossie:330px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:var(--sans);color:var(--ink);background:var(--panel);
+    font-size:14.5px;-webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+  button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+  button:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+    outline:2px solid var(--green-deep);outline-offset:2px;
+  }
+
+  /* ── Shell ───────────────────────────────────────────── */
+  .app{display:grid;grid-template-columns:var(--rail) minmax(0,1fr) var(--dossie);height:100vh}
+  .col{min-width:0;display:flex;flex-direction:column;height:100vh}
+  .rail{background:var(--surface);border-right:1px solid var(--line-2)}
+  .dossie{background:var(--surface);border-left:1px solid var(--line-2)}
+
+  /* ── Cabeçalhos ──────────────────────────────────────── */
+  .top{
+    height:60px;flex:0 0 60px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:0 16px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;min-width:0}
+  .mark{
+    width:34px;height:34px;border-radius:50%;background:var(--green-deep);color:#fff;
+    display:grid;place-items:center;font-weight:700;font-size:13px;letter-spacing:.02em;flex:0 0 auto;
+  }
+  .brand b{font-size:15px;font-weight:600;display:block;line-height:1.2}
+  .brand span{font-size:11.5px;color:var(--muted);display:block}
+  .live{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(0,168,132,.16)}
+  .live.off .dot{background:#c0392b;box-shadow:0 0 0 3px rgba(192,57,43,.14)}
+
+  /* ── Busca ───────────────────────────────────────────── */
+  .search{padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .search input{
+    width:100%;border:0;background:var(--panel);border-radius:8px;padding:9px 14px;
+    font-size:14px;color:var(--ink);
+  }
+  .search input::placeholder{color:var(--muted)}
+
+  /* ── Lista de conversas ──────────────────────────────── */
+  .list{flex:1;overflow-y:auto;overscroll-behavior:contain}
+  .conv{
+    display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px;padding:11px 14px;
+    border-bottom:1px solid var(--line);cursor:pointer;position:relative;
+  }
+  .conv:hover{background:#f5f6f6}
+  .conv[aria-selected="true"]{background:#f0f2f5}
+  .conv[aria-selected="true"]::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--green-deep)}
+  .ava{
+    width:48px;height:48px;border-radius:50%;background:#dfe5e7;color:#54656f;
+    display:grid;place-items:center;font-weight:600;font-size:16px;
+  }
+  .conv.human .ava{background:var(--take-soft);color:var(--take);box-shadow:inset 0 0 0 2px var(--take-line)}
+  .conv-body{min-width:0}
+  .conv-row{display:flex;align-items:baseline;gap:8px}
+  .conv-name{font-weight:500;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .conv-time{font-size:11.5px;color:var(--muted);flex:0 0 auto}
+  .conv-last{
+    font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    margin-top:2px;
+  }
+  .tag{
+    display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;
+    padding:2px 7px;border-radius:10px;letter-spacing:.02em;text-transform:uppercase;
+  }
+  .tag.ia{background:#e7f7f2;color:var(--green-ink)}
+  .tag.human{background:var(--take-soft);color:var(--take)}
+  .tag.off{background:#eceff1;color:var(--muted)}
+  .tag.alert{background:#fdecea;color:var(--danger)}
+  .empty{padding:44px 24px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.6}
+
+  /* ── Conversa ────────────────────────────────────────── */
+  .thread-top{
+    height:60px;flex:0 0 60px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:0 16px;
+  }
+  .thread-top .ava{width:40px;height:40px;font-size:14px}
+  .thread-id{min-width:0;flex:1}
+  .thread-id b{display:block;font-size:15px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thread-id span{display:block;font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .wall{
+    flex:1;overflow-y:auto;padding:18px 6%;background-color:var(--wall);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90' viewBox='0 0 90 90'%3E%3Cg fill='none' stroke='%23000' stroke-opacity='.028' stroke-width='1.4'%3E%3Ccircle cx='16' cy='16' r='5'/%3E%3Cpath d='M52 10h12M58 4v12M30 62c4-6 10-6 14 0'/%3E%3Crect x='64' y='52' width='11' height='11' rx='2.5'/%3E%3Cpath d='M8 44h13M14 76l6-7 6 7'/%3E%3C/g%3E%3C/svg%3E");
+    scroll-behavior:smooth;
+  }
+  .day{display:flex;justify-content:center;margin:6px 0 14px}
+  .day span{background:#fff;color:var(--muted);font-size:11.5px;padding:5px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(11,20,26,.08)}
+
+  .msg{max-width:min(72%,560px);margin-bottom:9px;position:relative;clear:both}
+  .msg .bub{
+    padding:7px 9px 18px 10px;border-radius:8px;font-size:14.4px;line-height:1.42;
+    box-shadow:0 1px .5px rgba(11,20,26,.13);position:relative;white-space:pre-wrap;word-wrap:break-word;
+  }
+  .msg .time{
+    position:absolute;right:9px;bottom:5px;font-size:11px;color:#667781;
+    display:flex;align-items:center;gap:3px;
+  }
+  .msg.left{float:left}
+  .msg.left .bub{background:var(--in);border-top-left-radius:0}
+  .msg.left .bub::before{
+    content:"";position:absolute;left:-8px;top:0;width:8px;height:13px;background:var(--in);
+    clip-path:polygon(100% 0,0 0,100% 100%);
+  }
+  .msg.right{float:right}
+  .msg.right .bub{background:var(--out);border-top-right-radius:0}
+  .msg.right .bub::before{
+    content:"";position:absolute;right:-8px;top:0;width:8px;height:13px;background:var(--out);
+    clip-path:polygon(0 0,100% 0,0 100%);
+  }
+  .msg.right.by-human .bub{background:var(--take-soft);box-shadow:0 1px .5px rgba(11,20,26,.13),inset 0 0 0 1px var(--take-line)}
+  .msg.right.by-human .bub::before{background:var(--take-soft)}
+  .who{
+    font-size:11.5px;font-weight:700;margin-bottom:2px;display:block;letter-spacing:.01em;
+  }
+  .msg.right .who{color:var(--green-ink)}
+  .msg.right.by-human .who{color:var(--take)}
+
+  .sys{clear:both;display:flex;justify-content:center;margin:12px 0}
+  .sys span{
+    background:#ffeecd;color:#7a5b16;font-size:12px;padding:6px 13px;border-radius:8px;
+    box-shadow:0 1px .5px rgba(11,20,26,.1);text-align:center;max-width:80%;
+  }
+
+  /* Telemetria: consultas da IA (elemento de assinatura) */
+  .tool{clear:both;margin:9px 0;max-width:min(78%,600px)}
+  .tool button{
+    display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+    background:var(--tele-bg);border:1px solid var(--tele-line);border-left:3px solid var(--tele);
+    border-radius:7px;padding:7px 11px;color:var(--tele);
+  }
+  .tool button:hover{background:#e6eaed}
+  .tool .ico{
+    width:20px;height:20px;flex:0 0 auto;border-radius:5px;background:var(--tele);color:#fff;
+    display:grid;place-items:center;font-size:11px;font-weight:700;
+  }
+  .tool .lbl{flex:1;min-width:0}
+  .tool .lbl b{display:block;font-size:12.8px;font-weight:600}
+  .tool .lbl code{display:block;font-family:var(--mono);font-size:10.5px;color:#7b8994;margin-top:1px}
+  .tool .chev{font-size:11px;color:#8696a0;transition:transform .18s}
+  .tool[data-open="true"] .chev{transform:rotate(90deg)}
+  .tool pre{
+    margin:0;border:1px solid var(--tele-line);border-top:0;border-radius:0 0 7px 7px;
+    background:#fbfcfc;padding:10px 12px;font-family:var(--mono);font-size:11px;line-height:1.55;
+    color:#3f4a54;max-height:230px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  }
+  .tool pre b{color:var(--tele);font-weight:700}
+
+  /* ── Compositor ──────────────────────────────────────── */
+  .composer{flex:0 0 auto;background:var(--panel);border-top:1px solid var(--line);padding:10px 16px}
+  .locked{
+    display:flex;align-items:center;gap:12px;background:#e7f7f2;border:1px solid #b7e4d7;
+    border-radius:10px;padding:11px 14px;
+  }
+  .locked .txt{flex:1;min-width:0}
+  .locked .txt b{display:block;font-size:13.5px;color:var(--green-ink)}
+  .locked .txt span{display:block;font-size:12px;color:#3f6b60;margin-top:1px}
+  .btn{
+    border-radius:8px;padding:9px 16px;font-size:13.5px;font-weight:600;white-space:nowrap;
+    transition:filter .15s,background .15s;
+  }
+  .btn:hover{filter:brightness(.94)}
+  .btn.take{background:var(--take);color:#fff}
+  .btn.back{background:var(--green-deep);color:#fff}
+  .btn.ghost{background:#fff;color:var(--muted);border:1px solid var(--line-2)}
+  .btn[disabled]{opacity:.5;cursor:not-allowed;filter:none}
+
+  .live-bar{
+    display:flex;align-items:center;gap:10px;background:var(--take-soft);
+    border:1px solid var(--take-line);border-radius:10px;padding:8px 8px 8px 14px;
+  }
+  .live-bar .note{font-size:12px;color:var(--take);font-weight:600;flex:0 0 auto}
+  .live-bar textarea{
+    flex:1;border:0;background:#fff;border-radius:8px;padding:9px 12px;resize:none;
+    font:inherit;font-size:14.4px;line-height:1.4;max-height:110px;min-height:38px;color:var(--ink);
+    border:1px solid var(--take-line);
+  }
+  .live-bar textarea::placeholder{color:#a08a63}
+  .send{
+    width:40px;height:40px;border-radius:50%;background:var(--take);color:#fff;flex:0 0 auto;
+    display:grid;place-items:center;font-size:16px;
+  }
+  .send[disabled]{opacity:.45}
+
+  /* ── Dossiê ──────────────────────────────────────────── */
+  .dossie-body{flex:1;overflow-y:auto;padding:16px}
+  .card{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
+  .card h3{
+    margin:0;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--muted);padding:10px 13px;background:var(--panel);border-bottom:1px solid var(--line);
+  }
+  .card .body{padding:12px 13px}
+  .kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:5px 10px;font-size:13px}
+  .kv dt{color:var(--muted);font-size:12px}
+  .kv dd{margin:0;word-break:break-word}
+  .kv dd.m{font-family:var(--mono);font-size:12.3px}
+  .idbadge{
+    display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:9px;margin-bottom:14px;
+    font-size:13.5px;font-weight:600;
+  }
+  .idbadge.yes{background:#e7f7f2;color:var(--green-ink);border:1px solid #b7e4d7}
+  .idbadge.no{background:var(--panel);color:var(--muted);border:1px solid var(--line-2)}
+  .idbadge .b{
+    width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;flex:0 0 auto;
+  }
+  .idbadge.yes .b{background:var(--green);color:#fff}
+  .idbadge.no .b{background:#cfd8dc;color:#fff}
+  .pill{
+    display:inline-block;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:11px;
+    background:var(--panel);color:var(--muted);margin:0 5px 5px 0;
+  }
+  .pill.ok{background:#e7f7f2;color:var(--green-ink)}
+  .pill.warn{background:#fdecea;color:var(--danger)}
+  .pill.m{font-family:var(--mono)}
+  .hint{font-size:12.5px;color:var(--muted);line-height:1.55}
+
+  /* ── Estado vazio central ────────────────────────────── */
+  .void{
+    flex:1;display:grid;place-items:center;text-align:center;background:var(--panel);padding:40px;
+  }
+  .void .in{max-width:400px}
+  .void .glyph{
+    width:74px;height:74px;border-radius:50%;background:var(--surface);margin:0 auto 20px;
+    display:grid;place-items:center;font-size:30px;box-shadow:0 1px 3px rgba(11,20,26,.08);
+  }
+  .void h2{margin:0 0 8px;font-size:20px;font-weight:400;color:#41525d}
+  .void p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.6}
+
+  .toast{
+    position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);
+    background:#111b21;color:#fff;font-size:13px;padding:10px 18px;border-radius:8px;
+    opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50;
+  }
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .back-btn{display:none}
+  @media (max-width:1180px){
+    :root{--dossie:290px;--rail:300px}
+  }
+  @media (max-width:960px){
+    .app{grid-template-columns:1fr}
+    .col{display:none}
+    body[data-view="list"] .rail{display:flex}
+    body[data-view="thread"] .thread{display:flex}
+    body[data-view="dossie"] .dossie{display:flex}
+    .back-btn{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;font-size:19px;color:#54656f}
+    .back-btn:hover{background:#dfe5e7}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body data-view="list">
+<div class="app">
+
+  <!-- ── Conversas ── -->
+  <aside class="col rail">
+    <header class="top">
+      <div class="brand">
+        <div class="mark" id="mark">AQ</div>
+        <div>
+          <b id="brandName">Atendimento</b>
+          <span id="brandSub">carregando…</span>
+        </div>
+      </div>
+      <div class="live"><i class="dot"></i><span id="liveTxt">ao vivo</span></div>
+    </header>
+    <div class="search"><input id="q" type="search" placeholder="Buscar por nome, número ou CPF" autocomplete="off"></div>
+    <div class="list" id="list"><div class="empty">Carregando conversas…</div></div>
+  </aside>
+
+  <!-- ── Thread ── -->
+  <main class="col thread" id="thread">
+    <div class="void" id="void">
+      <div class="in">
+        <div class="glyph">💬</div>
+        <h2>Nenhuma conversa aberta</h2>
+        <p>Escolha uma conversa à esquerda para acompanhar o atendimento. Você vê cada consulta que a Ana faz e pode assumir quando quiser.</p>
+      </div>
+    </div>
+
+    <div id="threadUI" style="display:none;flex:1;flex-direction:column;min-height:0">
+      <header class="thread-top">
+        <button class="back-btn" id="backList" aria-label="Voltar para a lista">‹</button>
+        <div class="ava" id="tAva">—</div>
+        <div class="thread-id">
+          <b id="tName">—</b>
+          <span id="tNum"></span>
+        </div>
+        <span class="tag ia" id="tMode">IA</span>
+        <button class="back-btn" id="openDossie" aria-label="Ver dados do cliente" style="font-size:15px">ⓘ</button>
+      </header>
+
+      <div class="wall" id="wall"></div>
+
+      <div class="composer" id="composer"></div>
+    </div>
+  </main>
+
+  <!-- ── Dossiê ── -->
+  <aside class="col dossie" id="dossie">
+    <header class="top">
+      <button class="back-btn" id="backThread" aria-label="Voltar para a conversa">‹</button>
+      <div class="brand"><div><b>Dados do cliente</b><span id="dSub">Aguardando consulta</span></div></div>
+    </header>
+    <div class="dossie-body" id="dossieBody">
+      <p class="hint">Abra uma conversa para ver o cadastro, a situação financeira e o diagnóstico técnico que a Ana levantou.</p>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const TOKEN = new URLSearchParams(location.search).get('token') || '';
+  const ATENDENTE = localStorage.getItem('atendente') || 'Atendente';
+
+  // Nomes humanos para as ferramentas que a IA dispara.
+  const TOOLS = {
+    buscar_cliente_por_cpf:   ['Buscando cadastro pelo CPF','CPF'],
+    confirmar_titular_contrato:['Confirmando o titular','OK'],
+    selecionar_contrato:      ['Selecionando o contrato','##'],
+    consultar_financeiro:     ['Consultando o financeiro','R$'],
+    gerar_segunda_via:        ['Gerando 2ª via e PIX','$$'],
+    desbloqueio_confianca:    ['Desbloqueio de confiança','UN'],
+    verificar_massiva:        ['Verificando falha massiva','!!'],
+    consultar_zabbix:         ['Consultando o monitoramento','ZB'],
+    consultar_onu:            ['Consultando a ONU do cliente','ON'],
+    reiniciar_onu:            ['Reiniciando a ONU','RB'],
+    abrir_chamado:            ['Abrindo chamado técnico','OS'],
+    agendar_visita_tecnica:   ['Agendando visita técnica','VT'],
+    enviar_resumo_whatsapp:   ['Enviando resumo por WhatsApp','WA'],
+    verificar_viabilidade:    ['Verificando viabilidade','VB'],
+    registrar_interesse:      ['Registrando interesse comercial','IN'],
+    consultar_planos:         ['Consultando os planos','PL'],
+    transferir_para_atendente:['Transferindo para atendente','TR'],
+    encerrar_atendimento:     ['Encerrando o atendimento','FIM'],
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const el = { list:$('list'), wall:$('wall'), composer:$('composer'), toast:$('toast') };
+
+  let conversas = [];
+  let atual = null;      // key
+  let detalhe = null;
+  let filtro = '';
+  let ultimoEvento = 0;  // para saber quando rolar
+  const abertos = new Set();
+  // Assinaturas do que já está na tela — evita re-render a cada polling
+  // (re-desenhar o compositor apagaria o que a atendente está digitando).
+  let sigLista = '', sigThread = '', sigComposer = '', sigDossie = '';
+
+  // ── util ────────────────────────────────────────────────
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const hora = (ts) => new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+
+  function quando(ts){
+    const d = new Date(ts), hoje = new Date();
+    const mesmoDia = d.toDateString() === hoje.toDateString();
+    if (mesmoDia) return hora(ts);
+    const ontem = new Date(hoje); ontem.setDate(hoje.getDate()-1);
+    if (d.toDateString() === ontem.toDateString()) return 'ontem';
+    return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  }
+
+  const fone = (n) => {
+    const d = String(n||'').replace(/\D/g,'');
+    const l = d.startsWith('55') ? d.slice(2) : d;
+    if (l.length === 11) return `(${l.slice(0,2)}) ${l.slice(2,7)}-${l.slice(7)}`;
+    if (l.length === 10) return `(${l.slice(0,2)}) ${l.slice(2,6)}-${l.slice(6)}`;
+    return n;
+  };
+
+  const iniciais = (s) => {
+    const p = String(s||'?').trim().split(/\s+/).filter(Boolean);
+    if (!p.length) return '?';
+    return ((p[0][0]||'') + (p.length>1 ? p[p.length-1][0] : '')).toUpperCase();
+  };
+
+  function toast(msg){
+    el.toast.textContent = msg;
+    el.toast.classList.add('on');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>el.toast.classList.remove('on'), 2600);
+  }
+
+  async function api(path, opts){
+    const sep = path.includes('?') ? '&' : '?';
+    const url = path + (TOKEN ? sep+'token='+encodeURIComponent(TOKEN) : '');
+    const r = await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+    if (r.status === 401) throw new Error('Painel exige token. Adicione ?token=… na URL.');
+    if (!r.ok) {
+      let m = 'Falha na requisição';
+      try { const j = await r.json(); m = j.motivo || j.erro || m; } catch {}
+      throw new Error(m);
+    }
+    return r.json();
+  }
+
+  const nomeDe = (c) => c.clienteNome || c.pushName || fone(c.numero);
+
+  // ── Lista ───────────────────────────────────────────────
+  function renderLista(){
+    const termo = filtro.trim().toLowerCase();
+    const vis = conversas.filter((c) => !termo ||
+      [c.clienteNome, c.pushName, c.numero, c.ultimaMsg].some((v) => String(v||'').toLowerCase().includes(termo)));
+
+    const sig = atual + '|' + vis.map((c) =>
+      [c.key,c.modo,c.encerrada,c.pendingTransfer,c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
+    if (sig === sigLista) return;
+    sigLista = sig;
+
+    if (!vis.length){
+      el.list.innerHTML = `<div class="empty">${conversas.length
+        ? 'Nenhuma conversa corresponde à busca.'
+        : 'Nenhuma conversa ainda.<br>Assim que um cliente escrever no WhatsApp, ela aparece aqui.'}</div>`;
+      return;
+    }
+
+    el.list.innerHTML = vis.map((c) => {
+      const nome = nomeDe(c);
+      const human = c.modo === 'humano';
+      const tag = c.encerrada ? '<span class="tag off">encerrada</span>'
+        : c.pendingTransfer ? '<span class="tag alert">transferir</span>'
+        : human ? '<span class="tag human">você</span>'
+        : '<span class="tag ia">IA</span>';
+      return `<div class="conv ${human?'human':''}" role="option" tabindex="0"
+                   aria-selected="${c.key===atual}" data-key="${esc(c.key)}">
+        <div class="ava">${esc(iniciais(nome))}</div>
+        <div class="conv-body">
+          <div class="conv-row">
+            <span class="conv-name">${esc(nome)}</span>
+            <span class="conv-time">${quando(c.ultimaTs||c.lastActivity)}</span>
+          </div>
+          <div class="conv-row">
+            <span class="conv-last">${esc(c.ultimaMsg || 'Sem mensagens')}</span>
+            ${tag}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  el.list.addEventListener('click', (e) => {
+    const n = e.target.closest('.conv'); if (n) abrir(n.dataset.key);
+  });
+  el.list.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' '){
+      const n = e.target.closest('.conv');
+      if (n){ e.preventDefault(); abrir(n.dataset.key); }
+    }
+  });
+  $('q').addEventListener('input', (e) => { filtro = e.target.value; renderLista(); });
+
+  // ── Thread ──────────────────────────────────────────────
+  function abrir(key){
+    if (atual !== key){ atual = key; detalhe = null; ultimoEvento = 0; abertos.clear(); }
+    document.body.dataset.view = 'thread';
+    renderLista();
+    carregarDetalhe(true);
+  }
+
+  async function carregarDetalhe(forcarScroll){
+    if (!atual) return;
+    try {
+      detalhe = await api('/api/conversas/'+encodeURIComponent(atual));
+    } catch (err){
+      toast(err.message); return;
+    }
+    renderThread(forcarScroll);
+    renderDossie();
+  }
+
+  function renderThread(forcarScroll){
+    $('void').style.display = 'none';
+    $('threadUI').style.display = 'flex';
+
+    const d = detalhe, nome = nomeDe(d);
+    $('tAva').textContent = iniciais(nome);
+    $('tName').textContent = nome;
+    $('tNum').textContent = fone(d.numero) + ' · ' + d.instance;
+
+    const modo = $('tMode');
+    modo.className = 'tag ' + (d.encerrada ? 'off' : d.modo==='humano' ? 'human' : 'ia');
+    modo.textContent = d.encerrada ? 'encerrada' : d.modo==='humano' ? 'você está falando' : 'IA atendendo';
+
+    // Timeline — só redesenha quando há evento novo ou o usuário abriu/fechou uma consulta
+    const perto = el.wall.scrollHeight - el.wall.scrollTop - el.wall.clientHeight < 160;
+    const maxId = d.eventos.length ? d.eventos[d.eventos.length-1].id : 0;
+    const novo = maxId > ultimoEvento;
+    const sig = d.key + '|' + maxId + '|' + [...abertos].sort().join(',');
+
+    if (sig !== sigThread){
+      sigThread = sig;
+      el.wall.innerHTML = d.eventos.map(ev => linha(ev)).join('') || '';
+    }
+    ultimoEvento = maxId;
+    if (forcarScroll || (novo && perto)) el.wall.scrollTop = el.wall.scrollHeight;
+
+    renderComposer();
+  }
+
+  function linha(ev){
+    if (ev.tipo === 'sistema')
+      return `<div class="sys"><span>${esc(ev.texto)}</span></div>`;
+
+    if (ev.tipo === 'tool'){
+      const [rotulo, sigla] = TOOLS[ev.tool.name] || [ev.tool.name, '··'];
+      const aberto = abertos.has(ev.id);
+      const args = Object.keys(ev.tool.args||{}).length
+        ? JSON.stringify(ev.tool.args, null, 1) : '(sem parâmetros)';
+      return `<div class="tool" data-open="${aberto}" data-id="${ev.id}">
+        <button type="button" aria-expanded="${aberto}">
+          <i class="ico">${esc(sigla)}</i>
+          <span class="lbl"><b>${esc(rotulo)}</b><code>${esc(ev.tool.name)} · ${hora(ev.ts)}</code></span>
+          <span class="chev">▶</span>
+        </button>
+        ${aberto ? `<pre><b>enviado</b>\n${esc(args)}\n\n<b>retorno</b>\n${esc(ev.tool.resultado)}</pre>` : ''}
+      </div>`;
+    }
+
+    if (ev.tipo === 'cliente')
+      return `<div class="msg left"><div class="bub">${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
+
+    const humano = ev.tipo === 'atendente';
+    return `<div class="msg right ${humano?'by-human':''}">
+      <div class="bub"><b class="who">${humano ? esc(ATENDENTE) : 'Ana · IA'}</b>${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div>
+    </div>`;
+  }
+
+  el.wall.addEventListener('click', (e) => {
+    const t = e.target.closest('.tool'); if (!t) return;
+    const id = Number(t.dataset.id);
+    abertos.has(id) ? abertos.delete(id) : abertos.add(id);
+    renderThread(false);
+  });
+
+  // ── Compositor: travado (IA) x liberado (atendente) ─────
+  function renderComposer(){
+    const d = detalhe;
+    // Redesenhar destruiria o texto em digitação: só refaz se o estado mudou.
+    const sig = d.key + '|' + d.modo + '|' + d.encerrada;
+    if (sig === sigComposer) return;
+    sigComposer = sig;
+
+    if (d.encerrada){
+      el.composer.innerHTML = `<div class="locked" style="background:var(--panel);border-color:var(--line-2)">
+        <div class="txt"><b style="color:var(--muted)">Atendimento encerrado</b>
+        <span>A conversa foi finalizada. Uma nova mensagem do cliente inicia outro atendimento.</span></div></div>`;
+      return;
+    }
+
+    if (d.modo === 'ia'){
+      el.composer.innerHTML = `<div class="locked">
+        <div class="txt">
+          <b>🔒 A Ana está conduzindo este atendimento</b>
+          <span>Para escrever ao cliente, assuma a conversa. A IA pausa até você devolver.</span>
+        </div>
+        <button class="btn take" id="btnTake">Interferir</button>
+      </div>`;
+      $('btnTake').onclick = async () => {
+        try {
+          await api('/api/conversas/'+encodeURIComponent(atual)+'/intervir',
+            {method:'POST', body:JSON.stringify({atendente:ATENDENTE})});
+          toast('Você assumiu a conversa. A Ana está pausada.');
+          await carregarDetalhe(true);
+          $('txt')?.focus();
+        } catch(err){ toast(err.message); }
+      };
+      return;
+    }
+
+    el.composer.innerHTML = `<div class="live-bar">
+      <span class="note">Você no comando</span>
+      <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
+      <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
+      <button class="btn back" id="btnBack">Voltar com a IA</button>
+    </div>`;
+
+    const txt = $('txt'), send = $('btnSend');
+    const ajusta = () => { txt.style.height='auto'; txt.style.height=Math.min(txt.scrollHeight,110)+'px'; };
+    txt.addEventListener('input', ajusta);
+    txt.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); }
+    });
+    send.onclick = enviar;
+
+    async function enviar(){
+      const t = txt.value.trim(); if (!t) return;
+      send.disabled = true;
+      try {
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/enviar',
+          {method:'POST', body:JSON.stringify({texto:t})});
+        txt.value=''; ajusta();
+        await carregarDetalhe(true);
+      } catch(err){ toast('Não enviou: '+err.message); }
+      send.disabled = false; txt.focus();
+    }
+
+    $('btnBack').onclick = async () => {
+      try {
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/retomar', {method:'POST'});
+        toast('A Ana retomou o atendimento a partir do que você escreveu.');
+        await carregarDetalhe(true);
+      } catch(err){ toast(err.message); }
+    };
+  }
+
+  // ── Dossiê ──────────────────────────────────────────────
+  function renderDossie(){
+    const d = detalhe, c = d.cliente, box = $('dossieBody');
+    const sig = JSON.stringify([d.key,c,d.financeiro,d.onu,d.massivaAtiva,d.protocolos,d.transferMotivo]);
+    if (sig === sigDossie) return;
+    sigDossie = sig;
+
+    $('dSub').textContent = c ? (c.confirmado ? 'Titular confirmado' : 'Aguardando confirmação') : 'Ainda não identificado';
+
+    const partes = [];
+
+    partes.push(c
+      ? `<div class="idbadge yes"><i class="b">✓</i><span>É cliente — cadastro localizado</span></div>`
+      : `<div class="idbadge no"><i class="b">?</i><span>Ainda não identificado</span></div>`);
+
+    if (c){
+      partes.push(`<div class="card"><h3>Cadastro</h3><div class="body"><dl class="kv">
+        <dt>Nome</dt><dd>${esc(c.nome)}</dd>
+        <dt>CPF/CNPJ</dt><dd class="m">${esc(c.cpf)}</dd>
+        <dt>Contrato</dt><dd class="m">${c.contratoId ?? '—'}${c.totalContratos>1?` <span class="pill">${c.totalContratos} contratos</span>`:''}</dd>
+        <dt>Situação</dt><dd>${esc(c.status||'—')}${c.motivoStatus?` <span class="pill warn">${esc(c.motivoStatus)}</span>`:''}</dd>
+        <dt>Plano</dt><dd>${esc(c.plano||'—')}</dd>
+        <dt>Endereço</dt><dd>${esc(c.endereco||'—')}</dd>
+        ${c.telefones?.length?`<dt>Telefones</dt><dd class="m">${esc(c.telefones.join(', '))}</dd>`:''}
+      </dl></div></div>`);
+
+      const f = d.financeiro;
+      partes.push(`<div class="card"><h3>Financeiro</h3><div class="body">${
+        f.consultado
+          ? `${f.bloqueado?'<span class="pill warn">Com pendência</span>':'<span class="pill ok">Sem bloqueio</span>'}
+             <span class="pill m">${f.faturasAbertas ?? 0} fatura(s) em aberto</span>`
+          : '<p class="hint">A Ana ainda não consultou o financeiro deste contrato.</p>'
+      }</div></div>`);
+
+      const o = d.onu;
+      partes.push(`<div class="card"><h3>Conexão (ONU)</h3><div class="body">${
+        o ? `<dl class="kv">
+              <dt>Status</dt><dd>${o.status==='online'?'<span class="pill ok">online</span>':`<span class="pill warn">${esc(o.status)}</span>`}</dd>
+              <dt>Sinal</dt><dd class="m">${esc(o.sinalRx ?? '—')} dBm</dd>
+              <dt>OLT</dt><dd class="m">${esc(o.olt||'—')}</dd>
+              <dt>CTO</dt><dd class="m">${esc(o.cto||'—')}</dd>
+            </dl>`
+          : '<p class="hint">A Ana ainda não consultou a ONU.</p>'
+      }</div></div>`);
+    } else {
+      partes.push(`<p class="hint">A Ana pede o CPF assim que entende o motivo do contato. Quando localizar o cadastro, os dados aparecem aqui.</p>`);
+    }
+
+    const extras = [];
+    if (d.massivaAtiva) extras.push('<span class="pill warn">Falha massiva na região</span>');
+    (d.protocolos||[]).forEach(p => extras.push(`<span class="pill m ok">Protocolo ${esc(p)}</span>`));
+    if (d.transferMotivo) extras.push(`<span class="pill warn">Transferência: ${esc(d.transferMotivo)}</span>`);
+    if (extras.length)
+      partes.push(`<div class="card"><h3>Nesta conversa</h3><div class="body">${extras.join('')}</div></div>`);
+
+    box.innerHTML = partes.join('');
+  }
+
+  // ── Navegação mobile ────────────────────────────────────
+  $('backList').onclick   = () => document.body.dataset.view = 'list';
+  $('openDossie').onclick = () => document.body.dataset.view = 'dossie';
+  $('backThread').onclick = () => document.body.dataset.view = 'thread';
+
+  // ── Polling ─────────────────────────────────────────────
+  async function tick(){
+    try {
+      const data = await api('/api/conversas');
+      conversas = data.conversas;
+      $('brandName').textContent = data.empresa || 'Atendimento';
+      $('brandSub').textContent = `${conversas.length} conversa(s) · IA ${data.agente}`;
+      $('mark').textContent = iniciais(data.empresa || 'AQ');
+      $('liveTxt').textContent = 'ao vivo';
+      $('liveTxt').parentElement.classList.remove('off');
+      renderLista();
+      if (atual) await carregarDetalhe(false);
+    } catch(err){
+      $('liveTxt').textContent = 'sem conexão';
+      $('liveTxt').parentElement.classList.add('off');
+      if (String(err.message).includes('token')) {
+        el.list.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+      }
+    }
+  }
+
+  tick();
+  setInterval(tick, 3000);
+})();
+</script>
+</body>
+</html>

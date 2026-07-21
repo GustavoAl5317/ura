@@ -51,6 +51,29 @@ Mantém o fluxo da URA: pede **CPF** e **confirma o titular** antes de qualquer 
 3. Suba a URA normalmente (`npm run dev` ou `npm start`). O log deve mostrar
    `Chat WhatsApp escutando webhook na porta 9022`.
 
+## Painel de atendimento humano
+
+Acesse **`http://<host>:9022/`** (mesma porta do webhook). Se definir `CHAT_PANEL_TOKEN`,
+use `http://<host>:9022/?token=SEU_TOKEN`.
+
+Três colunas, no estilo do WhatsApp Web:
+
+| Coluna | O que mostra |
+|---|---|
+| **Conversas** | Todas as conversas ativas, com etiqueta `IA` / `você` / `transferir` / `encerrada` |
+| **Conversa** | A troca de mensagens + **cada consulta que a IA fez**, em linguagem humana ("Consultando o financeiro"). Clique na consulta para ver os parâmetros e o retorno cru |
+| **Dados do cliente** | Se é cliente ou não, cadastro, contrato, situação financeira, ONU/sinal e protocolos abertos nesta conversa |
+
+**Fluxo de intervenção:**
+1. Enquanto a IA atende, a barra de digitação fica **travada** ("🔒 A Ana está conduzindo").
+2. A atendente clica em **Interferir** → a IA pausa (não responde mais nada) e a barra libera.
+3. Ela conversa normalmente pelo painel; as mensagens saem pelo mesmo número do WhatsApp.
+4. Ao clicar em **Voltar com a IA**, a IA retoma **já sabendo o que a atendente escreveu**
+   (as falas dela entram no histórico como falas do assistente) e continua o atendimento.
+
+Enquanto o modo é `humano`, as mensagens do cliente continuam sendo registradas na timeline,
+mas a IA não responde — quem responde é a atendente.
+
 ## Observações
 
 - **Faturas/PIX/boleto e protocolos** são entregues na própria conversa (as ferramentas de envio

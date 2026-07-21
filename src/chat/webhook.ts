@@ -7,6 +7,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { whatsapp } from '../integrations/whatsapp';
 import { ChatSessionStore } from './session';
+import { tratarPainel } from './panel-api';
 
 const store = new ChatSessionStore();
 
@@ -78,27 +79,28 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
   const numero = remoteJid.split('@')[0];
   logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto}`);
 
+  // A sessão decide: IA responde (e entrega) ou apenas registra, se a atendente
+  // assumiu a conversa pelo painel.
   const session = store.get(remoteJid, numero, instance);
-  let resposta: string | null = null;
   try {
-    resposta = await session.handle(texto);
+    await session.handle(texto, msg.pushName);
   } catch (err: unknown) {
     logger.error('[chat] erro ao processar mensagem', {
       remoteJid,
       instance,
       err: err instanceof Error ? err.message : String(err),
     });
-    resposta = 'Desculpe, tive uma instabilidade aqui 😕 pode me mandar de novo?';
+    await whatsapp.enviarTexto(
+      numero,
+      'Desculpe, tive uma instabilidade aqui 😕 pode me mandar de novo?',
+      instance,
+    );
   }
+}
 
-  if (resposta && resposta.trim()) {
-    logger.info(`[chat] ⬆️  [${instance}] ${numero}: ${resposta}`);
-    await whatsapp.enviarTexto(numero, resposta.trim(), instance);
-  }
-
-  if (session.encerrada) {
-    store.drop(remoteJid, instance);
-  }
+/** Store de sessões — compartilhado com a API do painel. */
+export function getChatStore(): ChatSessionStore {
+  return store;
 }
 
 /** Extrai a lista de mensagens do payload (Evolution varia entre objeto e array). */
@@ -124,9 +126,28 @@ export function startChatServer(): void {
   }
 
   const server = http.createServer((req, res) => {
-    if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+
+    if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ online: true, canal: 'chat', model: config.chat.model }));
+      return;
+    }
+
+    // Painel de atendimento (HTML + API) — autenticação própria.
+    if (url.pathname === '/' || url.pathname.startsWith('/painel') || url.pathname.startsWith('/api/')) {
+      void tratarPainel(req, res, url, store).then((tratado) => {
+        if (!tratado) {
+          res.writeHead(404);
+          res.end();
+        }
+      }).catch((err) => {
+        logger.error('[painel] erro', { err: err instanceof Error ? err.message : String(err) });
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ erro: 'erro_interno' }));
+        }
+      });
       return;
     }
 
