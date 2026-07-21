@@ -168,8 +168,9 @@ export const config = {
     webhookPort: optInt('CHAT_WEBHOOK_PORT', 9022),
     /** Token opcional exigido no header/query do webhook (?token= ou apikey). */
     webhookToken: opt('CHAT_WEBHOOK_TOKEN', '').trim(),
-    /** Token opcional do painel de atendimento (?token= ou header x-panel-token). */
-    panelToken: opt('CHAT_PANEL_TOKEN', '').trim(),
+    /** Login/senha do administrador criado no primeiro boot do painel. */
+    adminUser: opt('CHAT_ADMIN_USER', 'admin').trim(),
+    adminPass: opt('CHAT_ADMIN_PASS', '').trim(),
     /** Modelo OpenAI de texto que conduz o atendimento (function calling). */
     model: opt('CHAT_MODEL', 'gpt-4o'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),

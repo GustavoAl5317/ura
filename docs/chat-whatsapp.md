@@ -53,8 +53,38 @@ Mantém o fluxo da URA: pede **CPF** e **confirma o titular** antes de qualquer 
 
 ## Painel de atendimento humano
 
-Acesse **`http://<host>:9022/`** (mesma porta do webhook). Se definir `CHAT_PANEL_TOKEN`,
-use `http://<host>:9022/?token=SEU_TOKEN`.
+Acesse **`http://<host>:9022/`** (mesma porta do webhook).
+
+### Login e usuários
+
+Cada atendente entra com **login e senha própria**. No primeiro boot o sistema cria um
+administrador (`CHAT_ADMIN_USER` / `CHAT_ADMIN_PASS`); se a senha não for definida, ela é
+sorteada e aparece **uma única vez no log**:
+
+```
+systemctl restart ura-chat && journalctl -u ura-chat -n 20 --no-pager | grep -A3 "administrador criado"
+```
+
+O administrador usa o menu **Usuários** para adicionar atendentes, trocar senhas, desativar
+ou remover contas. Senhas são guardadas com `scrypt` + salt em `data/chat-usuarios.json`
+(fora do git); a sessão é um cookie `HttpOnly` de 12 h.
+
+| Perfil | Pode |
+|---|---|
+| **Administrador** | Tudo, incluindo gerenciar usuários e **assumir uma conversa de outra atendente** |
+| **Atendente** | Atender conversas; não vê o menu Usuários nem toma conversa de colega |
+
+### Menu
+
+| Seção | Estado |
+|---|---|
+| 💬 Atendimento | funcionando |
+| 👥 Usuários | funcionando (só administrador) |
+| 📋 Auditoria | **em desenvolvimento** |
+| 🔎 Consulta SGP | **em desenvolvimento** |
+| 📄 Contrato | **em desenvolvimento** |
+
+### Atendimento
 
 Três colunas, no estilo do WhatsApp Web:
 
@@ -73,6 +103,10 @@ Três colunas, no estilo do WhatsApp Web:
 
 Enquanto o modo é `humano`, as mensagens do cliente continuam sendo registradas na timeline,
 mas a IA não responde — quem responde é a atendente.
+
+**Duas atendentes na mesma conversa:** quem clicar primeiro fica com ela. As outras veem
+"Fulana está atendendo" e acompanham sem poder escrever. Só um administrador pode tomar a
+conversa ("Assumir mesmo assim") — a troca fica registrada na timeline.
 
 ## Observações
 

@@ -8,6 +8,7 @@ import { logger } from '../logger';
 import { whatsapp } from '../integrations/whatsapp';
 import { ChatSessionStore } from './session';
 import { tratarPainel } from './panel-api';
+import { initAuth } from './auth';
 
 const store = new ChatSessionStore();
 
@@ -124,6 +125,8 @@ export function startChatServer(): void {
     logger.warn('Chat WhatsApp NÃO iniciado: configure WHATSAPP_API_URL / WHATSAPP_INSTANCE / WHATSAPP_API_KEY');
     return;
   }
+
+  initAuth();
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

@@ -31,6 +31,8 @@ export interface PanelEvent {
    *  tool = consulta executada · sistema = troca de modo/avisos */
   tipo: 'cliente' | 'ia' | 'atendente' | 'tool' | 'sistema';
   texto?: string;
+  /** Nome da atendente que escreveu (eventos do tipo 'atendente'). */
+  autor?: string;
   tool?: { name: string; args: Record<string, unknown>; resultado: string };
 }
 
@@ -42,6 +44,9 @@ export class ChatSession {
   private history: ChatMessage[] = [];
   readonly eventos: PanelEvent[] = [];
   modo: ChatMode = 'ia';
+  /** Quem está com a conversa quando modo = 'humano'. */
+  atendenteId?: string;
+  atendenteNome?: string;
   pushName?: string;
   lastActivity = Date.now();
   readonly startedAt = Date.now();
@@ -79,18 +84,29 @@ export class ChatSession {
   // ── Controle do painel ───────────────────────────────────────────────────
 
   /** Atendente assume a conversa: IA para de responder até retomar(). */
-  intervir(atendente?: string): void {
-    if (this.modo === 'humano') return;
+  intervir(atendente: { id: string; nome: string }): void {
+    if (this.modo === 'humano' && this.atendenteId === atendente.id) return;
+
+    const anterior = this.modo === 'humano' ? this.atendenteNome : null;
     this.modo = 'humano';
-    this.record({ tipo: 'sistema', texto: `${atendente || 'Atendente'} assumiu a conversa — IA pausada` });
-    logger.info(`[${this.ctx.callId}] painel: atendente assumiu (${this.numero})`);
+    this.atendenteId = atendente.id;
+    this.atendenteNome = atendente.nome;
+    this.record({
+      tipo: 'sistema',
+      texto: anterior
+        ? `${atendente.nome} assumiu a conversa de ${anterior}`
+        : `${atendente.nome} assumiu a conversa — IA pausada`,
+    });
+    logger.info(`[${this.ctx.callId}] painel: ${atendente.nome} assumiu (${this.numero})`);
   }
 
   /** Devolve para a IA. Se houver mensagem do cliente sem resposta, a IA responde já. */
-  retomar(): void {
+  retomar(porQuem?: string): void {
     if (this.modo === 'ia') return;
     this.modo = 'ia';
-    this.record({ tipo: 'sistema', texto: 'Conversa devolvida para a IA' });
+    this.atendenteId = undefined;
+    this.atendenteNome = undefined;
+    this.record({ tipo: 'sistema', texto: `${porQuem ? porQuem + ' devolveu' : 'Devolvida'} para a IA` });
     logger.info(`[${this.ctx.callId}] painel: conversa devolvida à IA (${this.numero})`);
 
     const last = [...this.history].reverse().find((m) => m.role === 'user' || m.role === 'assistant');
@@ -101,7 +117,7 @@ export class ChatSession {
 
   /** Mensagem digitada pela atendente no painel: envia ao cliente e entra no
    *  histórico como fala do assistente (a IA continua a partir dela). */
-  async enviarComoAtendente(texto: string): Promise<{ enviado: boolean; motivo?: string }> {
+  async enviarComoAtendente(texto: string, autor?: string): Promise<{ enviado: boolean; motivo?: string }> {
     const t = texto.trim();
     if (!t) return { enviado: false, motivo: 'texto_vazio' };
     if (this.modo !== 'humano') return { enviado: false, motivo: 'modo_ia' };
@@ -109,7 +125,7 @@ export class ChatSession {
     const r = await whatsapp.enviarTexto(this.numero, t, this.instance);
     if (r.enviado) {
       this.history.push({ role: 'assistant', content: t });
-      this.record({ tipo: 'atendente', texto: t });
+      this.record({ tipo: 'atendente', texto: t, autor: autor ?? this.atendenteNome });
       this.trimHistory();
       this.lastActivity = Date.now();
     }
@@ -232,6 +248,8 @@ export class ChatSession {
       pushName: this.pushName ?? null,
       clienteNome: this.ctx.cliente?.nome ?? null,
       modo: this.modo,
+      atendenteId: this.atendenteId ?? null,
+      atendenteNome: this.atendenteNome ?? null,
       encerrada: this.encerrada,
       pendingTransfer: this.ctx.pendingTransfer,
       ultimaMsg: ultimo?.texto ?? null,

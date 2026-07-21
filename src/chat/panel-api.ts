@@ -1,5 +1,5 @@
-// API do painel de atendimento: lista conversas, mostra o que a IA consultou,
-// permite a atendente assumir (intervir), enviar mensagens e devolver para a IA.
+// API do painel de atendimento: login/sessão, gestão de usuários, lista de
+// conversas, telemetria das consultas da IA e as ações de intervenção.
 
 import http from 'http';
 import fs from 'fs';
@@ -7,23 +7,21 @@ import path from 'path';
 import { config } from '../config';
 import { logger } from '../logger';
 import type { ChatSessionStore } from './session';
+import {
+  autenticar, login as fazerLogin, logout as encerrarSessao,
+  cookieSessao, cookieLimpo, usuarioPublico,
+  listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
+  type Papel,
+} from './auth';
 
-function json(res: http.ServerResponse, status: number, body: unknown): void {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
+function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-  });
-  res.end(payload);
-}
-
-function panelAutorizado(req: http.IncomingMessage, url: URL): boolean {
-  if (!config.chat.panelToken) return true;
-  const q = url.searchParams.get('token');
-  const header = req.headers['x-panel-token'] || req.headers['authorization'];
-  const h = Array.isArray(header) ? header[0] : header;
-  const bearer = h?.replace(/^Bearer\s+/i, '');
-  return q === config.chat.panelToken || bearer === config.chat.panelToken;
+  };
+  if (cookie) headers['Set-Cookie'] = cookie;
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
 }
 
 function lerCorpo(req: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -34,22 +32,20 @@ function lerCorpo(req: http.IncomingMessage): Promise<Record<string, unknown>> {
       if (body.length > 200_000) req.destroy();
     });
     req.on('end', () => {
-      try {
-        resolve(JSON.parse(body || '{}'));
-      } catch {
-        resolve({});
-      }
+      try { resolve(JSON.parse(body || '{}')); } catch { resolve({}); }
     });
     req.on('error', () => resolve({}));
   });
 }
+
+const txt = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** Serve o HTML do painel (arquivo estático em panel/chat.html). */
 function servirPainel(res: http.ServerResponse): void {
   const file = path.join(process.cwd(), 'panel', 'chat.html');
   if (!fs.existsSync(file)) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('painel/chat.html não encontrado');
+    res.end('panel/chat.html não encontrado');
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -57,14 +53,18 @@ function servirPainel(res: http.ServerResponse): void {
 }
 
 /**
- * Trata rotas do painel. Retorna true se a requisição foi atendida aqui.
- * Rotas:
- *   GET  /                          → HTML do painel
- *   GET  /api/conversas             → lista (polling)
- *   GET  /api/conversas/:key        → detalhe + timeline + dados do cliente
- *   POST /api/conversas/:key/intervir
- *   POST /api/conversas/:key/retomar
- *   POST /api/conversas/:key/enviar { texto }
+ * Rotas do painel. Retorna true se a requisição foi atendida aqui.
+ *
+ *   GET  /                              HTML (a tela de login é do próprio app)
+ *   POST /api/login    { login, senha }
+ *   POST /api/logout
+ *   GET  /api/eu                        usuário da sessão
+ *   GET  /api/usuarios                  (admin)
+ *   POST /api/usuarios                  (admin) criar
+ *   PATCH/DELETE /api/usuarios/:id      (admin) editar / remover
+ *   GET  /api/conversas                 lista
+ *   GET  /api/conversas/:key            detalhe + dossiê + timeline
+ *   POST /api/conversas/:key/intervir | /retomar | /enviar
  */
 export async function tratarPainel(
   req: http.IncomingMessage,
@@ -81,12 +81,93 @@ export async function tratarPainel(
 
   if (!p.startsWith('/api/')) return false;
 
-  if (!panelAutorizado(req, url)) {
-    json(res, 401, { erro: 'nao_autorizado' });
+  // ── Login (única rota pública) ───────────────────────────────────────────
+  if (req.method === 'POST' && p === '/api/login') {
+    const body = await lerCorpo(req);
+    const r = fazerLogin(txt(body.login), txt(body.senha));
+    if (!r.ok) {
+      json(res, 401, { erro: r.erro });
+      return true;
+    }
+    json(res, 200, { usuario: r.usuario }, cookieSessao(r.token));
     return true;
   }
 
-  // Lista de conversas
+  // ── Daqui pra baixo exige sessão ─────────────────────────────────────────
+  const auth = autenticar(req);
+  if (!auth) {
+    json(res, 401, { erro: 'nao_autenticado' });
+    return true;
+  }
+  const eu = auth.usuario;
+
+  if (req.method === 'POST' && p === '/api/logout') {
+    encerrarSessao(auth.token);
+    json(res, 200, { ok: true }, cookieLimpo());
+    return true;
+  }
+
+  if (req.method === 'GET' && p === '/api/eu') {
+    json(res, 200, {
+      usuario: usuarioPublico(eu),
+      empresa: config.company.name,
+      agente: config.company.agentName,
+    });
+    return true;
+  }
+
+  // ── Usuários (somente admin) ─────────────────────────────────────────────
+  if (p === '/api/usuarios' || p.startsWith('/api/usuarios/')) {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores gerenciam usuários.' });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/usuarios') {
+      json(res, 200, { usuarios: listarUsuarios() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/usuarios') {
+      const b = await lerCorpo(req);
+      const r = criarUsuario({
+        login: txt(b.login), nome: txt(b.nome), senha: txt(b.senha),
+        papel: b.papel === 'admin' ? 'admin' : 'atendente',
+      });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 201, { usuario: r.usuario });
+      return true;
+    }
+
+    const mU = /^\/api\/usuarios\/([^/]+)$/.exec(p);
+    if (mU) {
+      const id = decodeURIComponent(mU[1]);
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const r = atualizarUsuario(id, {
+          nome: txt(b.nome) || undefined,
+          senha: txt(b.senha) || undefined,
+          papel: (b.papel === 'admin' || b.papel === 'atendente') ? b.papel as Papel : undefined,
+          ativo: typeof b.ativo === 'boolean' ? b.ativo : undefined,
+        });
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        if (id === eu.id) { json(res, 400, { erro: 'Você não pode remover a própria conta.' }); return true; }
+        const r = removerUsuario(id);
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true });
+        return true;
+      }
+    }
+
+    json(res, 405, { erro: 'metodo_nao_suportado' });
+    return true;
+  }
+
+  // ── Conversas ────────────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/conversas') {
     json(res, 200, {
       agora: Date.now(),
@@ -104,7 +185,7 @@ export async function tratarPainel(
   const acao = m[2];
   const session = store.find(key);
   if (!session) {
-    json(res, 404, { erro: 'conversa_nao_encontrada' });
+    json(res, 404, { erro: 'Conversa não encontrada. Ela pode ter expirado.' });
     return true;
   }
 
@@ -113,26 +194,41 @@ export async function tratarPainel(
     return true;
   }
 
+  /** Só quem assumiu (ou um admin) pode escrever/devolver. */
+  const podeAgir = () =>
+    !session.atendenteId || session.atendenteId === eu.id || eu.papel === 'admin';
+
   if (req.method === 'POST' && acao === 'intervir') {
-    const body = await lerCorpo(req);
-    session.intervir(typeof body.atendente === 'string' ? body.atendente : undefined);
+    // Admin pode tomar a conversa de outra atendente; atendente comum, não.
+    if (session.modo === 'humano' && session.atendenteId !== eu.id && eu.papel !== 'admin') {
+      json(res, 409, { erro: `${session.atendenteNome} já está atendendo esta conversa.` });
+      return true;
+    }
+    session.intervir({ id: eu.id, nome: eu.nome });
     json(res, 200, { ok: true, modo: session.modo });
     return true;
   }
 
   if (req.method === 'POST' && acao === 'retomar') {
-    session.retomar();
+    if (!podeAgir()) {
+      json(res, 409, { erro: `Quem está com esta conversa é ${session.atendenteNome}.` });
+      return true;
+    }
+    session.retomar(eu.nome);
     json(res, 200, { ok: true, modo: session.modo });
     return true;
   }
 
   if (req.method === 'POST' && acao === 'enviar') {
+    if (!podeAgir()) {
+      json(res, 409, { erro: `Quem está com esta conversa é ${session.atendenteNome}.` });
+      return true;
+    }
     const body = await lerCorpo(req);
-    const texto = typeof body.texto === 'string' ? body.texto : '';
-    const r = await session.enviarComoAtendente(texto);
+    const r = await session.enviarComoAtendente(txt(body.texto), eu.nome);
     if (!r.enviado) {
       logger.warn('[painel] falha ao enviar mensagem da atendente', { key, motivo: r.motivo });
-      json(res, 400, { ok: false, motivo: r.motivo ?? 'falha_envio' });
+      json(res, 400, { ok: false, erro: motivoLegivel(r.motivo) });
       return true;
     }
     json(res, 200, { ok: true });
@@ -141,4 +237,14 @@ export async function tratarPainel(
 
   json(res, 405, { erro: 'metodo_nao_suportado' });
   return true;
+}
+
+function motivoLegivel(motivo?: string): string {
+  switch (motivo) {
+    case 'texto_vazio': return 'Escreva uma mensagem antes de enviar.';
+    case 'modo_ia': return 'A IA voltou a conduzir. Clique em Interferir para assumir de novo.';
+    case 'numero_sem_whatsapp': return 'Este número não tem WhatsApp.';
+    case 'nao_configurado': return 'A integração com o WhatsApp não está configurada.';
+    default: return 'O WhatsApp não aceitou a mensagem. Tente novamente.';
+  }
 }
