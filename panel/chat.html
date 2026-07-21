@@ -251,6 +251,13 @@
   .mini{font-size:12.5px;padding:6px 11px;border-radius:7px;border:1px solid var(--line-2);background:#fff;color:var(--muted)}
   .mini:hover{background:var(--panel)}
   .mini.danger{color:var(--danger);border-color:#f3c9c4}
+  .convlink{
+    display:block;text-align:left;background:var(--take-soft);border:1px solid var(--take-line);
+    border-radius:8px;padding:6px 10px;margin-bottom:5px;max-width:250px;
+  }
+  .convlink:hover{filter:brightness(.97)}
+  .convlink b{display:block;font-size:13px;font-weight:600;color:var(--take);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .convlink span{display:block;font-size:11px;color:#8a6420;font-family:var(--mono)}
   .form-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 18px}
   .form-row .field{margin:0}
   .form-foot{padding:0 18px 16px;display:flex;gap:10px;align-items:center}
@@ -402,8 +409,8 @@
             </form>
           </div>
           <div class="sheet">
-            <h3>Contas</h3>
-            <table><thead><tr><th>Atendente</th><th>Perfil</th><th>Último acesso</th><th></th></tr></thead>
+            <h3>Equipe <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="uResumo"></span></h3>
+            <table><thead><tr><th>Atendente</th><th>Situação</th><th>Atendendo agora</th><th></th></tr></thead>
             <tbody id="uBody"><tr><td colspan="4" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
           </div>
         </div>
@@ -589,21 +596,44 @@
   // ── Usuários ────────────────────────────────────────────
   async function carregarUsuarios(){
     try{
-      const { usuarios } = await api('/api/usuarios');
-      $('uBody').innerHTML = usuarios.map((u)=>`<tr>
-        <td class="urow"><b>${esc(u.nome)}${u.id===eu.id?' <span class="pill">você</span>':''}</b><span>${esc(u.login)}</span></td>
-        <td>${u.papel==='admin'?'<span class="pill ok">Administrador</span>':'<span class="pill">Atendente</span>'}
-            ${u.ativo?'':'<span class="pill warn">desativado</span>'}</td>
-        <td class="hint">${u.ultimoAcesso?esc(new Date(u.ultimoAcesso).toLocaleString('pt-BR')):'nunca entrou'}</td>
-        <td><div class="acts">
-          <button class="mini" data-u="${esc(u.id)}" data-a="senha">Trocar senha</button>
-          <button class="mini" data-u="${esc(u.id)}" data-a="ativo" data-v="${u.ativo?'0':'1'}">${u.ativo?'Desativar':'Ativar'}</button>
-          ${u.id===eu.id?'':`<button class="mini danger" data-u="${esc(u.id)}" data-a="remover">Remover</button>`}
-        </div></td></tr>`).join('');
+      const { usuarios, semDono } = await api('/api/usuarios');
+      const online = usuarios.filter(u=>u.online).length;
+      $('uResumo').textContent = `· ${online} online · ${semDono} conversa(s) com a IA`;
+
+      $('uBody').innerHTML = usuarios.map((u)=>{
+        const situacao = !u.ativo
+          ? '<span class="pill warn">Bloqueado</span>'
+          : u.online ? '<span class="pill ok">● Online</span>' : '<span class="pill">Offline</span>';
+        const perfil = u.papel==='admin'
+          ? '<span class="pill ok">Admin</span>' : '<span class="pill">Atendente</span>';
+        const acesso = u.ultimoAcesso
+          ? `<div class="hint" style="margin-top:4px">último acesso ${esc(new Date(u.ultimoAcesso).toLocaleString('pt-BR'))}</div>`
+          : '<div class="hint" style="margin-top:4px">nunca entrou</div>';
+
+        const atendendo = u.atendendo.length
+          ? u.atendendo.map(a=>`<button class="convlink" data-goto="${esc(a.key)}">
+               <b>${esc(a.cliente)}</b><span>${esc(a.instance)} · desde ${hora(a.desde)}</span></button>`).join('')
+          : '<span class="hint">—</span>';
+
+        return `<tr>
+          <td class="urow"><b>${esc(u.nome)}${u.id===eu.id?' <span class="pill">você</span>':''}</b>
+              <span>${esc(u.login)}</span>${acesso}</td>
+          <td>${situacao}<div style="margin-top:5px">${perfil}</div></td>
+          <td>${atendendo}</td>
+          <td><div class="acts">
+            <button class="mini" data-u="${esc(u.id)}" data-a="senha">Trocar senha</button>
+            ${u.online?`<button class="mini" data-u="${esc(u.id)}" data-a="derrubar">Desconectar</button>`:''}
+            <button class="mini ${u.ativo?'danger':''}" data-u="${esc(u.id)}" data-a="ativo" data-v="${u.ativo?'0':'1'}">${u.ativo?'Bloquear':'Desbloquear'}</button>
+            ${u.id===eu.id?'':`<button class="mini danger" data-u="${esc(u.id)}" data-a="remover">Remover</button>`}
+          </div></td></tr>`;
+      }).join('');
     }catch(ex){ toast(ex.message,true); }
   }
 
   $('uBody').addEventListener('click', async (e) => {
+    const ir = e.target.closest('button[data-goto]');
+    if (ir){ irPara('atendimento'); abrir(ir.dataset.goto); return; }
+
     const b = e.target.closest('button[data-u]'); if(!b) return;
     const id=b.dataset.u, a=b.dataset.a;
     try{
@@ -612,13 +642,20 @@
         if (s===null) return;
         await api('/api/usuarios/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({senha:s})});
         toast('Senha alterada. As sessões abertas dessa pessoa foram encerradas.');
+      } else if (a==='derrubar'){
+        const r = await api('/api/usuarios/'+encodeURIComponent(id)+'/sessoes',{method:'DELETE'});
+        toast(r.sessoesEncerradas ? 'Desconectada. Ela precisa entrar de novo.' : 'Não havia sessão aberta.');
       } else if (a==='ativo'){
-        await api('/api/usuarios/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({ativo:b.dataset.v==='1'})});
-        toast(b.dataset.v==='1'?'Acesso liberado.':'Acesso desativado.');
+        const bloqueando = b.dataset.v==='0';
+        if (bloqueando && !confirm('Bloquear o acesso desta pessoa?\n\nEla é desconectada na hora e as conversas que estiver atendendo voltam para a IA.')) return;
+        const r = await api('/api/usuarios/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({ativo:!bloqueando})});
+        toast(bloqueando
+          ? `Acesso bloqueado.${r.conversasLiberadas?` ${r.conversasLiberadas} conversa(s) voltaram para a IA.`:''}`
+          : 'Acesso liberado.');
       } else {
         if (!confirm('Remover esta conta? A pessoa perde o acesso imediatamente.')) return;
-        await api('/api/usuarios/'+encodeURIComponent(id),{method:'DELETE'});
-        toast('Conta removida.');
+        const r = await api('/api/usuarios/'+encodeURIComponent(id),{method:'DELETE'});
+        toast(`Conta removida.${r.conversasLiberadas?` ${r.conversasLiberadas} conversa(s) voltaram para a IA.`:''}`);
       }
       carregarUsuarios();
     }catch(ex){ toast(ex.message,true); }
@@ -888,6 +925,8 @@
       $('liveTxt').textContent='ao vivo'; $('live').classList.remove('off');
       renderLista();
       if (atual) await carregarDetalhe(false);
+      // Supervisão em tempo real: quem está online e o que cada um atende.
+      if (secao === 'usuarios' && eu.papel === 'admin') carregarUsuarios();
     }catch(ex){
       $('liveTxt').textContent='sem conexão'; $('live').classList.add('off');
     }

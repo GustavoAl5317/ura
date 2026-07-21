@@ -11,6 +11,7 @@ import {
   autenticar, login as fazerLogin, logout as encerrarSessao,
   cookieSessao, cookieLimpo, usuarioPublico,
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
+  usuariosOnline, derrubarSessoes,
   type Papel,
 } from './auth';
 
@@ -123,8 +124,29 @@ export async function tratarPainel(
       return true;
     }
 
+    // Visão de supervisão: quem está online e qual conversa cada um segura agora.
     if (req.method === 'GET' && p === '/api/usuarios') {
-      json(res, 200, { usuarios: listarUsuarios() });
+      const online = usuariosOnline();
+      const conversas = store.list();
+      json(res, 200, {
+        usuarios: listarUsuarios().map((u) => ({
+          ...u,
+          online: online.has(u.id),
+          atendendo: conversas
+            .filter((s) => s.modo === 'humano' && s.atendenteId === u.id)
+            .map((s) => {
+              const r = s.resumo();
+              return {
+                key: r.key,
+                cliente: r.clienteNome || r.pushName || r.numero,
+                numero: r.numero,
+                instance: r.instance,
+                desde: r.lastActivity,
+              };
+            }),
+        })),
+        semDono: conversas.filter((s) => s.modo === 'ia' && !s.encerrada).length,
+      });
       return true;
     }
 
@@ -142,8 +164,19 @@ export async function tratarPainel(
     const mU = /^\/api\/usuarios\/([^/]+)$/.exec(p);
     if (mU) {
       const id = decodeURIComponent(mU[1]);
+
+      // Bloquear/remover alguém não pode deixar conversas presas: devolve à IA.
+      const liberarConversas = (motivo: string): number => {
+        let n = 0;
+        for (const s of store.list()) {
+          if (s.modo === 'humano' && s.atendenteId === id) { s.retomar(motivo); n++; }
+        }
+        return n;
+      };
+
       if (req.method === 'PATCH') {
         const b = await lerCorpo(req);
+        const bloqueando = b.ativo === false;
         const r = atualizarUsuario(id, {
           nome: txt(b.nome) || undefined,
           senha: txt(b.senha) || undefined,
@@ -151,16 +184,28 @@ export async function tratarPainel(
           ativo: typeof b.ativo === 'boolean' ? b.ativo : undefined,
         });
         if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
-        json(res, 200, { ok: true });
+        const liberadas = bloqueando ? liberarConversas('O sistema') : 0;
+        json(res, 200, { ok: true, conversasLiberadas: liberadas });
         return true;
       }
+
       if (req.method === 'DELETE') {
         if (id === eu.id) { json(res, 400, { erro: 'Você não pode remover a própria conta.' }); return true; }
+        const liberadas = liberarConversas('O sistema');
         const r = removerUsuario(id);
         if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
-        json(res, 200, { ok: true });
+        json(res, 200, { ok: true, conversasLiberadas: liberadas });
         return true;
       }
+    }
+
+    // Derrubar as sessões de alguém sem bloquear a conta (força novo login).
+    const mS = /^\/api\/usuarios\/([^/]+)\/sessoes$/.exec(p);
+    if (mS && req.method === 'DELETE') {
+      const id = decodeURIComponent(mS[1]);
+      const n = derrubarSessoes(id);
+      json(res, 200, { ok: true, sessoesEncerradas: n });
+      return true;
     }
 
     json(res, 405, { erro: 'metodo_nao_suportado' });

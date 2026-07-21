@@ -199,6 +199,21 @@ export function logout(token?: string): void {
   if (token) sessoes.delete(token);
 }
 
+/** IDs de usuários com sessão válida agora (para o painel mostrar quem está online). */
+export function usuariosOnline(): Set<string> {
+  const agora = Date.now();
+  const ids = new Set<string>();
+  for (const s of sessoes.values()) if (s.expiraEm > agora) ids.add(s.userId);
+  return ids;
+}
+
+/** Derruba todas as sessões de um usuário (bloqueio imediato). */
+export function derrubarSessoes(userId: string): number {
+  let n = 0;
+  for (const [t, s] of sessoes) if (s.userId === userId) { sessoes.delete(t); n++; }
+  return n;
+}
+
 function lerCookie(req: http.IncomingMessage): string | undefined {
   const raw = req.headers.cookie;
   if (!raw) return undefined;
