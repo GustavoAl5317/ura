@@ -263,6 +263,24 @@
   .form-foot{padding:0 18px 16px;display:flex;gap:10px;align-items:center}
   .form-foot .primary{width:auto;padding:9px 20px;margin:0}
 
+  /* Auditoria */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;max-width:900px;margin:0 auto 20px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .stat b{display:block;font-size:26px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat span{display:block;font-size:11.5px;color:var(--muted);margin-top:3px}
+  .stat.ok b{color:var(--green-ink)}
+  .stat.take b{color:var(--take)}
+  .barra{display:flex;gap:2px;margin-top:8px;height:5px;border-radius:3px;overflow:hidden;background:var(--line)}
+  .barra i{display:block;height:100%}
+  .toplist{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .modal{position:fixed;inset:0;background:rgba(11,20,26,.55);z-index:150;display:flex;align-items:center;justify-content:center;padding:24px}
+  .modal-card{background:var(--surface);border-radius:14px;width:min(760px,100%);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(11,20,26,.3)}
+  .modal-top{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .modal-top b{display:block;font-size:15.5px;font-weight:600}
+  .modal-top span{display:block;font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .modal-top button{margin-left:auto}
+  .modal-body{flex:1;overflow-y:auto;padding:18px 20px;background:var(--wall)}
+
   .wip-page{max-width:520px;margin:8vh auto 0;text-align:center}
   .wip-page .g{
     width:88px;height:88px;border-radius:24px;background:var(--surface);margin:0 auto 22px;
@@ -332,7 +350,7 @@
     <div class="mk" id="menuMk">AQ</div>
     <button class="mitem" data-sec="atendimento" aria-current="true">💬<span class="tip">Atendimento</span></button>
     <button class="mitem hidden" data-sec="usuarios" id="mUsuarios">👥<span class="tip">Usuários</span></button>
-    <button class="mitem" data-sec="auditoria">📋<i class="wip"></i><span class="tip">Auditoria · em desenvolvimento</span></button>
+    <button class="mitem hidden" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
     <button class="mitem" data-sec="sgp">🔎<i class="wip"></i><span class="tip">Consulta SGP · em desenvolvimento</span></button>
     <button class="mitem" data-sec="contrato">📄<i class="wip"></i><span class="tip">Contrato · em desenvolvimento</span></button>
     <div class="sep"></div>
@@ -420,20 +438,40 @@
     <!-- ── Em desenvolvimento ── -->
     <section class="sec" data-sec="auditoria">
       <div class="page">
-        <header class="page-top"><h2>Auditoria</h2><span class="sub">Histórico de atendimentos</span></header>
-        <div class="page-body"><div class="wip-page">
-          <div class="g">📋</div><span class="badge">Em desenvolvimento</span>
-          <h2>Auditoria de atendimentos</h2>
-          <p>Aqui você vai acompanhar o histórico completo: o que a IA respondeu, quem interveio e quando, com filtro por período e atendente.</p>
-          <div class="wip-list"><b>Previsto para esta tela</b><ul>
-            <li>Conversas encerradas, com a timeline completa</li>
-            <li>Quem assumiu cada atendimento e por quanto tempo</li>
-            <li>Consultas executadas e protocolos gerados</li>
-            <li>Exportação por período</li>
-          </ul></div>
-        </div></div>
+        <header class="page-top">
+          <h2>Auditoria</h2><span class="sub">Histórico de atendimentos</span>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <select id="aPeriodo" class="mini" style="padding:7px 10px">
+              <option value="1">Hoje</option>
+              <option value="7" selected>Últimos 7 dias</option>
+              <option value="30">Últimos 30 dias</option>
+              <option value="0">Tudo</option>
+            </select>
+            <select id="aAtendente" class="mini" style="padding:7px 10px"><option value="">Todas as atendentes</option></select>
+            <input id="aBusca" class="mini" style="padding:7px 10px;width:190px" placeholder="Cliente, CPF ou número">
+          </div>
+        </header>
+        <div class="page-body">
+          <div class="stats" id="aStats"></div>
+          <div class="sheet">
+            <h3>Conversas <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="aCount"></span></h3>
+            <table><thead><tr><th>Cliente</th><th>Quando</th><th>Atendimento</th><th>Consultas</th><th></th></tr></thead>
+              <tbody id="aBody"><tr><td colspan="5" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
+          </div>
+        </div>
       </div>
     </section>
+
+    <!-- Timeline de uma conversa auditada -->
+    <div class="modal hidden" id="aModal">
+      <div class="modal-card">
+        <header class="modal-top">
+          <div><b id="aModalNome">—</b><span id="aModalSub"></span></div>
+          <button class="mini" id="aFechar">Fechar</button>
+        </header>
+        <div class="modal-body" id="aModalBody"></div>
+      </div>
+    </div>
 
     <section class="sec" data-sec="sgp">
       <div class="page">
@@ -580,6 +618,7 @@
     document.querySelectorAll('.mitem').forEach((b)=>b.setAttribute('aria-current', String(b.dataset.sec===sec)));
     document.querySelectorAll('.sec').forEach((s)=>s.dataset.on = String(s.dataset.sec===sec));
     if (sec === 'usuarios') carregarUsuarios();
+    if (sec === 'auditoria') carregarAuditoria();
   }
 
   // ── Boot ────────────────────────────────────────────────
@@ -587,7 +626,8 @@
     $('meIni').textContent = iniciais(eu.nome);
     $('meTip').textContent = `${eu.nome} · sair`;
     $('mUsuarios').classList.toggle('hidden', eu.papel !== 'admin');
-    if (secao === 'usuarios' && eu.papel !== 'admin') irPara('atendimento');
+    $('mAuditoria').classList.toggle('hidden', eu.papel !== 'admin');
+    if ((secao === 'usuarios' || secao === 'auditoria') && eu.papel !== 'admin') irPara('atendimento');
     tick();
     clearInterval(timer);
     timer = setInterval(tick, 3000);
@@ -671,6 +711,69 @@
       carregarUsuarios();
     }catch(ex){ toast(ex.message,true); }
   });
+
+  // ── Auditoria ───────────────────────────────────────────
+  async function carregarAuditoria(){
+    const dias = Number($('aPeriodo').value);
+    const par = new URLSearchParams();
+    if (dias > 0) par.set('de', String(Date.now() - dias*86400000));
+    if ($('aAtendente').value) par.set('atendente', $('aAtendente').value);
+    if ($('aBusca').value.trim()) par.set('busca', $('aBusca').value.trim());
+
+    try{
+      const d = await api('/api/auditoria?'+par.toString());
+
+      if ($('aAtendente').options.length <= 1 && d.atendentes.length){
+        $('aAtendente').insertAdjacentHTML('beforeend',
+          d.atendentes.map(a=>`<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join(''));
+      }
+
+      const r = d.resumo;
+      const pctIa = r.conversas ? Math.round(r.resolvidasPelaIa/r.conversas*100) : 0;
+      $('aStats').innerHTML = `
+        <div class="stat"><b>${r.conversas}</b><span>conversas no período</span></div>
+        <div class="stat ok"><b>${pctIa}%</b><span>resolvidas só pela IA</span>
+          <div class="barra"><i style="flex:${r.resolvidasPelaIa};background:var(--green)"></i><i style="flex:${r.comIntervencao};background:var(--take)"></i></div></div>
+        <div class="stat take"><b>${r.comIntervencao}</b><span>com intervenção humana</span></div>
+        <div class="stat"><b>${r.identificados}</b><span>clientes identificados</span></div>
+        <div class="stat" style="grid-column:span 2"><span style="margin:0 0 6px">consultas mais usadas</span>
+          <div class="toplist">${r.consultasTop.length
+            ? r.consultasTop.map(c=>`<span class="pill">${esc((TOOLS[c.nome]||[c.nome])[0])} · ${c.n}</span>`).join('')
+            : '<span class="hint">nenhuma ainda</span>'}</div></div>`;
+
+      $('aCount').textContent = `· ${d.conversas.length} registro(s)`;
+      $('aBody').innerHTML = d.conversas.length ? d.conversas.map(c=>`<tr>
+          <td class="urow"><b>${esc(c.cliente||fone(c.numero))}</b>
+            <span>${esc(fone(c.numero))}${c.cpf?' · '+esc(c.cpf):''}</span></td>
+          <td class="hint">${esc(new Date(c.iniciadaEm).toLocaleString('pt-BR'))}<br>${c.duracaoMin} min</td>
+          <td>${c.atendentes.length
+            ? `<span class="pill warn">humano</span><div class="hint" style="margin-top:3px">${esc(c.atendentes.join(', '))}</div>`
+            : '<span class="pill ok">só a IA</span>'}
+            ${c.encerrada?'<div class="hint" style="margin-top:3px">encerrada</div>':''}</td>
+          <td><span class="pill m">${c.totalConsultas}</span></td>
+          <td><div class="acts"><button class="mini" data-audit="${esc(c.chave)}">Ver conversa</button></div></td>
+        </tr>`).join('')
+        : '<tr><td colspan="5" class="hint" style="padding:20px 18px">Nenhuma conversa no período.</td></tr>';
+    }catch(ex){ toast(ex.message,true); }
+  }
+
+  ['aPeriodo','aAtendente'].forEach(id=>$(id).addEventListener('change',carregarAuditoria));
+  let buscaTimer;
+  $('aBusca').addEventListener('input',()=>{clearTimeout(buscaTimer); buscaTimer=setTimeout(carregarAuditoria,350);});
+
+  $('aBody').addEventListener('click', async (e)=>{
+    const b=e.target.closest('button[data-audit]'); if(!b) return;
+    try{
+      const d = await api('/api/auditoria/'+encodeURIComponent(b.dataset.audit));
+      $('aModalNome').textContent = d.cliente || fone(d.numero);
+      $('aModalSub').textContent = `${fone(d.numero)} · ${d.instancia||''} · ${new Date(d.iniciadaEm).toLocaleString('pt-BR')}`;
+      $('aModalBody').innerHTML = d.eventos.map(linha).join('') || '<p class="hint">Sem eventos.</p>';
+      $('aModal').classList.remove('hidden');
+    }catch(ex){ toast(ex.message,true); }
+  });
+  $('aFechar').onclick = ()=>$('aModal').classList.add('hidden');
+  $('aModal').addEventListener('click',(e)=>{ if(e.target===$('aModal')) $('aModal').classList.add('hidden'); });
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') $('aModal').classList.add('hidden'); });
 
   // ── Lista de conversas ──────────────────────────────────
   const nomeDe = (c) => c.clienteNome || c.pushName || fone(c.numero);

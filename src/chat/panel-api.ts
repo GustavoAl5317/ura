@@ -14,6 +14,7 @@ import {
   usuariosOnline, derrubarSessoes,
   type Papel,
 } from './auth';
+import { auditoriaConversas, auditoriaResumo, conversaDetalheAuditoria } from './repo';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -205,6 +206,43 @@ export async function tratarPainel(
       const id = decodeURIComponent(mS[1]);
       const n = derrubarSessoes(id);
       json(res, 200, { ok: true, sessoesEncerradas: n });
+      return true;
+    }
+
+    json(res, 405, { erro: 'metodo_nao_suportado' });
+    return true;
+  }
+
+  // ── Auditoria ────────────────────────────────────────────────────────────
+  if (p.startsWith('/api/auditoria')) {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores acessam a auditoria.' });
+      return true;
+    }
+
+    const num = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
+    const filtro = {
+      de: num(url.searchParams.get('de')),
+      ate: num(url.searchParams.get('ate')),
+      atendenteId: url.searchParams.get('atendente') || undefined,
+      busca: url.searchParams.get('busca') || undefined,
+      limite: num(url.searchParams.get('limite')),
+    };
+
+    if (req.method === 'GET' && p === '/api/auditoria') {
+      json(res, 200, {
+        resumo: auditoriaResumo(filtro),
+        conversas: auditoriaConversas(filtro),
+        atendentes: listarUsuarios().map((u) => ({ id: u.id, nome: u.nome })),
+      });
+      return true;
+    }
+
+    const mA = /^\/api\/auditoria\/(.+)$/.exec(p);
+    if (req.method === 'GET' && mA) {
+      const det = conversaDetalheAuditoria(decodeURIComponent(mA[1]));
+      if (!det) { json(res, 404, { erro: 'Conversa não encontrada na auditoria.' }); return true; }
+      json(res, 200, det);
       return true;
     }
 

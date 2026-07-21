@@ -19,6 +19,7 @@ import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
 import { buildChatSystemPrompt } from './prompt';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
+import { salvarConversa, salvarEvento, conversasParaRetomar } from './repo';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -36,8 +37,6 @@ export interface PanelEvent {
   tool?: { name: string; args: Record<string, unknown>; resultado: string };
 }
 
-let eventSeq = 1;
-
 export class ChatSession {
   readonly ctx: CallContext;
   private readonly registry = new ChatToolRegistry();
@@ -49,7 +48,7 @@ export class ChatSession {
   atendenteNome?: string;
   pushName?: string;
   lastActivity = Date.now();
-  readonly startedAt = Date.now();
+  startedAt = Date.now();
   private chain: Promise<void> = Promise.resolve();
 
   constructor(readonly remoteJid: string, readonly numero: string, readonly instance?: string) {
@@ -77,8 +76,57 @@ export class ChatSession {
   // ── Eventos (timeline do painel) ─────────────────────────────────────────
 
   private record(ev: Omit<PanelEvent, 'id' | 'ts'>): void {
-    this.eventos.push({ id: eventSeq++, ts: Date.now(), ...ev });
+    const completo = { ts: Date.now(), ...ev };
+    let id = 0;
+    try {
+      id = salvarEvento(this.key, completo);          // id vem do banco
+    } catch (err) {
+      logger.error('[chat] falha ao gravar evento', { err: String(err) });
+      id = -Date.now();                                // segue em memória
+    }
+    this.eventos.push({ id, ...completo });
     if (this.eventos.length > 300) this.eventos.splice(0, this.eventos.length - 300);
+    this.persistir();
+  }
+
+  /** Salva o estado (contexto + histórico) para sobreviver a um restart. */
+  persistir(): void {
+    try {
+      salvarConversa({
+        chave: this.key,
+        numero: this.numero,
+        instancia: this.instance,
+        pushName: this.pushName,
+        modo: this.modo,
+        atendenteId: this.atendenteId,
+        atendenteNome: this.atendenteNome,
+        encerrada: this.encerrada,
+        iniciadaEm: this.startedAt,
+        ultimaAtividade: this.lastActivity,
+        ctx: this.ctx,
+        history: this.history,
+      });
+    } catch (err) {
+      logger.error('[chat] falha ao salvar conversa', { err: String(err) });
+    }
+  }
+
+  /** Recarrega uma conversa vinda do banco (após restart do serviço). */
+  restaurar(dados: {
+    pushName?: string; modo: 'ia' | 'humano';
+    atendenteId?: string; atendenteNome?: string;
+    iniciadaEm: number; ultimaAtividade: number;
+    ctx: Partial<CallContext>; history: unknown[]; eventos: PanelEvent[];
+  }): void {
+    this.pushName = dados.pushName;
+    this.modo = dados.modo;
+    this.atendenteId = dados.atendenteId;
+    this.atendenteNome = dados.atendenteNome;
+    this.startedAt = dados.iniciadaEm;
+    this.lastActivity = dados.ultimaAtividade;
+    Object.assign(this.ctx, dados.ctx);
+    this.history = dados.history as ChatMessage[];
+    this.eventos.push(...dados.eventos);
   }
 
   // ── Controle do painel ───────────────────────────────────────────────────
@@ -323,12 +371,32 @@ export class ChatSessionStore {
     setInterval(() => {
       const agora = Date.now();
       for (const [key, s] of this.sessions) {
-        // Sessões encerradas ficam visíveis no painel até expirar por inatividade.
+        // Sai da memória por inatividade — o registro fica no banco (auditoria).
         if (agora - s.lastActivity > idleMs) {
+          s.persistir();
           this.sessions.delete(key);
         }
       }
     }, 60_000).unref?.();
+  }
+
+  /** Recarrega do banco as conversas ativas — chamado no boot do serviço. */
+  retomarDoBanco(): number {
+    const idleMs = config.chat.sessionIdleMin * 60_000;
+    let n = 0;
+    try {
+      for (const c of conversasParaRetomar(idleMs)) {
+        const remoteJid = c.chave.slice(c.chave.indexOf(':') + 1);
+        const s = new ChatSession(remoteJid, c.numero, c.instancia);
+        s.restaurar(c);
+        this.sessions.set(c.chave, s);
+        n++;
+      }
+      if (n) logger.info(`[chat] ${n} conversa(s) retomada(s) do banco após reinício`);
+    } catch (err) {
+      logger.error('[chat] falha ao retomar conversas', { err: String(err) });
+    }
+    return n;
   }
 
   get(remoteJid: string, numero: string, instance?: string): ChatSession {

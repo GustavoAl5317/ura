@@ -9,6 +9,7 @@ import { whatsapp } from '../integrations/whatsapp';
 import { ChatSessionStore } from './session';
 import { tratarPainel } from './panel-api';
 import { initAuth } from './auth';
+import { initDb } from './db';
 
 const store = new ChatSessionStore();
 
@@ -126,7 +127,9 @@ export function startChatServer(): void {
     return;
   }
 
+  initDb();
   initAuth();
+  store.retomarDoBanco();
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

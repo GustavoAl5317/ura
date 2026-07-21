@@ -51,6 +51,45 @@ Mantém o fluxo da URA: pede **CPF** e **confirma o titular** antes de qualquer 
 3. Suba a URA normalmente (`npm run dev` ou `npm start`). O log deve mostrar
    `Chat WhatsApp escutando webhook na porta 9022`.
 
+## Banco de dados (SQLite)
+
+Usa **`node:sqlite`**, embutido no Node — sem dependência nova e sem compilação nativa.
+O arquivo fica em `data/atendimento.db` (fora do git).
+
+> ⚠️ **Requer Node 22.5 ou superior.** A URA de voz continua no Node 20 sem problema:
+> instale um Node 22 isolado e aponte **só o serviço do chat** para ele (veja abaixo).
+
+| Tabela | Guarda |
+|---|---|
+| `usuarios` | contas do painel (senha em scrypt + salt) |
+| `sessoes` | logins ativos — sobrevivem a um restart |
+| `conversas` | contexto da IA + histórico de mensagens de cada atendimento |
+| `eventos` | timeline completa (cliente, IA, atendente, consultas) |
+
+Com isso, um `systemctl restart` **não perde o atendimento em andamento**: as conversas
+recentes são recarregadas na memória com o cadastro, o financeiro e o histórico que a IA
+já tinha levantado. No boot o log mostra `N conversa(s) retomada(s) do banco após reinício`.
+
+Se já existia o `data/chat-usuarios.json` da versão anterior, os usuários são migrados
+automaticamente na primeira subida (o arquivo antigo vira `.migrado`).
+
+### Node 22 isolado (não mexe na URA de voz)
+
+```bash
+cd /opt
+curl -fsSLO https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz
+tar -xf node-v22.14.0-linux-x64.tar.xz && mv node-v22.14.0-linux-x64 node22
+/opt/node22/bin/node -v          # v22.x
+```
+No `/etc/systemd/system/ura-chat.service`, troque o `ExecStart`:
+```ini
+ExecStart=/opt/node22/bin/node dist/chat-only.js
+```
+```bash
+systemctl daemon-reload && systemctl restart ura-chat
+```
+O `/usr/bin/node` (v20) segue intacto para a URA de voz.
+
 ## Painel de atendimento humano
 
 Acesse **`http://<host>:9022/`** (mesma porta do webhook).
@@ -80,7 +119,7 @@ ou remover contas. Senhas são guardadas com `scrypt` + salt em `data/chat-usuar
 |---|---|
 | 💬 Atendimento | funcionando |
 | 👥 Usuários | funcionando (só administrador) |
-| 📋 Auditoria | **em desenvolvimento** |
+| 📋 Auditoria | funcionando (só administrador) |
 | 🔎 Consulta SGP | **em desenvolvimento** |
 | 📄 Contrato | **em desenvolvimento** |
 
