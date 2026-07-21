@@ -35,17 +35,19 @@ const hash = hashSenha(senha);
 let feito = false;
 
 // ── SQLite ────────────────────────────────────────────────────────────────
+let semSqlite = false;
 if (fs.existsSync(arqDb)) {
   let DatabaseSync;
   try {
     ({ DatabaseSync } = require('node:sqlite'));
   } catch {
-    console.error(
-      `Este Node (${process.version}) não tem node:sqlite. ` +
-      'Rode com o Node 22, ex.: /opt/node22/bin/node scripts/resetar-senha.js ...',
+    // Sem node:sqlite aqui — ainda pode haver o JSON antigo em uso.
+    semSqlite = true;
+    console.warn(
+      `⚠ Existe data/atendimento.db, mas este Node (${process.version}) não tem node:sqlite.`,
     );
-    process.exit(1);
   }
+  if (DatabaseSync) {
   const db = new DatabaseSync(arqDb);
   const r = db.prepare('UPDATE usuarios SET senha_hash = ?, ativo = 1 WHERE login = ?')
     .run(hash, login);
@@ -58,6 +60,7 @@ if (fs.existsSync(arqDb)) {
     console.error(`✘ SQLite: login "${login}" não existe. Disponíveis: ${todos.join(', ') || '(nenhum)'}`);
   }
   db.close();
+  }
 }
 
 // ── JSON antigo ───────────────────────────────────────────────────────────
@@ -76,7 +79,12 @@ if (!feito && fs.existsSync(arqJson)) {
 }
 
 if (!feito) {
-  if (!fs.existsSync(arqDb) && !fs.existsSync(arqJson)) {
+  if (semSqlite) {
+    console.error(
+      'Para mexer no banco SQLite use o Node 22, ex.:\n' +
+      '  /opt/node22/bin/node scripts/resetar-senha.js ' + login + ' <senha>',
+    );
+  } else if (!fs.existsSync(arqDb) && !fs.existsSync(arqJson)) {
     console.error(
       'Nenhum cadastro encontrado em data/. Se o serviço nunca subiu, defina ' +
       'CHAT_ADMIN_PASS no .env e inicie — o administrador é criado no primeiro boot.',
