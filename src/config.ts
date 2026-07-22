@@ -173,6 +173,10 @@ export const config = {
     adminPass: opt('CHAT_ADMIN_PASS', '').trim(),
     /** Modelo OpenAI de texto que conduz o atendimento (function calling). */
     model: opt('CHAT_MODEL', 'gpt-4o'),
+    /** Transcreve áudios recebidos (mensagem de voz do WhatsApp) para texto. */
+    transcribeEnabled: optBool('CHAT_TRANSCRIBE_ENABLED', true),
+    /** Modelo de transcrição da OpenAI (whisper-1, gpt-4o-mini-transcribe...). */
+    transcribeModel: opt('CHAT_TRANSCRIBE_MODEL', 'whisper-1'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),
     maxTokens: optInt('CHAT_MAX_TOKENS', 700),
     /** Máx. de rodadas de ferramentas por mensagem (proteção contra loop). */

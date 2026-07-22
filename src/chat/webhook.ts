@@ -10,6 +10,7 @@ import { ChatSessionStore } from './session';
 import { tratarPainel } from './panel-api';
 import { initAuth } from './auth';
 import { initDb } from './db';
+import { transcreverAudio } from './audio';
 
 const store = new ChatSessionStore();
 
@@ -24,6 +25,7 @@ interface EvolutionMessageContent {
   extendedTextMessage?: { text?: string };
   imageMessage?: { caption?: string };
   videoMessage?: { caption?: string };
+  audioMessage?: { mimetype?: string; seconds?: number; ptt?: boolean };
   buttonsResponseMessage?: { selectedDisplayText?: string };
   listResponseMessage?: { title?: string };
   templateButtonReplyMessage?: { selectedDisplayText?: string };
@@ -75,11 +77,34 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
     return;
   }
 
-  const texto = extrairTexto(msg.message);
+  const numero = remoteJid.split('@')[0];
+
+  let texto = extrairTexto(msg.message);
+
+  // Mensagem de voz: baixa o áudio da Evolution e transcreve para texto.
+  if (!texto && config.chat.transcribeEnabled && msg.message?.audioMessage) {
+    const midia = await whatsapp.obterBase64Midia(msg.key ?? {}, instance);
+    if (midia?.base64) {
+      texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.message.audioMessage.mimetype)) ?? '';
+    }
+    if (texto) {
+      logger.info(`[chat] 🎙️  [${instance}] ${numero} (áudio): ${texto}`);
+    } else {
+      logger.warn(`[chat] não consegui transcrever o áudio de ${numero}`);
+      await whatsapp.enviarTexto(
+        numero,
+        'Recebi seu áudio, mas não consegui entender por aqui 😕 Pode me mandar por escrito, por favor?',
+        instance,
+      );
+      return;
+    }
+  }
+
   if (!texto) return;                                          // mídia sem legenda, reações, etc.
 
-  const numero = remoteJid.split('@')[0];
-  logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto}`);
+  if (!msg.message?.audioMessage) {
+    logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto}`);
+  }
 
   // A sessão decide: IA responde (e entrega) ou apenas registra, se a atendente
   // assumiu a conversa pelo painel.

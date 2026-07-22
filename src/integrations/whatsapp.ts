@@ -141,6 +141,35 @@ export class WhatsAppClient {
     }
   }
 
+  /**
+   * Baixa a mídia de uma mensagem (áudio/imagem) como base64 via Evolution.
+   * Usado para transcrever mensagens de voz. `messageKey` é o `key` do evento.
+   */
+  async obterBase64Midia(
+    messageKey: { id?: string; remoteJid?: string; fromMe?: boolean },
+    instance?: string,
+  ): Promise<{ base64: string; mimetype?: string } | null> {
+    if (!this.isAvailable(instance) || !messageKey?.id) return null;
+    try {
+      const res = await this.client.post(
+        `/chat/getBase64FromMediaMessage/${this.instancePath(instance)}`,
+        { message: { key: messageKey }, convertToMp4: false },
+      );
+      const data = res.data as { base64?: string; mimetype?: string } | undefined;
+      if (data?.base64) return { base64: data.base64, mimetype: data.mimetype };
+      logger.warn('WhatsApp: mídia sem base64 na resposta', { id: messageKey.id });
+      return null;
+    } catch (err: unknown) {
+      const ax = err as AxiosError;
+      logger.error('WhatsApp: falha ao baixar mídia', {
+        id: messageKey.id,
+        status: ax.response?.status,
+        err: ax.message,
+      });
+      return null;
+    }
+  }
+
   async enviarTexto(para: string, mensagem: string, instance?: string): Promise<WhatsappSendResult> {
     if (!this.isAvailable(instance)) {
       logger.error('WhatsApp não configurado', {
