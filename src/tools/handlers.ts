@@ -506,13 +506,19 @@ async function enviarWhatsappAtendimento(
   }
 
   const fatura = params.fatura ?? ctx.faturaWhatsApp;
-  const resultado = await whatsapp.enviarResumoAtendimento(destino.numero, {
+  const dadosMsg = {
     clienteNome: ctx.cliente.nome,
     resumoAtendimento: resumo,
     respostaCliente: resposta,
     protocolos: ctx.protocolos.length ? [...ctx.protocolos] : undefined,
     fatura,
-  }, ctx.whatsappInstance);
+  };
+
+  // Canal com transporte próprio (Cloud API): monta o texto e envia por ele.
+  // Caso contrário, usa a Evolution (voz e chat via Evolution).
+  const resultado = ctx.enviarTextoCliente
+    ? await ctx.enviarTextoCliente(destino.numero, whatsapp.montarMensagemAtendimento(dadosMsg))
+    : await whatsapp.enviarResumoAtendimento(destino.numero, dadosMsg, ctx.whatsappInstance);
 
   return {
     enviado: resultado.enviado,

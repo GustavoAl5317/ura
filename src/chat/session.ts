@@ -25,6 +25,9 @@ const TOOLS: ChatToolFunction[] = buildChatTools();
 
 export type ChatMode = 'ia' | 'humano';
 
+/** Envia texto ao cliente pelo canal da conversa (Evolution ou Cloud API). */
+export type EnviarTexto = (numero: string, texto: string) => Promise<{ enviado: boolean; motivo?: string }>;
+
 export interface PanelEvent {
   id: number;
   ts: number;
@@ -51,15 +54,27 @@ export class ChatSession {
   startedAt = Date.now();
   private chain: Promise<void> = Promise.resolve();
 
-  constructor(readonly remoteJid: string, readonly numero: string, readonly instance?: string) {
+  /** Transporte de envio; se não injetado, cai na Evolution (compatível com o que já existia). */
+  private readonly enviar: EnviarTexto;
+
+  constructor(
+    readonly remoteJid: string,
+    readonly numero: string,
+    readonly instance?: string,
+    enviar?: EnviarTexto,
+  ) {
     this.ctx = createContext(remoteJid, numero);
     this.ctx.canal = 'chat';
     this.ctx.agentName = config.company.agentName;
-    // Responde/entrega pela MESMA instância Evolution que recebeu a mensagem.
+    // Responde/entrega pela MESMA instância que recebeu a mensagem.
     this.ctx.whatsappInstance = instance;
     // No chat já sabemos o WhatsApp do cliente (é o remetente): pré-confirmado.
     this.ctx.celularWhatsApp = numero;
     this.ctx.celularWhatsAppConfirmado = true;
+
+    this.enviar = enviar ?? ((n, t) => whatsapp.enviarTexto(n, t, instance));
+    // Handlers (fatura/protocolo) enviam ao cliente pelo mesmo canal da conversa.
+    this.ctx.enviarTextoCliente = this.enviar;
 
     registerTools(this.registry, this.ctx);   // MESMOS handlers da URA
     registerChatOverrides(this.registry, this.ctx);
@@ -170,7 +185,7 @@ export class ChatSession {
     if (!t) return { enviado: false, motivo: 'texto_vazio' };
     if (this.modo !== 'humano') return { enviado: false, motivo: 'modo_ia' };
 
-    const r = await whatsapp.enviarTexto(this.numero, t, this.instance);
+    const r = await this.enviar(this.numero, t);
     if (r.enviado) {
       this.history.push({ role: 'assistant', content: t });
       this.record({ tipo: 'atendente', texto: t, autor: autor ?? this.atendenteNome });
@@ -282,7 +297,7 @@ export class ChatSession {
   private async entregar(texto: string): Promise<void> {
     logger.info(`[chat] ⬆️  [${this.instance ?? 'padrão'}] ${this.numero}: ${texto}`);
     this.record({ tipo: 'ia', texto });
-    await whatsapp.enviarTexto(this.numero, texto, this.instance);
+    await this.enviar(this.numero, texto);
   }
 
   // ── Snapshot para o painel ───────────────────────────────────────────────
@@ -380,14 +395,15 @@ export class ChatSessionStore {
     }, 60_000).unref?.();
   }
 
-  /** Recarrega do banco as conversas ativas — chamado no boot do serviço. */
-  retomarDoBanco(): number {
+  /** Recarrega do banco as conversas ativas — chamado no boot do serviço.
+   *  `resolveEnviar(instancia)` escolhe o transporte (Evolution x Cloud API). */
+  retomarDoBanco(resolveEnviar?: (instancia?: string) => EnviarTexto | undefined): number {
     const idleMs = config.chat.sessionIdleMin * 60_000;
     let n = 0;
     try {
       for (const c of conversasParaRetomar(idleMs)) {
         const remoteJid = c.chave.slice(c.chave.indexOf(':') + 1);
-        const s = new ChatSession(remoteJid, c.numero, c.instancia);
+        const s = new ChatSession(remoteJid, c.numero, c.instancia, resolveEnviar?.(c.instancia));
         s.restaurar(c);
         this.sessions.set(c.chave, s);
         n++;
@@ -399,7 +415,7 @@ export class ChatSessionStore {
     return n;
   }
 
-  get(remoteJid: string, numero: string, instance?: string): ChatSession {
+  get(remoteJid: string, numero: string, instance?: string, enviar?: EnviarTexto): ChatSession {
     const key = `${instance ?? ''}:${remoteJid}`;
     let s = this.sessions.get(key);
     if (s && s.encerrada) {
@@ -407,7 +423,7 @@ export class ChatSessionStore {
       s = undefined;
     }
     if (!s) {
-      s = new ChatSession(remoteJid, numero, instance);
+      s = new ChatSession(remoteJid, numero, instance, enviar);
       this.sessions.set(key, s);
       logger.info(`[chat] Nova sessão para ${numero} (${remoteJid}) via instância ${instance ?? '(padrão)'}`);
     }

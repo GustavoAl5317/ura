@@ -11,6 +11,7 @@ import { tratarPainel } from './panel-api';
 import { initAuth } from './auth';
 import { initDb } from './db';
 import { transcreverAudio } from './audio';
+import { verificarWebhookCloud, assinaturaValida, processarCloudPayload, resolveEnviarCloud } from './cloud-webhook';
 
 const store = new ChatSessionStore();
 
@@ -147,14 +148,20 @@ export function startChatServer(): void {
     logger.info('Chat WhatsApp desabilitado (CHAT_ENABLED=0)');
     return;
   }
-  if (!config.whatsapp.apiUrl || !config.whatsapp.instance || !config.whatsapp.apiKey) {
-    logger.warn('Chat WhatsApp NÃO iniciado: configure WHATSAPP_API_URL / WHATSAPP_INSTANCE / WHATSAPP_API_KEY');
+  const temEvolution = !!(config.whatsapp.apiUrl && config.whatsapp.instance && config.whatsapp.apiKey);
+  if (!temEvolution && !config.cloud.enabled) {
+    logger.warn('Chat NÃO iniciado: configure a Evolution (WHATSAPP_*) ou a Cloud API (CLOUD_*)');
     return;
   }
 
   initDb();
   initAuth();
-  store.retomarDoBanco();
+  // No restore, conversas da Cloud API voltam com o transporte oficial da Meta.
+  store.retomarDoBanco(resolveEnviarCloud);
+
+  if (config.cloud.enabled) {
+    logger.info(`Cloud API (Meta) habilitada — webhook em POST /cloud/webhook`);
+  }
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -182,15 +189,15 @@ export function startChatServer(): void {
       return;
     }
 
-    if (req.method !== 'POST') {
-      res.writeHead(404);
-      res.end();
+    // Cloud API (Meta) — verificação GET do webhook.
+    if (req.method === 'GET' && url.pathname === '/cloud/webhook') {
+      verificarWebhookCloud(url, res);
       return;
     }
 
-    if (!tokenValido(req)) {
-      res.writeHead(401);
-      res.end('unauthorized');
+    if (req.method !== 'POST') {
+      res.writeHead(404);
+      res.end();
       return;
     }
 
@@ -200,6 +207,29 @@ export function startChatServer(): void {
       if (body.length > 2_000_000) req.destroy();               // proteção contra payload gigante
     });
     req.on('end', () => {
+      // ── Cloud API (Meta): valida assinatura e processa ──
+      if (url.pathname === '/cloud/webhook') {
+        if (!assinaturaValida(body, req.headers['x-hub-signature-256'])) {
+          logger.warn('[cloud] assinatura inválida — descartado');
+          res.writeHead(403);
+          res.end('forbidden');
+          return;
+        }
+        res.writeHead(200);
+        res.end('ok');                                          // Meta exige 200 rápido
+        try {
+          void processarCloudPayload(JSON.parse(body || '{}'), store);
+        } catch { /* payload inválido */ }
+        return;
+      }
+
+      // ── Evolution: exige o token do webhook ──
+      if (!tokenValido(req)) {
+        res.writeHead(401);
+        res.end('unauthorized');
+        return;
+      }
+
       // Responde rápido para a Evolution; processa em segundo plano.
       res.writeHead(200);
       res.end('ok');

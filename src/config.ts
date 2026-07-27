@@ -196,6 +196,23 @@ export const config = {
     handoffGroupId: opt('CHAT_HANDOFF_GROUP_ID', '').trim(),
   },
 
+  // WhatsApp Cloud API oficial (Meta) — canal alternativo à Evolution, para
+  // números registrados na plataforma Business (com Phone Number ID).
+  cloud: {
+    enabled: optBool('CLOUD_ENABLED', false),
+    /** Token de acesso permanente (System User) com whatsapp_business_messaging. */
+    token: opt('CLOUD_API_TOKEN', '').trim(),
+    /** Verify token definido por nós e configurado no webhook do app da Meta. */
+    verifyToken: opt('CLOUD_VERIFY_TOKEN', '').trim(),
+    /** App Secret (para validar a assinatura X-Hub-Signature-256 dos webhooks). */
+    appSecret: opt('CLOUD_APP_SECRET', '').trim(),
+    /** Versão da Graph API. */
+    graphVersion: opt('CLOUD_GRAPH_VERSION', 'v21.0'),
+    /** Allowlist opcional de phone_number_id atendidos (vazio = todos). */
+    allowedPhoneIds: opt('CLOUD_ALLOWED_PHONE_IDS', '')
+      .split(',').map((s) => s.trim()).filter(Boolean),
+  },
+
   ami: {
     host: opt('AST_AMI_HOST', '127.0.0.1'),
     port: optInt('AST_AMI_PORT', 5038),

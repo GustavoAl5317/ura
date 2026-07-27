@@ -12,6 +12,13 @@ export interface CallContext {
   /** Instância Evolution que enviará as mensagens (chat multi-número). Vazio = padrão do config. */
   whatsappInstance?: string;
 
+  /**
+   * Transporte de envio ao cliente (chat). Quando definido, os handlers enviam
+   * fatura/resumo por aqui em vez da Evolution — usado para a Cloud API oficial.
+   * Recebe o texto já montado e devolve se entregou.
+   */
+  enviarTextoCliente?: (numero: string, texto: string) => Promise<{ enviado: boolean; motivo?: string }>;
+
   // Dados do cliente (preenchidos após identificação)
   cliente?: SgpCliente;
   titulos?: SgpTitulo[];          // faturas em aberto (lazy loaded)
