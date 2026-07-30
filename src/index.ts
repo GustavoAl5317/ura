@@ -9,6 +9,7 @@ import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
 import { BUILD_ID } from './build';
 import { isUraEnabled } from './admin/ura-control';
+import { startUraSchedule } from './admin/ura-schedule';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -44,6 +45,7 @@ async function main() {
   startSidecar();
   startAudioSocketServer();
   startAdminServer();
+  startUraSchedule();
   // Por padrão o chat roda em processo separado (chat-only.ts) para NÃO impactar a
   // URA de voz. Só sobe aqui se CHAT_IN_MAIN=1 for explicitamente definido.
   if (config.chat.inMain) startChatServer();

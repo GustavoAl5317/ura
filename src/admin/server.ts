@@ -11,6 +11,7 @@ import { getOpenAiAuditStatus, refreshOpenAiAudit, startOpenAiAuditMonitor, getA
 import { getOpenAiSnapshot, refreshOpenAiUsage, startOpenAiMonitor } from './openai-monitor';
 import { getAllEvents, setEvents, UraEvent } from './events';
 import { getAllFarewells, setFarewells, Farewell } from './farewells';
+import { getAgenda, setAgenda, statusAgenda, type Agenda } from './ura-schedule';
 
 const PANEL_DIR = path.join(process.cwd(), 'panel');
 
@@ -128,6 +129,17 @@ export function startAdminServer(): void {
     if (req.method === 'POST' && pathname === '/api/ura/disable') {
       setUraEnabled(false, 'painel');
       return json(res, 200, { enabled: false });
+    }
+
+    // ── Agenda (liga/desliga automático por horário) ─────────────────────
+    if (req.method === 'GET' && pathname === '/api/schedule') {
+      return json(res, 200, statusAgenda());
+    }
+
+    if (req.method === 'POST' && pathname === '/api/schedule') {
+      const body = JSON.parse(await readBody(req)) as Partial<Agenda>;
+      const salva = setAgenda(body);
+      return json(res, 200, { ok: true, ...statusAgenda(), agenda: salva });
     }
 
     // ── Eventos / Avisos ─────────────────────────────────────────────────

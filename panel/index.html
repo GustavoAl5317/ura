@@ -396,6 +396,8 @@
     }
     .hamburger { display: none; background: none; border: none; color: white; cursor: pointer; padding: 0.5rem; }
     .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; backdrop-filter: blur(4px); }
+    .dia-chip { transition: background .15s, border-color .15s, color .15s; color: var(--text-muted); }
+    .dia-chip.on { background: var(--accent); border-color: var(--accent) !important; color: #fff; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -452,6 +454,10 @@
       <a class="nav-item" onclick="switchTab('farewells', this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
         Despedidas
+      </a>
+      <a class="nav-item" onclick="switchTab('schedule', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        Agendamento
       </a>
     </nav>
   </aside>
@@ -739,6 +745,47 @@
       </div>
     </div>
 
+    <!-- ═══════════ TAB: AGENDAMENTO ═══════════ -->
+    <div id="tab-schedule" class="page">
+      <div style="max-width: 900px; margin: 0 auto;">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+            <div>
+              <h3 style="margin:0 0 .4rem;">Liga/desliga automático</h3>
+              <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin:0;">
+                Quando <strong>ativado</strong>, a URA liga e desliga sozinha conforme as janelas abaixo.
+                Fora de todas as janelas, ela fica <strong>desligada</strong>. Fuso: <code>America/Fortaleza</code>.
+              </p>
+            </div>
+            <label class="switch-wrap" style="display:flex; align-items:center; gap:.6rem; cursor:pointer; white-space:nowrap;">
+              <input type="checkbox" id="sched-active" style="width:20px; height:20px;" />
+              <span style="font-weight:600;">Usar agendamento</span>
+            </label>
+          </div>
+          <div id="sched-status" style="margin-top:1rem; font-size:.9rem;"></div>
+        </div>
+
+        <div id="sched-windows" style="display:grid; gap:1rem;"></div>
+
+        <div style="display:flex; justify-content:space-between; margin-top:1.5rem; gap:1rem; flex-wrap:wrap;">
+          <button class="btn" onclick="addJanela()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Adicionar janela
+          </button>
+          <button class="btn btn-primary" onclick="saveSchedule()">Salvar agendamento</button>
+        </div>
+
+        <div class="card" style="margin-top:1.5rem; background:transparent;">
+          <p style="color:var(--text-muted); font-size:.85rem; line-height:1.6; margin:0;">
+            <strong>Exemplos:</strong><br>
+            • Ligar 18:00 e desligar 08:00 todo dia → uma janela com <em>todos os dias</em>, início <code>18:00</code>, fim <code>08:00</code> (vira a madrugada).<br>
+            • Ligar só aos sábados → uma janela com <em>sábado</em>, início <code>00:00</code>, fim <code>00:00</code> (dia inteiro).<br>
+            • Horário comercial → seg a sex, <code>08:00</code> a <code>18:00</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Modals -->
@@ -830,7 +877,7 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       if (el) el.classList.add('active');
       
-      const titles = { 'dashboard': 'Monitor ao Vivo', 'history': 'Histórico de Chamadas', 'openai': 'Centro OpenAI', 'alerts': 'Alertas do Sistema', 'events': 'Avisos da IA', 'farewells': 'Despedidas' };
+      const titles = { 'dashboard': 'Monitor ao Vivo', 'history': 'Histórico de Chamadas', 'openai': 'Centro OpenAI', 'alerts': 'Alertas do Sistema', 'events': 'Avisos da IA', 'farewells': 'Despedidas', 'schedule': 'Agendamento' };
       document.getElementById('page-title').textContent = titles[tabId];
       
       if (window.innerWidth <= 768) toggleSidebar();
@@ -840,6 +887,7 @@
       if (tabId === 'alerts') loadAlerts();
       if (tabId === 'events') loadEvent();
       if (tabId === 'farewells') loadFarewells();
+      if (tabId === 'schedule') loadSchedule();
     }
 
     function showToast(msg) {
@@ -1354,6 +1402,90 @@
       renderAlerts();
       refresh(); // atualiza badge
       showToast('Alerta marcado como lido.');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  AGENDAMENTO (LIGA/DESLIGA AUTOMÁTICO)
+    // ══════════════════════════════════════════════════════════════════════
+    let schedJanelas = [];
+    const DIAS_SEMANA = [['Dom',0],['Seg',1],['Ter',2],['Qua',3],['Qui',4],['Sex',5],['Sáb',6]];
+
+    async function loadSchedule() {
+      try {
+        const d = await api('/api/schedule');
+        document.getElementById('sched-active').checked = !!d.ativo;
+        schedJanelas = (d.janelas || []).map(j => ({ ...j }));
+        if (!schedJanelas.length) addJanela();      // começa com uma janela em branco
+        else renderSchedule();
+        renderSchedStatus(d);
+      } catch (e) { showToast('Falha ao carregar agenda: ' + e.message); }
+    }
+
+    function renderSchedStatus(d) {
+      const el = document.getElementById('sched-status');
+      if (!el) return;
+      if (!d || !d.ativo) { el.innerHTML = '<span style="color:var(--text-muted)">Agendamento desligado — controle manual pelos botões do Monitor.</span>'; return; }
+      const estado = d.deveriaEstar === true
+        ? '<span style="color:#22c55e; font-weight:600;">deveria estar LIGADA agora</span>'
+        : d.deveriaEstar === false
+          ? '<span style="color:#ef4444; font-weight:600;">deveria estar DESLIGADA agora</span>'
+          : '';
+      el.innerHTML = '⏱️ Agendamento no controle — ' + estado + '.';
+    }
+
+    function renderSchedule() {
+      const c = document.getElementById('sched-windows');
+      if (!schedJanelas.length) { c.innerHTML = '<div class="empty-state">Nenhuma janela. Clique em “Adicionar janela”.</div>'; return; }
+      c.innerHTML = schedJanelas.map((j, i) => `
+        <div class="card" style="padding:1rem 1.25rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:.75rem;">
+            <strong>Janela ${i + 1}</strong>
+            <button class="btn" style="padding:.3rem .6rem;" onclick="removeJanela(${i})" title="Remover">🗑️</button>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.9rem;">
+            ${DIAS_SEMANA.map(([nome, num]) => `
+              <label class="dia-chip ${j.dias.includes(num) ? 'on' : ''}" style="cursor:pointer; user-select:none; padding:.35rem .7rem; border-radius:999px; border:1px solid var(--border, #334); font-size:.85rem;">
+                <input type="checkbox" style="display:none;" ${j.dias.includes(num) ? 'checked' : ''} onchange="toggleDia(${i}, ${num})"> ${nome}
+              </label>`).join('')}
+          </div>
+          <div style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Liga às</label>
+              <input type="time" class="form-control" value="${j.inicio}" onchange="setJanelaHora(${i}, 'inicio', this.value)" style="width:130px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Desliga às</label>
+              <input type="time" class="form-control" value="${j.fim}" onchange="setJanelaHora(${i}, 'fim', this.value)" style="width:130px;">
+            </div>
+            <span style="color:var(--text-muted); font-size:.8rem; padding-bottom:.5rem;">${j.inicio > j.fim ? '(vira a madrugada)' : j.inicio === j.fim ? '(dia inteiro)' : ''}</span>
+          </div>
+        </div>`).join('');
+    }
+
+    function addJanela() {
+      schedJanelas.push({ id: Math.random().toString(36).slice(2, 9), dias: [1,2,3,4,5], inicio: '08:00', fim: '18:00' });
+      renderSchedule();
+    }
+    function removeJanela(i) { schedJanelas.splice(i, 1); renderSchedule(); }
+    function toggleDia(i, num) {
+      const dias = schedJanelas[i].dias;
+      const p = dias.indexOf(num);
+      if (p >= 0) dias.splice(p, 1); else dias.push(num);
+      dias.sort((a, b) => a - b);
+      renderSchedule();
+    }
+    function setJanelaHora(i, campo, val) { schedJanelas[i][campo] = val; renderSchedule(); }
+
+    async function saveSchedule() {
+      const ativo = document.getElementById('sched-active').checked;
+      const janelas = schedJanelas.filter(j => j.dias.length && j.inicio && j.fim);
+      if (ativo && !janelas.length) { showToast('Adicione ao menos uma janela com dias e horários.'); return; }
+      try {
+        const d = await api('/api/schedule', { method: 'POST', body: JSON.stringify({ ativo, janelas }) });
+        renderSchedStatus(d);
+        refresh();                                   // atualiza o badge Ligada/Desligada
+        showToast(ativo ? 'Agendamento salvo e ativo.' : 'Agendamento salvo (desligado).');
+      } catch (e) { showToast('Falha ao salvar: ' + e.message); }
     }
 
     // ══════════════════════════════════════════════════════════════════════
