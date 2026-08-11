@@ -1276,8 +1276,24 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
 
     const rxNum = onu.rx ? parseFloat(onu.rx) : null;
     const sinalOk = rxNum !== null ? rxNum >= -27 && rxNum <= -7 : null;
-    const status = onu.conexao?.status ?? 'desconhecido';
+    let status = onu.conexao?.status ?? 'desconhecido';
     const classificacaoSinal = classificarSinalOptico(rxNum);
+
+    // Este SGP não devolve `conexao` junto da ONU, então o status sairia sempre
+    // "desconhecido". O RADIUS sabe: consulta a sessão e resolve aqui, em vez de
+    // depender de a IA lembrar de fazer a segunda chamada.
+    let fonteStatus = 'onu';
+    if (status === 'desconhecido') {
+      const servico = await servicoDoContrato(contratoId);
+      if (servico?.login) {
+        const sessao = await sgp.statusPppoe(servico.login).catch(() => null);
+        if (sessao) {
+          const online = sessao.online === true || sessao.online === 1 || sessao.online === '1';
+          status = online ? 'online' : 'offline';
+          fonteStatus = 'radius';
+        }
+      }
+    }
 
     return {
       status,
@@ -1298,9 +1314,14 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       // está conectado. Sem status de conexão não dá para afirmar "está online":
       // dizer isso manda o cliente reiniciar roteador à toa e mascara a queda.
       conexao_confirmada: status === 'online' || status === 'offline',
+      fonte_status: fonteStatus,
       interpretacao:
         status === 'offline'
-          ? 'ONU offline — verifique a luz da ONU ou se houve queda de energia'
+          ? (sinalOk
+            ? 'Cliente DESCONECTADO, mas o sinal óptico está bom — chega luz na ONU e '
+              + 'mesmo assim não há sessão ativa. Provável falha do equipamento, do cabo '
+              + 'de rede ou da configuração. Tente reiniciar_onu; persistindo, abra chamado.'
+            : 'ONU offline — verifique a luz da ONU ou se houve queda de energia')
           : sinalOk === false
           ? `Sinal fraco (${onu.rx} dBm). O ideal é entre -7 e -27 dBm`
           : status === 'online'
