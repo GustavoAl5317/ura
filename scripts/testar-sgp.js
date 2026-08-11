@@ -14,13 +14,17 @@ const raiz = path.resolve(__dirname, '..');
 require(path.join(raiz, 'dist', 'config'));
 const { sgp } = require(path.join(raiz, 'dist', 'integrations', 'sgp'));
 
-const contratoId = Number(process.argv[2]);
+const argumento = String(process.argv[2] ?? '').trim();
 const alterar = process.argv.includes('--alterar');
 
-if (!Number.isInteger(contratoId) || contratoId <= 0) {
-  console.error('uso: node scripts/testar-sgp.js <contrato_id> [--alterar]');
+if (!argumento) {
+  console.error('uso: node scripts/testar-sgp.js <contrato_id | cpf> [--alterar]');
   process.exit(1);
 }
+
+// Aceita CPF/CNPJ (11 ou 14 dígitos, com ou sem máscara) ou o id do contrato.
+const soDigitos = argumento.replace(/\D/g, '');
+const ehDocumento = soDigitos.length === 11 || soDigitos.length === 14;
 
 const V = '\x1b[32m✓\x1b[0m';
 const X = '\x1b[31m✗\x1b[0m';
@@ -61,6 +65,29 @@ async function teste(nome, fn, { critico = false } = {}) {
 }
 
 (async () => {
+  let contratoId;
+
+  if (ehDocumento) {
+    console.log(`\n── resolvendo documento → contrato`);
+    const cli = await sgp.buscarPorCpf(soDigitos).catch((e) => {
+      console.log(`${X} buscarPorCpf falhou: ${e.message}`);
+      return null;
+    });
+    contratoId = cli?.contratoId ?? cli?.contratos?.[0]?.contrato;
+    if (!contratoId) {
+      console.error(`${X} nenhum contrato encontrado para esse documento`);
+      process.exit(1);
+    }
+    // Só o id: nome e CPF ficam no servidor.
+    console.log(`${V} contrato ${contratoId} (${cli.contratos?.length ?? 1} no cadastro)`);
+  } else {
+    contratoId = Number(argumento);
+    if (!Number.isInteger(contratoId) || contratoId <= 0) {
+      console.error('contrato_id inválido');
+      process.exit(1);
+    }
+  }
+
   console.log(`\n═══ SGP · contrato ${contratoId} · ${alterar ? 'LEITURA + ALTERAÇÃO' : 'somente leitura'} ═══`);
 
   const dados = await teste('dadosDoContrato — status, endereço, serviços, PPPoE', () =>
