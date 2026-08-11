@@ -239,6 +239,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
+    name: 'consultar_acordo',
+    description:
+      'Lista as parcelas do ACORDO DE PAGAMENTO do contrato. Use quando o cliente disser que '
+      + '"fez um acordo", "negociou a dívida", "parcelou", "tem boleto fixo" ou quando o valor '
+      + 'que ele cita não bater com a fatura mensal. Quem tem acordo em aberto paga as parcelas '
+      + 'negociadas, não a fatura comum do mês.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'number', description: 'ID do CONTRATO. Opcional se cliente já identificado.' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'consultar_historico_chamados',
     description:
       'Lista os chamados anteriores do cliente e as visitas técnicas já agendadas. '

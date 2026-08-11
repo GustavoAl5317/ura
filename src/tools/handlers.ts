@@ -1647,6 +1647,58 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     };
   });
 
+  // Faturas de acordo de pagamento — cliente que negociou tem parcelas fixas
+  // e cobra por elas, não pela fatura normal do mês.
+  client.registerTool('consultar_acordo', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_acordo');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+
+    // Janela larga: acordo antigo continua com parcelas correndo hoje.
+    const hoje = new Date();
+    const desde = new Date(hoje.getTime() - 3 * 365 * 864e5).toISOString().slice(0, 10);
+    const ate = new Date(hoje.getTime() + 2 * 365 * 864e5).toISOString().slice(0, 10);
+
+    const titulos = await sgp.titulosDeAcordo(contrato.contratoId, desde, ate).catch(() => []);
+    if (!titulos.length) {
+      return {
+        tem_acordo: false,
+        mensagem: 'Não há faturas de acordo de pagamento neste contrato. '
+          + 'Se o cliente afirma ter acordo, pode ser em OUTRO contrato dele — confirme o endereço — '
+          + 'ou acordo feito fora do sistema. Nesse caso, transfira para o financeiro.',
+      };
+    }
+
+    const abertas = titulos.filter((t) => String(t.status).toLowerCase().includes('aberto'));
+    const proxima = abertas[0];
+
+    return {
+      tem_acordo: true,
+      total_parcelas: titulos.length,
+      parcelas_em_aberto: abertas.length,
+      proxima_parcela: proxima
+        ? {
+            fatura_id: proxima.id,
+            valor: valorPorExtenso(proxima.valorCorrigido ?? proxima.valor),
+            vencimento: proxima.dataVencimento ?? null,
+            tem_pix: !!proxima.codigoPix,
+            tem_boleto: !!(proxima.link || proxima.link_cobranca),
+          }
+        : null,
+      parcelas: abertas.slice(0, 6).map((t) => ({
+        fatura_id: t.id,
+        valor: valorPorExtenso(t.valorCorrigido ?? t.valor),
+        vencimento: t.dataVencimento ?? null,
+        dias_atraso: t.diasAtraso ?? 0,
+      })),
+      orientacao: 'Estas são as parcelas do ACORDO. Para enviar uma delas, use '
+        + 'gerar_segunda_via com o fatura_id escolhido. NÃO ofereça a fatura mensal comum '
+        + 'a quem tem acordo em aberto — o valor negociado é este.',
+    };
+  });
+
   // Histórico de atendimentos: ocorrências + ordens de serviço do contrato.
   client.registerTool('consultar_historico_chamados', async (args) => {
     const bloqueio = bloqueioConsultas(ctx);

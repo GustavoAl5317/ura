@@ -582,6 +582,24 @@ export class SgpClient {
     return r?.success === true || r?.status === 1;
   }
 
+  // ─── Acordo de pagamento ───────────────────────────────────────────────────
+
+  /**
+   * Faturas geradas por acordo de pagamento no contrato.
+   * O SGP distingue por data do acordo — sem esse filtro vêm todas as faturas.
+   */
+  async titulosDeAcordo(contratoId: number, desde: string, ate: string): Promise<SgpTitulo[]> {
+    const r = await this.postForm<unknown>('/api/ura/titulos/', {
+      contrato: contratoId,
+      data_acordo_inicio: desde,
+      data_acordo_fim: ate,
+      ordenar: 'data_vencimento',
+      ordenar_ordem: 'asc',
+      limit: 60,
+    }, 15_000);
+    return this.lista<SgpTitulo>(r, 'titulos');
+  }
+
   // ─── CPE / Wi-Fi (Gerenciador CPE, TR-069) ─────────────────────────────────
 
   /** Configuração atual do Wi-Fi do cliente (SSID 2.4G e 5G, status). */
