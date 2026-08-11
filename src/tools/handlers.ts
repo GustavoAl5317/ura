@@ -1294,12 +1294,22 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       sinal_ok: sinalOk,
       classificacao_sinal: classificacaoSinal?.faixa ?? null,
       classificacao_sinal_descricao: classificacaoSinal?.descricao ?? null,
+      // Sinal óptico bom prova que chega LUZ na ONU — não prova que o cliente
+      // está conectado. Sem status de conexão não dá para afirmar "está online":
+      // dizer isso manda o cliente reiniciar roteador à toa e mascara a queda.
+      conexao_confirmada: status === 'online' || status === 'offline',
       interpretacao:
         status === 'offline'
           ? 'ONU offline — verifique a luz da ONU ou se houve queda de energia'
           : sinalOk === false
           ? `Sinal fraco (${onu.rx} dBm). O ideal é entre -7 e -27 dBm`
-          : 'ONU online com sinal dentro do esperado',
+          : status === 'online'
+          ? 'ONU online com sinal dentro do esperado'
+          : 'NÃO foi possível confirmar se a ONU está conectada — o SGP não '
+            + 'retornou o status da conexão. O sinal óptico está dentro do esperado, '
+            + 'mas isso só indica que chega luz no equipamento, NÃO que o cliente '
+            + 'está navegando. NÃO diga ao cliente que está tudo bem. Confirme com '
+            + 'consultar_pppoe antes de concluir qualquer coisa.',
     };
   });
 
