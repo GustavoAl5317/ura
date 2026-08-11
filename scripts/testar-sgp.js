@@ -102,6 +102,19 @@ async function teste(nome, fn, { critico = false } = {}) {
   const login = servico?.login;
 
   console.log(`\n   → servico_id=${servicoId ?? '?'}  login_pppoe=${login ?? '?'}`);
+  console.log(`   → contratoId=${dados?.contratoId ?? '(undefined)'}  onuId=${dados?.onuId ?? '(undefined)'}`);
+
+  // Estrutura do serviço: é onde a ONU deveria estar. Mostra as chaves para
+  // descobrir o nome real do campo quando onuId sai undefined.
+  if (servico) {
+    console.log(`   → chaves do serviço: ${Object.keys(servico).join(', ')}`);
+    for (const k of Object.keys(servico)) {
+      const v = servico[k];
+      if (v && typeof v === 'object') {
+        console.log(`      ${k}: ${trecho(v, 300)}`);
+      }
+    }
+  }
 
   await teste('listarOcorrencias — histórico de chamados', () =>
     sgp.listarOcorrencias(contratoId, 5));
