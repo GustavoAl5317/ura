@@ -1324,7 +1324,21 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       return { erro: 'Não localizei o login de conexão deste contrato.' };
     }
 
-    const sessao = await sgp.statusPppoe(servico.login).catch(() => null);
+    // O radacct pode estourar o tempo; nesse caso não dá para afirmar nada
+    // sobre a autenticação — dizer "não autenticado" seria diagnóstico errado.
+    let sessao;
+    try {
+      sessao = await sgp.statusPppoe(servico.login);
+    } catch {
+      return {
+        login: servico.login,
+        autenticado: null,
+        indisponivel: true,
+        interpretacao: 'A consulta ao RADIUS demorou demais e foi abortada. '
+          + 'NÃO conclua nada sobre a autenticação — use consultar_onu para o diagnóstico.',
+      };
+    }
+
     if (!sessao) {
       return {
         login: servico.login,
@@ -1655,14 +1669,21 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       return {
         tipo: s.tipo,
         plano: s.plano?.descricao ?? null,
-        login_pppoe: s.login ?? null,
+        login_pppoe: s.login ?? null,          // s.senha existe e é omitida de propósito
+        mac: s.mac ?? null,
+        ip: s.onu?.conexao?.ip ?? s.ip ?? null,
+        // Wi-Fi vem do cadastro do serviço, mesmo sem Gerenciador de CPE.
+        wifi_nome: s.wifi_ssid ?? null,
+        wifi_canal: s.wifi_channel ?? null,
+        wifi_nome_5g: s.wifi_ssid_5 ?? null,
+        wifi_canal_5g: s.wifi_channel_5 ?? null,
         equipamento_serial: s.onu?.serial ?? null,
         equipamento_status: s.onu?.conexao?.status ?? null,
-        ip: s.onu?.conexao?.ip ?? null,
         conectado_desde: s.onu?.conexao?.data_conexao ?? null,
         sinal_rx_dbm: s.onu?.rx ?? null,
         sinal_ok: rx !== null ? rx >= -27 && rx <= -7 : null,
         cto: s.onu?.cto_nome ?? s.onu?.caixa ?? null,
+        tem_dados_de_fibra: !!s.onu,
       };
     });
 

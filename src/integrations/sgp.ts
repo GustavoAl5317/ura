@@ -39,6 +39,19 @@ export interface SgpServico {
   tipo: string;
   plano: { id: number; descricao: string };
   login: string;
+  /** Senha PPPoE — nunca repassar ao cliente nem ao modelo. */
+  senha?: string;
+  mac?: string;
+  ip?: string;
+  status?: string;
+  // O SGP já devolve o Wi-Fi aqui com servicos_dados=1, mesmo em contrato
+  // sem Gerenciador de CPE. Leitura funciona; alterar ainda exige o TR-069.
+  wifi_ssid?: string;
+  wifi_password?: string;
+  wifi_channel?: number | string;
+  wifi_ssid_5?: string;
+  wifi_password_5?: string;
+  wifi_channel_5?: number | string;
   onu?: SgpOnu;
 }
 
@@ -630,13 +643,16 @@ export class SgpClient {
 
   /**
    * Sessão RADIUS do login PPPoE: se está autenticado, IP e desde quando.
-   * O radacct varre a base de sessões e passa dos 8s padrão — timeout próprio.
+   *
+   * O radacct é caro mesmo filtrando por username — na base da Aquitelecom passa
+   * de 25s. Teto de 12s: num chat o cliente não espera mais que isso, e quem
+   * chama tem os dados do cadastro (login/ip/mac) como alternativa.
    */
   async statusPppoe(login: string): Promise<SgpRadacct | null> {
     const r = await this.postForm<unknown>(
       '/ws/radius/radacct/list/all/',
-      { username: login, limit: 1, offset: 0, last_session: 1 },
-      25_000,
+      { username: login, limit: 1, offset: 0 },
+      12_000,
     );
     return this.lista<SgpRadacct>(r, 'result')[0] ?? null;
   }
