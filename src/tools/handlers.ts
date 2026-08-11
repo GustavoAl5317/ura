@@ -1,4 +1,4 @@
-import { sgp, formatarEndereco } from '../integrations/sgp';
+import { sgp, formatarEndereco, ocorrenciaEncerrada } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
@@ -1495,24 +1495,29 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       sgp.listarOrdensServico(contratoId, 8).catch(() => []),
     ]);
 
-    const agendadas = ordens.filter((o) => o.data_agendamento && !o.data_finalizacao);
-    const abertas = ocorrencias.filter((o) => !o.data_finalizacao);
+    // Neste SGP o protocolo é `numero` e o encerramento vem de status_id, não de data.
+    const protocoloDe = (o: { numero?: string; protocolo?: string; id?: number }) =>
+      o.numero ?? o.protocolo ?? (o.id != null ? String(o.id) : null);
+
+    const abertas = ocorrencias.filter((o) => !ocorrenciaEncerrada(o));
+    const agendadas = [...ordens, ...ocorrencias]
+      .filter((o) => o.data_agendamento && !ocorrenciaEncerrada(o));
 
     return {
       total_chamados: ocorrencias.length,
       chamados_abertos: abertas.length,
       chamados: ocorrencias.slice(0, 5).map((o) => ({
-        protocolo: o.protocolo ?? o.id ?? null,
+        protocolo: protocoloDe(o),
         tipo: o.tipo ?? null,
         status: o.status ?? null,
         aberto_em: o.data_cadastro ?? null,
-        fechado_em: o.data_finalizacao ?? null,
+        encerrado: ocorrenciaEncerrada(o),
       })),
       visitas_agendadas: agendadas.map((o) => ({
-        protocolo: o.protocolo ?? o.id ?? null,
+        protocolo: protocoloDe(o),
         agendada_para: o.data_agendamento,
-        motivo: o.motivo ?? null,
-        tecnico: o.tecnico ?? null,
+        motivo: (o as { motivo?: string }).motivo ?? null,
+        tecnico: (o as { tecnico?: string }).tecnico ?? null,
       })),
       interpretacao: agendadas.length
         ? 'Já existe visita técnica agendada — informe a data ao cliente e NÃO abra chamado novo para o mesmo problema.'

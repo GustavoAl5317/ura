@@ -30,16 +30,19 @@ const V = '\x1b[32m✓\x1b[0m';
 const X = '\x1b[31m✗\x1b[0m';
 const resumo = [];
 
+/** JSON.stringify(undefined) devolve undefined — sem isto o .slice() estoura. */
+const trecho = (x, n) => String(JSON.stringify(x) ?? 'undefined').slice(0, n);
+
 function mostrar(v, prof = 1) {
   const pad = '  '.repeat(prof);
   if (v === null || v === undefined) return `${pad}(vazio)`;
   if (Array.isArray(v)) {
     if (!v.length) return `${pad}[] (lista vazia)`;
-    return v.slice(0, 3).map((x) => `${pad}- ${JSON.stringify(x).slice(0, 260)}`).join('\n');
+    return v.slice(0, 3).map((x) => `${pad}- ${trecho(x, 260)}`).join('\n');
   }
   if (typeof v === 'object') {
     return Object.entries(v).slice(0, 14)
-      .map(([k, x]) => `${pad}${k}: ${JSON.stringify(x).slice(0, 160)}`).join('\n');
+      .map(([k, x]) => `${pad}${k}: ${trecho(x, 160)}`).join('\n');
   }
   return `${pad}${v}`;
 }

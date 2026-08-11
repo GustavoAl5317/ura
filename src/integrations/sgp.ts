@@ -160,28 +160,44 @@ export interface SgpCpeResposta {
   [k: string]: unknown;
 }
 
-/** Ocorrência (chamado) — campos variam por versão do SGP. */
+/**
+ * Ocorrência (chamado). No SGP da Aquitelecom o protocolo vem em `numero` e o
+ * encerramento em `status_id` (0 = aberta, 1 = encerrada) — não em datas.
+ */
 export interface SgpOcorrencia {
   id?: number;
-  protocolo?: string;
+  numero?: string;            // protocolo mostrado ao cliente
+  protocolo?: string;         // outras versões do SGP usam este
   tipo?: string;
-  status?: string;
+  status?: string;            // "Aberta" | "Encerrada"
+  status_id?: number;
   conteudo?: string;
+  pop?: string;
   data_cadastro?: string;
+  data_agendamento?: string;
   data_finalizacao?: string;
   [k: string]: unknown;
 }
 
 export interface SgpOrdemServico {
   id?: number;
+  numero?: string;
   protocolo?: string;
   status?: string;
+  status_id?: number;
   motivo?: string;
   data_cadastro?: string;
   data_agendamento?: string;
   data_finalizacao?: string;
   tecnico?: string;
   [k: string]: unknown;
+}
+
+/** Encerrada quando status_id = 1 ou o texto do status diz isso. */
+export function ocorrenciaEncerrada(o: SgpOcorrencia | SgpOrdemServico): boolean {
+  if (typeof o.status_id === 'number') return o.status_id === 1;
+  const s = String(o.status ?? '').toLowerCase();
+  return s.includes('encerrad') || s.includes('finalizad') || s.includes('conclu');
 }
 
 export interface SgpFatura2via {
@@ -629,22 +645,32 @@ export class SgpClient {
 
   // ─── Chamados ──────────────────────────────────────────────────────────────
 
+  /** O SGP ora devolve array puro, ora embrulhado — os nomes variam por versão. */
+  private lista<T>(r: unknown, ...chaves: string[]): T[] {
+    if (Array.isArray(r)) return r as T[];
+    if (r && typeof r === 'object') {
+      const obj = r as Record<string, unknown>;
+      for (const k of [...chaves, 'results', 'result', 'data']) {
+        if (Array.isArray(obj[k])) return obj[k] as T[];
+      }
+    }
+    return [];
+  }
+
   /** Histórico de ocorrências (chamados) do contrato, mais recentes primeiro. */
   async listarOcorrencias(contratoId: number, limit = 10): Promise<SgpOcorrencia[]> {
-    const r = await this.postForm<{ ocorrencias?: SgpOcorrencia[]; results?: SgpOcorrencia[] }>(
-      '/api/ura/ocorrencia/list/',
-      { contrato: contratoId, limit, offset: 0 },
-    );
-    return r?.ocorrencias ?? r?.results ?? [];
+    const r = await this.postForm<unknown>('/api/ura/ocorrencia/list/', {
+      contrato: contratoId, limit, offset: 0,
+    });
+    return this.lista<SgpOcorrencia>(r, 'ocorrencias', 'ocorrencia');
   }
 
   /** Ordens de serviço do contrato — inclui as agendadas (visita técnica). */
   async listarOrdensServico(contratoId: number, limit = 10): Promise<SgpOrdemServico[]> {
-    const r = await this.postForm<{ ordens_servico?: SgpOrdemServico[]; results?: SgpOrdemServico[] }>(
-      '/api/ura/ordemservico/list/',
-      { contrato: contratoId, limit, offset: 0 },
-    );
-    return r?.ordens_servico ?? r?.results ?? [];
+    const r = await this.postForm<unknown>('/api/ura/ordemservico/list/', {
+      contrato: contratoId, limit, offset: 0,
+    });
+    return this.lista<SgpOrdemServico>(r, 'ordens_servico', 'ordensservico', 'ordem_servico');
   }
 
 
