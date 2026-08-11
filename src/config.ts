@@ -175,6 +175,8 @@ export const config = {
     model: opt('CHAT_MODEL', 'gpt-4o'),
     /** Transcreve áudios recebidos (mensagem de voz do WhatsApp) para texto. */
     transcribeEnabled: optBool('CHAT_TRANSCRIBE_ENABLED', true),
+    /** Responde em áudio QUANDO o cliente mandou áudio. Exige ElevenLabs configurado. */
+    responderAudio: optBool('CHAT_RESPONDER_AUDIO', false),
     /** Modelo de transcrição da OpenAI (whisper-1, gpt-4o-mini-transcribe...). */
     transcribeModel: opt('CHAT_TRANSCRIBE_MODEL', 'whisper-1'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),

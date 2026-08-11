@@ -9,11 +9,20 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { whatsappCloud } from '../integrations/whatsapp-cloud';
 import { transcreverAudio } from './audio';
-import type { ChatSessionStore, EnviarTexto } from './session';
+import type { ChatSessionStore, EnviarTexto, EnviarAudio } from './session';
 
 /** Transporte de envio pela Cloud API, amarrado a um phone_number_id. */
 export function senderCloud(phoneNumberId: string): EnviarTexto {
   return (numero, texto) => whatsappCloud.enviarTexto(phoneNumberId, numero, texto);
+}
+
+/** Transporte de voz: manda o OGG/Opus como mensagem de áudio. */
+export function senderAudioCloud(phoneNumberId: string): EnviarAudio {
+  return (numero, ogg) => whatsappCloud.enviarMidia(phoneNumberId, numero, {
+    nome: 'resposta.ogg',
+    mimetype: 'audio/ogg',
+    buffer: ogg,
+  });
 }
 
 /** No restore do banco: instância numérica (phone_number_id) → transporte Cloud. */
@@ -150,6 +159,11 @@ async function tratarMensagemCloud(
   if (msg.id) void whatsappCloud.marcarLido(phoneNumberId, msg.id);
 
   const session = store.get(remoteJid, numero, phoneNumberId, enviar);
+  // Espelha o formato do cliente: áudio recebido, áudio devolvido. O flag é por
+  // mensagem — se ele voltar a digitar, a resposta volta a ser texto.
+  session.responderEmAudio = config.chat.responderAudio && msg.type === 'audio';
+  session.enviarAudio = senderAudioCloud(phoneNumberId);
+
   try {
     await session.handle(texto, pushName);
   } catch (err: unknown) {

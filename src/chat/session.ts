@@ -21,6 +21,7 @@ import { buildChatSystemPrompt } from './prompt';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
 import { salvarConversa, salvarEvento, conversasParaRetomar } from './repo';
+import { sintetizarParaWhatsapp } from './voz';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -28,6 +29,9 @@ export type ChatMode = 'ia' | 'humano';
 
 /** Envia texto ao cliente pelo canal da conversa (Evolution ou Cloud API). */
 export type EnviarTexto = (numero: string, texto: string) => Promise<{ enviado: boolean; motivo?: string }>;
+
+/** Envia uma mensagem de voz (OGG/Opus) — usado só na resposta em áudio. */
+export type EnviarAudio = (numero: string, ogg: Buffer) => Promise<{ enviado: boolean; motivo?: string }>;
 
 export interface PanelEvent {
   id: number;
@@ -55,6 +59,10 @@ export class ChatSession {
   startedAt = Date.now();
   /** Último texto vindo DO CLIENTE — lastActivity também sobe quando nós enviamos. */
   ultimoContatoCliente = Date.now();
+  /** A última mensagem do cliente foi áudio: responder no mesmo formato. */
+  responderEmAudio = false;
+  /** Transporte de voz; sem ele a resposta sai em texto. */
+  enviarAudio?: EnviarAudio;
   /** Quando perguntamos "ainda está aí?"; undefined = ainda não perguntamos. */
   private pingInatividadeEm?: number;
   private chain: Promise<void> = Promise.resolve();
@@ -391,10 +399,24 @@ export class ChatSession {
     await this.entregar('Consegui adiantar algumas verificações por aqui. Pode me confirmar como posso te ajudar? 🙂');
   }
 
-  /** Envia texto da IA ao cliente pela instância da conversa e registra na timeline. */
+  /**
+   * Entrega a resposta da IA. Responde em áudio só quando a última mensagem do
+   * cliente foi áudio — e o texto é sempre registrado na timeline, para a
+   * atendente ler no painel sem precisar ouvir.
+   */
   private async entregar(texto: string): Promise<void> {
     logger.info(`[chat] ⬆️  [${this.instance ?? 'padrão'}] ${this.numero}: ${texto}`);
     this.record({ tipo: 'ia', texto });
+
+    if (this.responderEmAudio && this.enviarAudio) {
+      const ogg = await sintetizarParaWhatsapp(texto, this.ctx.voiceId).catch(() => null);
+      if (ogg) {
+        const r = await this.enviarAudio(this.numero, ogg);
+        if (r.enviado) return;
+        logger.warn('[chat] envio de áudio falhou, caindo para texto', { motivo: r.motivo });
+      }
+    }
+
     await this.enviar(this.numero, texto);
   }
 
