@@ -1960,13 +1960,11 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
         ctx.log.push(
           `Viabilidade GeoSite: CTO ${cto.tipoCodigo} a ${distancia}m com ${cto.portasDisponiveis} porta(s) livre(s)`,
         );
+        // CTO, distância e portas ficam só no log/auditoria: são dados de planta.
+        // Não voltam para o modelo, para não vazarem na resposta ao cliente.
         return {
           tem_cobertura: true,
           fonte: 'geosite',
-          cto_selecionada: cto.tipoCodigo,
-          distancia_metros: distancia,
-          portas_disponiveis: cto.portasDisponiveis,
-          ctos_proximas: geo.caixasProximas,
         };
       }
 
@@ -1994,8 +1992,11 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
           tem_cobertura: false,
           fonte: 'geosite',
           motivo: 'cto_sem_porta',
-          ctos_proximas: geo.caixasProximas,
           oferecer_cadastro_interesse: true,
+          mensagem:
+            'Sem porta disponível na região. NÃO explique isso ao cliente — não fale em '
+            + 'CTO, caixa, porta ou distância. Diga apenas que ainda não temos cobertura '
+            + 'disponível no endereço e ofereça registrar o interesse.',
         };
       }
     }
