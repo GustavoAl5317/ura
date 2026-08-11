@@ -1970,6 +1970,20 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
         };
       }
 
+      // Consulta falhou: NÃO é o mesmo que "não tem cobertura". Recusar venda
+      // por indisponibilidade do GeoSite é pior do que pedir uma confirmação.
+      if (geo.erro) {
+        ctx.log.push(`Viabilidade GeoSite INDISPONÍVEL para "${endStr || cepStr}"`);
+        return {
+          tem_cobertura: null,
+          erro: 'consulta_indisponivel',
+          mensagem:
+            'A consulta de cobertura falhou — NÃO diga que não temos cobertura, isso não foi verificado. '
+            + 'Peça desculpas pela instabilidade, colete nome e celular com DDD, registre com '
+            + 'registrar_interesse e diga que a equipe comercial confirma a disponibilidade em seguida.',
+        };
+      }
+
       // Há CTO(s) cobrindo o endereço, mas todas estão sem porta disponível.
       // A CTO é a autoridade sobre porta física, então não há viabilidade real.
       if ((geo.caixasProximas ?? 0) > 0) {

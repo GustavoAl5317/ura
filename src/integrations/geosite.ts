@@ -21,6 +21,12 @@ export interface CaixaViabilidade {
 
 export interface Viabilidade {
   temCobertura: boolean;
+  /**
+   * A consulta falhou (rede, autenticação, endereço não geocodificado).
+   * SEM isto, falha vira "não tem cobertura" e o cliente é recusado por engano.
+   * temCobertura=false só significa ausência de cobertura quando erro !== true.
+   */
+  erro?: boolean;
   totalDisponiveis?: number;
   caixasProximas?: number;
   distanciaMinMetros?: number;
@@ -172,7 +178,7 @@ export class GeositeClient {
 
   // Verifica cobertura FTTH por endereço (string livre, ex: "Rua X, 123, Bairro, Cidade")
   async viabilidadePorEndereco(endereco: string): Promise<Viabilidade> {
-    if (!config.geosite.enabled) return { temCobertura: false };
+    if (!config.geosite.enabled) return { temCobertura: false, erro: true };
     try {
       const headers = await this.authHeaders();
       const res = await this.http.get<GeositeCaixa[]>('/viabilidade/caixas', {
@@ -183,10 +189,15 @@ export class GeositeClient {
         },
       });
 
+      logger.info('Geosite: consulta por endereço', { endereco, raio: config.geosite.raioMetros });
       return this.processarCaixas(res.data);
     } catch (err: any) {
-      logger.error('GeoSite viabilidade endereço erro', { err: err.message });
-      return { temCobertura: false };
+      logger.error('GeoSite viabilidade endereço erro', {
+        endereco,
+        status: err?.response?.status,
+        err: err.message,
+      });
+      return { temCobertura: false, erro: true };
     }
   }
 
@@ -211,8 +222,10 @@ export class GeositeClient {
 
       return this.processarCaixas(res.data);
     } catch (err: any) {
-      logger.error('GeoSite viabilidade coordenadas erro', { err: err.message });
-      return { temCobertura: false };
+      logger.error('GeoSite viabilidade coordenadas erro', {
+        latitude, longitude, status: err?.response?.status, err: err.message,
+      });
+      return { temCobertura: false, erro: true };
     }
   }
 
