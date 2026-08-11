@@ -3,6 +3,8 @@
 // http://<host>:CHAT_WEBHOOK_PORT/webhook com o evento MESSAGES_UPSERT ativo.
 
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { config } from '../config';
 import { logger } from '../logger';
 import { whatsapp } from '../integrations/whatsapp';
@@ -169,6 +171,20 @@ export function startChatServer(): void {
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ online: true, canal: 'chat', model: config.chat.model }));
+      return;
+    }
+
+    // Política de privacidade — pública e sem login: a Meta exige uma URL
+    // acessível para publicar o app.
+    if (req.method === 'GET' && (url.pathname === '/politica-de-privacidade' || url.pathname === '/privacidade')) {
+      const file = path.join(process.cwd(), 'panel', 'politica-privacidade.html');
+      if (!fs.existsSync(file)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('não encontrada');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      fs.createReadStream(file).pipe(res);
       return;
     }
 
