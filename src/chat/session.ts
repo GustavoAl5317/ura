@@ -402,8 +402,16 @@ export class ChatSession {
       // Volta ao topo do while para o modelo responder com base nos resultados.
     }
 
-    logger.warn(`[${this.ctx.callId}] chat: limite de rodadas de ferramentas atingido`);
-    await this.entregar('Consegui adiantar algumas verificações por aqui. Pode me confirmar como posso te ajudar? 🙂');
+    // Estourar rodadas quase sempre é a IA repetindo a mesma consulta sem sair
+    // do lugar. Dizer "adiantei verificações" esconde isso do cliente e dele
+    // não sai nada útil — melhor assumir e pedir o dado que destrava.
+    logger.warn(`[${this.ctx.callId}] chat: limite de rodadas de ferramentas atingido`, {
+      numero: this.numero,
+    });
+    await this.entregar(
+      'Desculpa, me embolei aqui nas consultas 😅 Pode me dizer com suas palavras o que '
+      + 'você precisa agora? Se preferir, digo que chamo uma atendente para te ajudar.',
+    );
   }
 
   /**

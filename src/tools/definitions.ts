@@ -101,7 +101,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'selecionar_contrato',
     description:
-      'Seleciona qual contrato atender quando o cliente tem mais de um. Use APÓS confirmar o titular e o cliente informar o ENDEREÇO desejado.',
+      'Seleciona qual contrato atender quando o cliente tem mais de um. Use APÓS confirmar o titular e o cliente informar o ENDEREÇO desejado. '
+      + 'Se o cliente respondeu com um endereço, passe o texto dele em `endereco` — a ferramenta acha o contrato. '
+      + 'Não fique tentando adivinhar contrato_id.',
     parameters: {
       type: 'object',
       properties: {
@@ -109,8 +111,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'number',
           description: 'ID do contrato (contrato_id da lista contratos_disponiveis retornada por buscar_cliente_por_cpf)',
         },
+        endereco: {
+          type: 'string',
+          description: 'Endereço como o cliente escreveu. Use quando não souber o contrato_id exato.',
+        },
       },
-      required: ['contrato_id'],
+      required: [],
     },
   },
   {

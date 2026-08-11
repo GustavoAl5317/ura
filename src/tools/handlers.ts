@@ -430,6 +430,74 @@ function formatarCelularFalado(numero: string): string {
   return `DDD ${local.slice(0, 2)}, ${local.slice(2, 7)} ${local.slice(7)}`;
 }
 
+/** Sem acento, sem pontuação, minúsculo — para comparar endereço digitado. */
+function normalizarEndereco(s: string): string {
+  return s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[.,\-/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Acha o contrato pelo endereço que o cliente escreveu.
+ *
+ * O número da casa é o desempate: no Conjunto Ceará várias avenidas se repetem
+ * e só o número distingue os contratos de um mesmo cliente.
+ */
+function casarContratoPorEndereco(
+  ctx: CallContext,
+  texto: string,
+): { contratoId?: number; ambiguo?: boolean; candidatos?: Array<{ contrato_id: number; endereco: string | null }> } {
+  const contratos = ctx.cliente?.contratos ?? [];
+  if (!contratos.length) return {};
+
+  const alvo = normalizarEndereco(texto);
+  const numerosAlvo = alvo.match(/\d{1,6}/g) ?? [];
+  const palavras = alvo.split(' ').filter((p) => p.length >= 4 && !/^\d+$/.test(p));
+
+  const todos = contratos.map((ct) => {
+    const end = formatarEndereco(ct.endereco ?? ctx.cliente?.endereco) ?? '';
+    return { contratoId: ct.contrato, endereco: end || null, norm: normalizarEndereco(end) };
+  });
+
+  // O número da casa FILTRA, não pontua: no Conjunto Ceará a mesma avenida
+  // aparece em vários contratos e só o número distingue. Pontuar por palavra
+  // empataria "ALBUQUERQUE LIMA 894" com "ALBUQUERQUE LIMA 28".
+  let candidatos = todos;
+  if (numerosAlvo.length) {
+    const comNumero = todos.filter((c) =>
+      numerosAlvo.some((n) => c.norm.split(' ').includes(n)),
+    );
+    if (comNumero.length) candidatos = comNumero;
+  }
+
+  if (candidatos.length === 1) return { contratoId: candidatos[0].contratoId };
+
+  const pontuados = candidatos
+    .map((c) => ({ ...c, score: palavras.filter((p) => c.norm.includes(p)).length }))
+    .sort((a, b) => b.score - a.score);
+
+  const melhor = pontuados[0];
+  if (!melhor || melhor.score < 1) return {};
+
+  const empatados = pontuados.filter((p) => p.score === melhor.score);
+  // Uma palavra basta quando ela isola um único contrato ("rua londrina").
+  // Com empate, nem duas bastam ("avenida a" serve a metade da lista).
+  if (empatados.length === 1) return { contratoId: melhor.contratoId };
+
+  if (melhor.score < 2) return {};
+
+  if (empatados.length > 1) {
+    return {
+      ambiguo: true,
+      candidatos: empatados.map((p) => ({ contrato_id: p.contratoId, endereco: p.endereco })),
+    };
+  }
+  return { contratoId: melhor.contratoId };
+}
+
 /** Celular informado pelo cliente — obrigatório para WhatsApp (não usa fixo da chamada automaticamente). */
 function resolverWhatsAppCliente(
   ctx: CallContext,
@@ -802,11 +870,28 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const bloqueio = bloqueioSemConfirmacao(ctx);
     if (bloqueio) return bloqueio;
 
-    const contratoId = Number(args.contrato_id);
+    let contratoId = Number(args.contrato_id);
+
+    // O cliente responde com o ENDEREÇO, não com o id interno. Sem casar aqui,
+    // o modelo fica tentando adivinhar o contrato_id e estoura as rodadas.
+    if ((!Number.isFinite(contratoId) || contratoId <= 0) && args.endereco) {
+      const achado = casarContratoPorEndereco(ctx, String(args.endereco));
+      if (achado.ambiguo) {
+        return {
+          sucesso: false,
+          erro: 'endereco_ambiguo',
+          candidatos: achado.candidatos,
+          mensagem: 'Mais de um contrato bate com esse endereço. Mostre os candidatos '
+            + 'ao cliente e peça para ele confirmar qual é.',
+        };
+      }
+      if (achado.contratoId) contratoId = achado.contratoId;
+    }
+
     if (!Number.isFinite(contratoId) || contratoId <= 0) {
       return {
         sucesso: false,
-        mensagem: 'contrato_id inválido.',
+        mensagem: 'Não identifiquei o contrato. Informe contrato_id OU o endereco dito pelo cliente.',
         contratos_disponiveis: listarContratos(ctx),
       };
     }
