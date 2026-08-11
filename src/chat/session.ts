@@ -53,6 +53,10 @@ export class ChatSession {
   pushName?: string;
   lastActivity = Date.now();
   startedAt = Date.now();
+  /** Último texto vindo DO CLIENTE — lastActivity também sobe quando nós enviamos. */
+  ultimoContatoCliente = Date.now();
+  /** Quando perguntamos "ainda está aí?"; undefined = ainda não perguntamos. */
+  private pingInatividadeEm?: number;
   private chain: Promise<void> = Promise.resolve();
 
   /** Transporte de envio; se não injetado, cai na Evolution (compatível com o que já existia). */
@@ -228,6 +232,64 @@ export class ChatSession {
     return { enviado: r.enviado, motivo: r.motivo };
   }
 
+  /**
+   * Cliente sumiu no meio da conversa: pergunta uma vez se ainda está aí e,
+   * sem resposta, encerra com o resumo e os protocolos.
+   *
+   * Chamado pela varredura do store. Retorna true quando encerrou, para o
+   * store tirar a sessão da memória.
+   */
+  async verificarInatividade(agora: number): Promise<boolean> {
+    const pingMs = config.chat.inatividadePingMin * 60_000;
+    const fecharMs = config.chat.inatividadeFecharMin * 60_000;
+    if (!pingMs) return false;                       // 0 desliga o recurso
+    if (this.modo === 'humano') return false;        // atendente decide a hora de fechar
+    if (this.encerrada) return false;
+    // Conversa que nunca passou de uma mensagem nossa não merece cobrança.
+    if (!this.eventos.some((e) => e.tipo === 'cliente')) return false;
+
+    const parado = agora - this.ultimoContatoCliente;
+
+    if (this.pingInatividadeEm === undefined) {
+      if (parado < pingMs) return false;
+      this.pingInatividadeEm = agora;
+      const r = await this.enviar(
+        this.numero,
+        'Você ainda está aí? 😊 Se precisar de mais alguma coisa, é só me chamar.',
+      );
+      if (r.enviado) {
+        this.record({ tipo: 'sistema', texto: 'Aviso de inatividade enviado ao cliente.' });
+      }
+      this.persistir();
+      return false;
+    }
+
+    if (agora - this.pingInatividadeEm < fecharMs) return false;
+
+    // Sem resposta: encerra com o que foi resolvido e os protocolos gerados.
+    const protocolos = this.ctx.protocolos ?? [];
+    const linhas = ['Como não tive retorno, vou encerrar nosso atendimento por aqui. 😊'];
+    if (protocolos.length === 1) {
+      linhas.push('', `📄 Protocolo do atendimento: *${protocolos[0]}*`);
+    } else if (protocolos.length > 1) {
+      linhas.push('', '📄 Protocolos do atendimento:');
+      for (const p of protocolos) linhas.push(`• *${p}*`);
+    }
+    linhas.push('', 'Qualquer coisa, é só mandar mensagem que eu te atendo de novo. '
+      + `${config.company.name} agradece o contato! 🚀`);
+
+    await this.enviar(this.numero, linhas.join('\n'));
+    this.record({
+      tipo: 'sistema',
+      texto: `Atendimento encerrado por inatividade${
+        protocolos.length ? ` — protocolo(s): ${protocolos.join(', ')}` : ' (sem protocolo)'}.`,
+    });
+    this.ctx.pendingHangup = true;
+    this.persistir();
+    logger.info(`[chat] encerrado por inatividade: ${this.numero}`, { protocolos });
+    return true;
+  }
+
   // ── Fluxo de mensagens ───────────────────────────────────────────────────
 
   /** Enfileira o processamento de uma mensagem (garante ordem por cliente). */
@@ -241,6 +303,9 @@ export class ChatSession {
 
   private async process(userText: string): Promise<void> {
     this.lastActivity = Date.now();
+    // Cliente respondeu: zera o ciclo de inatividade.
+    this.ultimoContatoCliente = Date.now();
+    this.pingInatividadeEm = undefined;
     this.ctx.lastClientSpeech = userText;
     this.history.push({ role: 'user', content: userText });
     this.record({ tipo: 'cliente', texto: userText });
@@ -423,7 +488,14 @@ export class ChatSessionStore {
         if (agora - s.lastActivity > idleMs) {
           s.persistir();
           this.sessions.delete(key);
+          continue;
         }
+        // Cliente calado: avisa e, persistindo o silêncio, encerra com protocolo.
+        void s.verificarInatividade(agora)
+          .then((encerrou) => { if (encerrou) this.sessions.delete(key); })
+          .catch((err) => logger.error('[chat] falha na varredura de inatividade', {
+            key, err: err instanceof Error ? err.message : String(err),
+          }));
       }
     }, 60_000).unref?.();
   }

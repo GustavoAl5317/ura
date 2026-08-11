@@ -183,6 +183,10 @@ export const config = {
     maxToolRounds: optInt('CHAT_MAX_TOOL_ROUNDS', 8),
     /** Minutos de inatividade até a sessão do cliente ser descartada. */
     sessionIdleMin: optInt('CHAT_SESSION_IDLE_MIN', 30),
+    /** Minutos sem resposta do cliente até perguntar se ele ainda está aí. 0 desliga. */
+    inatividadePingMin: optInt('CHAT_INATIVIDADE_PING_MIN', 10),
+    /** Minutos após o aviso até encerrar o atendimento e mandar o protocolo. */
+    inatividadeFecharMin: optInt('CHAT_INATIVIDADE_FECHAR_MIN', 5),
     /** Também atende mensagens vindas de grupos (@g.us). Padrão: só conversas 1:1. */
     atenderGrupos: optBool('CHAT_ATENDER_GRUPOS', false),
     /**
