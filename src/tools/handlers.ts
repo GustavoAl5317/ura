@@ -1303,6 +1303,67 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     };
   });
 
+  // Status do contrato, endereço e serviços vinculados (login PPPoE + ONU).
+  // Os dados já vinham da API do SGP; faltava expor.
+  client.registerTool('consultar_contrato', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_contrato');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
+
+    const dados = await sgp.dadosDoContrato(contratoId);
+    if (!dados) return { erro: 'Não foi possível consultar os dados deste contrato.' };
+
+    const ct = dados.contratos.find((c) => c.contrato === contratoId) ?? dados.contratos[0];
+    if (!ct) return { erro: 'Contrato não encontrado no cadastro.' };
+
+    const end = ct.endereco ?? dados.endereco;
+    const enderecoTexto = end
+      ? [
+          `${end.logradouro}, ${end.numero}`,
+          end.complemento,
+          end.bairro,
+          `${end.cidade}/${end.uf}`,
+          end.cep,
+        ].filter(Boolean).join(' — ')
+      : null;
+
+    const servicos = (ct.servicos ?? []).map((s) => {
+      const rx = s.onu?.rx ? parseFloat(s.onu.rx) : null;
+      return {
+        tipo: s.tipo,
+        plano: s.plano?.descricao ?? null,
+        login_pppoe: s.login ?? null,
+        equipamento_serial: s.onu?.serial ?? null,
+        equipamento_status: s.onu?.conexao?.status ?? null,
+        ip: s.onu?.conexao?.ip ?? null,
+        conectado_desde: s.onu?.conexao?.data_conexao ?? null,
+        sinal_rx_dbm: s.onu?.rx ?? null,
+        sinal_ok: rx !== null ? rx >= -27 && rx <= -7 : null,
+        cto: s.onu?.cto_nome ?? s.onu?.caixa ?? null,
+      };
+    });
+
+    const algumOnline = servicos.some((s) => s.equipamento_status === 'online');
+
+    return {
+      contrato_id: contratoId,
+      status: ct.status,
+      motivo_status: ct.motivo_status || null,
+      data_cadastro: ct.dataCadastro,
+      endereco: enderecoTexto,
+      total_servicos: servicos.length,
+      servicos,
+      interpretacao: servicos.length === 0
+        ? 'Contrato sem serviço vinculado — verifique com a equipe interna.'
+        : algumOnline
+        ? 'Contrato ativo com equipamento conectado.'
+        : 'Nenhum equipamento conectado no momento — investigue queda de energia, massiva ou problema no equipamento.',
+    };
+  });
+
   client.registerTool('reiniciar_onu', async (args) => {
     const bloqueio = bloqueioConsultas(ctx);
     if (bloqueio) return bloqueio;

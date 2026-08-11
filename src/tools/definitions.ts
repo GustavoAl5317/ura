@@ -145,6 +145,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
+    name: 'consultar_contrato',
+    description:
+      'Consulta a situação do contrato: status (ativo/suspenso/cancelado) e o motivo, data de cadastro, '
+      + 'endereço de instalação e os serviços vinculados — plano, login PPPoE, equipamento, se está conectado '
+      + 'e desde quando. Use quando o cliente perguntar sobre o cadastro, o endereço, qual plano tem, '
+      + 'por que está suspenso, qual o login de conexão, ou para conferir o estado geral antes de abrir chamado.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'reiniciar_onu',
     description:
       'Executa reinicialização remota da ONU do cliente. Use após confirmar que a ONU está offline ou com sinal ruim.',

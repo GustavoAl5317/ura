@@ -426,6 +426,21 @@ export class SgpClient {
     return firstOnu(enrich(cliente)) ?? null;
   }
 
+  /**
+   * Dados completos do contrato: status, endereço, serviços contratados com o
+   * login PPPoE e a ONU de cada um. Força `exibir_conexao`/`servicos_dados`
+   * porque as flags do .env vêm desligadas por desempenho na URA de voz.
+   */
+  async dadosDoContrato(contratoId: number): Promise<SgpCliente | null> {
+    const r = await this.postForm<{ clientes?: SgpCliente[] }>('/api/ura/clientes/', {
+      contrato: contratoId,
+      exibir_conexao: 1,
+      servicos_dados: 1,
+    });
+    const cliente = r?.clientes?.[0];
+    return cliente ? enrich(cliente) : null;
+  }
+
   async resetarOnu(onuId: number): Promise<boolean> {
     // GET /api/fttx/onu/{id_onu}/reset/ — autenticação via query params
     const r = await this.getParams<{ success?: boolean; msg?: string; status?: number }>(
