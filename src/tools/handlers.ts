@@ -1,4 +1,4 @@
-import { sgp, formatarEndereco, ocorrenciaEncerrada } from '../integrations/sgp';
+import { sgp, formatarEndereco, ocorrenciaEncerrada, semGerenciadorCpe } from '../integrations/sgp';
 import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
@@ -1564,6 +1564,16 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const ok = r?.success === true || r?.status === 1;
     ctx.log.push(`Alterar Wi-Fi contrato ${contratoId}: ${ok ? 'sucesso' : 'falha'}`);
 
+    if (!ok && semGerenciadorCpe(r)) {
+      return {
+        sucesso: false,
+        sem_gerenciador_cpe: true,
+        mensagem: 'O roteador deste cliente não é gerenciado remotamente. '
+          + 'NÃO tente de novo: oriente o cliente a trocar pelo painel do próprio roteador '
+          + '(navegador em 192.168.0.1 ou 192.168.1.1) ou ofereça transferir para um atendente.',
+      };
+    }
+
     return {
       sucesso: ok,
       mensagem: ok
@@ -1588,6 +1598,17 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const servicoId = ct?.servicos?.[0]?.id;
     if (!servicoId) {
       return { sucesso: false, mensagem: 'Não localizei o serviço de internet deste contrato.' };
+    }
+
+    // Confirma se há TR-069 neste contrato: sem isso o reboot nunca funciona.
+    const cpe = await sgp.consultarCpe(contratoId, servicoId).catch(() => null);
+    if (semGerenciadorCpe(cpe)) {
+      return {
+        sucesso: false,
+        sem_gerenciador_cpe: true,
+        mensagem: 'O roteador deste cliente não é gerenciado remotamente. '
+          + 'Peça a ele para tirar o roteador da tomada, esperar 30 segundos e ligar de novo.',
+      };
     }
 
     const ok = await sgp.reiniciarCpe(servicoId).catch(() => false);

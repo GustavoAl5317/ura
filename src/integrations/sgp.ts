@@ -118,6 +118,16 @@ export interface SgpCpe {
   [k: string]: unknown;
 }
 
+/**
+ * Nem todo contrato tem Gerenciador de CPE ativo — o SGP responde
+ * `success:false` com essa mensagem. Sem isso, o erro vira "falha genérica"
+ * e a IA insiste numa ação que nunca vai funcionar para o cliente.
+ */
+export function semGerenciadorCpe(r: { msg?: string; success?: boolean } | null): boolean {
+  if (!r) return false;
+  return /n[ãa]o possui gerenciador|sem gerenciador|cpe.*n[ãa]o configurad/i.test(r.msg ?? '');
+}
+
 /** Rádio Wi-Fi do CPE. `index` é a chave usada no /wifi/update/ (ex.: "1-1"). */
 export interface SgpWifiRadio {
   index?: string;
@@ -292,6 +302,13 @@ function firstOnu(c: SgpCliente): SgpOnu | undefined {
 }
 
 function enrich(c: SgpCliente): SgpCliente {
+  // /api/ura/clientes/ devolve o número do contrato em `id`; outros endpoints
+  // usam `contrato`. Sem normalizar, contratoId sai undefined e qualquer busca
+  // por contrato cai no primeiro da lista — errado em cliente com 2+ contratos.
+  for (const ct of c.contratos ?? []) {
+    const alt = (ct as unknown as { id?: number }).id;
+    if (ct.contrato == null && typeof alt === 'number') ct.contrato = alt;
+  }
   if (c.contratos.length === 1) {
     c.contratoId = c.contratos[0].contrato;
     if (c.contratos[0].endereco) c.endereco = c.contratos[0].endereco;
@@ -359,9 +376,15 @@ export class SgpClient {
     return p;
   }
 
-  private async postForm<T>(path: string, data: Record<string, unknown> = {}): Promise<T | null> {
+  private async postForm<T>(
+    path: string,
+    data: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): Promise<T | null> {
     try {
-      const res = await this.http.post<T>(path, this.formBody(data));
+      const res = await this.http.post<T>(path, this.formBody(data), {
+        ...(timeoutMs ? { timeout: timeoutMs } : {}),
+      });
       return res.data;
     } catch (err) {
       throw err;
@@ -605,15 +628,17 @@ export class SgpClient {
     return this.postForm<SgpCpeResposta>(`/api/cpemanager/servico/${servicoId}/command/speedtest/`);
   }
 
-  /** Sessão RADIUS do login PPPoE: se está autenticado, IP e desde quando. */
+  /**
+   * Sessão RADIUS do login PPPoE: se está autenticado, IP e desde quando.
+   * O radacct varre a base de sessões e passa dos 8s padrão — timeout próprio.
+   */
   async statusPppoe(login: string): Promise<SgpRadacct | null> {
-    const r = await this.postForm<{ result?: SgpRadacct[] }>('/ws/radius/radacct/list/all/', {
-      username: login,
-      limit: 1,
-      offset: 0,
-      last_session: 1,
-    });
-    return r?.result?.[0] ?? null;
+    const r = await this.postForm<unknown>(
+      '/ws/radius/radacct/list/all/',
+      { username: login, limit: 1, offset: 0, last_session: 1 },
+      25_000,
+    );
+    return this.lista<SgpRadacct>(r, 'result')[0] ?? null;
   }
 
   /** Ordens de serviço agendadas num intervalo — a agenda dos técnicos. */
