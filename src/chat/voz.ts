@@ -1,14 +1,17 @@
 // Resposta em áudio no chat: só quando o cliente mandou áudio.
 //
-// A síntese da URA de voz devolve PCM para telefonia; o WhatsApp quer
-// OGG/Opus. Aqui o texto vira MP3 na ElevenLabs e o ffmpeg converte para
-// OGG/Opus mono 48 kHz, que é o formato de mensagem de voz do WhatsApp.
+// Usa o TTS da própria OpenAI, que entrega OGG/Opus direto no
+// response_format=opus — exatamente o formato de mensagem de voz do
+// WhatsApp, sem passar por ffmpeg.
+//
+// A voz acompanha a persona: Alex (suporte) é masculino, Ana (vendas) e
+// Bruna (financeiro) são femininas.
 
-import { spawn } from 'child_process';
 import axios from 'axios';
-import ffmpegPath from 'ffmpeg-static';
 import { config } from '../config';
 import { logger } from '../logger';
+
+export type Genero = 'feminino' | 'masculino';
 
 /** Texto longo vira áudio arrastado e caro — acima disto responde por escrito. */
 const MAX_CHARS_AUDIO = 700;
@@ -25,42 +28,6 @@ function limparParaFala(texto: string): string {
     .trim();
 }
 
-async function mp3ParaOggOpus(mp3: Buffer): Promise<Buffer | null> {
-  const bin = ffmpegPath as unknown as string | null;
-  if (!bin) {
-    logger.error('[voz] ffmpeg-static indisponível');
-    return null;
-  }
-  return new Promise((resolve) => {
-    const ff = spawn(bin, [
-      '-hide_banner', '-loglevel', 'error',
-      '-i', 'pipe:0',
-      '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1',
-      '-f', 'ogg', 'pipe:1',
-    ]);
-
-    const saida: Buffer[] = [];
-    let erro = '';
-    ff.stdout.on('data', (d: Buffer) => saida.push(d));
-    ff.stderr.on('data', (d: Buffer) => { erro += d.toString(); });
-    ff.on('error', (e) => {
-      logger.error('[voz] falha ao executar ffmpeg', { err: e.message });
-      resolve(null);
-    });
-    ff.on('close', (code) => {
-      if (code !== 0 || !saida.length) {
-        logger.error('[voz] ffmpeg falhou', { code, erro: erro.slice(0, 300) });
-        resolve(null);
-        return;
-      }
-      resolve(Buffer.concat(saida));
-    });
-
-    ff.stdin.on('error', () => undefined);   // evita EPIPE se o ffmpeg morrer antes
-    ff.stdin.end(mp3);
-  });
-}
-
 /**
  * Converte a resposta em áudio de mensagem de voz do WhatsApp.
  * Retorna null quando não deve/não dá para responder em áudio — quem chama
@@ -68,12 +35,11 @@ async function mp3ParaOggOpus(mp3: Buffer): Promise<Buffer | null> {
  */
 export async function sintetizarParaWhatsapp(
   texto: string,
-  voiceId?: string,
+  genero: Genero = 'feminino',
 ): Promise<Buffer | null> {
-  const chave = config.tts.elevenlabs.apiKey;
-  const voz = voiceId || config.tts.elevenlabs.voiceId;
-  if (!chave || !voz) {
-    logger.warn('[voz] ElevenLabs sem chave ou voz configurada');
+  const chave = config.openai.apiKey;
+  if (!chave) {
+    logger.warn('[voz] OPENAI_API_KEY ausente');
     return null;
   }
 
@@ -84,32 +50,39 @@ export async function sintetizarParaWhatsapp(
     return null;
   }
 
+  const voz = genero === 'masculino' ? config.chat.vozMasculina : config.chat.vozFeminina;
+
   try {
     const res = await axios.post<ArrayBuffer>(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voz}`,
+      'https://api.openai.com/v1/audio/speech',
       {
-        text: fala,
-        model_id: config.tts.elevenlabs.modelId,
-        voice_settings: {
-          stability: config.tts.elevenlabs.stability,
-          similarity_boost: config.tts.elevenlabs.similarityBoost,
-          use_speaker_boost: config.tts.elevenlabs.speakerBoost,
-        },
+        model: config.chat.ttsModel,
+        voice: voz,
+        input: fala,
+        // opus = OGG/Opus, o formato nativo de mensagem de voz do WhatsApp.
+        response_format: 'opus',
+        instructions: 'Fale como atendente brasileiro de telecom: natural, '
+          + 'cordial e objetivo. Ritmo de conversa, sem tom de locução.',
       },
       {
-        params: { output_format: 'mp3_44100_128' },
-        headers: { 'xi-api-key': chave, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
         responseType: 'arraybuffer',
         timeout: 25_000,
       },
     );
 
-    const ogg = await mp3ParaOggOpus(Buffer.from(res.data));
-    if (ogg) logger.info('[voz] áudio gerado', { chars: fala.length, bytes: ogg.length });
+    const ogg = Buffer.from(res.data);
+    if (!ogg.length) return null;
+    logger.info('[voz] áudio gerado', { chars: fala.length, bytes: ogg.length, voz, genero });
     return ogg;
   } catch (err: unknown) {
-    const e = err as { response?: { status?: number }; message?: string };
-    logger.error('[voz] falha na síntese', { status: e.response?.status, err: e.message });
+    const e = err as { response?: { status?: number; data?: unknown }; message?: string };
+    logger.error('[voz] falha na síntese', {
+      status: e.response?.status,
+      modelo: config.chat.ttsModel,
+      voz,
+      err: e.message,
+    });
     return null;
   }
 }

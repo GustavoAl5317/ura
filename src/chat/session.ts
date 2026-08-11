@@ -21,7 +21,7 @@ import { buildChatSystemPrompt } from './prompt';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
 import { salvarConversa, salvarEvento, conversasParaRetomar } from './repo';
-import { sintetizarParaWhatsapp } from './voz';
+import { sintetizarParaWhatsapp, type Genero } from './voz';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -61,6 +61,13 @@ export class ChatSession {
   ultimoContatoCliente = Date.now();
   /** A última mensagem do cliente foi áudio: responder no mesmo formato. */
   responderEmAudio = false;
+  /**
+   * Gênero da voz. A persona é escolhida pela IA no texto (Ana/Bruna x Alex),
+   * então é detectada na primeira apresentação e mantida até o fim — trocar a
+   * voz no meio soaria como outra pessoa atendendo.
+   */
+  private genero: Genero = 'feminino';
+  private generoDefinido = false;
   /** Transporte de voz; sem ele a resposta sai em texto. */
   enviarAudio?: EnviarAudio;
   /** Quando perguntamos "ainda está aí?"; undefined = ainda não perguntamos. */
@@ -400,6 +407,21 @@ export class ChatSession {
   }
 
   /**
+   * Descobre a persona pela apresentação da IA ("Sou o Alex, do suporte").
+   * Só a primeira vale: a partir daí a voz fica fixa na conversa.
+   */
+  private detectarPersona(texto: string): void {
+    if (this.generoDefinido) return;
+    if (/\bAlex\b/i.test(texto)) {
+      this.genero = 'masculino';
+      this.generoDefinido = true;
+    } else if (/\bAna\b|\bBruna\b/i.test(texto)) {
+      this.genero = 'feminino';
+      this.generoDefinido = true;
+    }
+  }
+
+  /**
    * Entrega a resposta da IA. Responde em áudio só quando a última mensagem do
    * cliente foi áudio — e o texto é sempre registrado na timeline, para a
    * atendente ler no painel sem precisar ouvir.
@@ -408,8 +430,10 @@ export class ChatSession {
     logger.info(`[chat] ⬆️  [${this.instance ?? 'padrão'}] ${this.numero}: ${texto}`);
     this.record({ tipo: 'ia', texto });
 
+    this.detectarPersona(texto);
+
     if (this.responderEmAudio && this.enviarAudio) {
-      const ogg = await sintetizarParaWhatsapp(texto, this.ctx.voiceId).catch(() => null);
+      const ogg = await sintetizarParaWhatsapp(texto, this.genero).catch(() => null);
       if (ogg) {
         const r = await this.enviarAudio(this.numero, ogg);
         if (r.enviado) return;
