@@ -145,6 +145,68 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
+    name: 'consultar_historico_chamados',
+    description:
+      'Lista os chamados anteriores do cliente e as visitas técnicas já agendadas. '
+      + 'Use SEMPRE antes de abrir_chamado ou agendar_visita_tecnica, para não duplicar: '
+      + 'se já houver chamado aberto ou visita marcada, informe o protocolo/data em vez de abrir outro.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO (contrato_id de buscar_cliente_por_cpf). Opcional se cliente já identificado.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'alterar_wifi',
+    description:
+      'Altera a senha e/ou o nome (SSID) do Wi-Fi do cliente remotamente, nas redes 2.4G e 5G. '
+      + 'Use APENAS quando o cliente pedir explicitamente. CONFIRME com ele o valor exato antes de aplicar '
+      + 'e avise que todos os aparelhos vão desconectar. A senha precisa ter no mínimo 8 caracteres.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nova_senha: {
+          type: 'string',
+          description: 'Nova senha do Wi-Fi, mínimo 8 caracteres. Omita se o cliente só quer trocar o nome.',
+        },
+        novo_nome: {
+          type: 'string',
+          description: 'Novo nome da rede (SSID). Omita se o cliente só quer trocar a senha.',
+        },
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO. Opcional se cliente já identificado.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'reiniciar_roteador',
+    description:
+      'Reinicia remotamente o ROTEADOR (Wi-Fi) do cliente via TR-069. Diferente de reiniciar_onu, '
+      + 'que reinicia o equipamento de fibra. Use quando a ONU está online e com sinal bom, '
+      + 'mas o cliente segue sem navegar ou com lentidão — indica problema no roteador.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: {
+          type: 'number',
+          description: 'ID do CONTRATO. Opcional se cliente já identificado.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
     name: 'consultar_contrato',
     description:
       'Consulta a situação do contrato: status (ativo/suspenso/cancelado) e o motivo, data de cadastro, '

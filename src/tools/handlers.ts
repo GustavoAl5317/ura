@@ -1303,6 +1303,122 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     };
   });
 
+  // Histórico de atendimentos: ocorrências + ordens de serviço do contrato.
+  client.registerTool('consultar_historico_chamados', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_historico_chamados');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
+
+    const [ocorrencias, ordens] = await Promise.all([
+      sgp.listarOcorrencias(contratoId, 8).catch(() => []),
+      sgp.listarOrdensServico(contratoId, 8).catch(() => []),
+    ]);
+
+    const agendadas = ordens.filter((o) => o.data_agendamento && !o.data_finalizacao);
+    const abertas = ocorrencias.filter((o) => !o.data_finalizacao);
+
+    return {
+      total_chamados: ocorrencias.length,
+      chamados_abertos: abertas.length,
+      chamados: ocorrencias.slice(0, 5).map((o) => ({
+        protocolo: o.protocolo ?? o.id ?? null,
+        tipo: o.tipo ?? null,
+        status: o.status ?? null,
+        aberto_em: o.data_cadastro ?? null,
+        fechado_em: o.data_finalizacao ?? null,
+      })),
+      visitas_agendadas: agendadas.map((o) => ({
+        protocolo: o.protocolo ?? o.id ?? null,
+        agendada_para: o.data_agendamento,
+        motivo: o.motivo ?? null,
+        tecnico: o.tecnico ?? null,
+      })),
+      interpretacao: agendadas.length
+        ? 'Já existe visita técnica agendada — informe a data ao cliente e NÃO abra chamado novo para o mesmo problema.'
+        : abertas.length
+        ? 'Já existe chamado em aberto — informe o protocolo e NÃO abra outro para o mesmo problema.'
+        : 'Sem chamados em aberto.',
+    };
+  });
+
+  // Wi-Fi via Gerenciador CPE (TR-069). Ação que ALTERA o equipamento do cliente.
+  client.registerTool('alterar_wifi', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'alterar_wifi');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
+
+    const senha = typeof args.nova_senha === 'string' ? args.nova_senha.trim() : '';
+    const ssid = typeof args.novo_nome === 'string' ? args.novo_nome.trim() : '';
+    if (!senha && !ssid) {
+      return { sucesso: false, mensagem: 'Informe a nova senha e/ou o novo nome da rede.' };
+    }
+    // WPA2 exige 8 caracteres; senha curta é rejeitada pelo roteador sem erro claro.
+    if (senha && senha.length < 8) {
+      return { sucesso: false, mensagem: 'A senha do Wi-Fi precisa ter pelo menos 8 caracteres.' };
+    }
+
+    const dados = await sgp.dadosDoContrato(contratoId);
+    const ct = dados?.contratos.find((c) => c.contrato === contratoId) ?? dados?.contratos[0];
+    const servicoId = ct?.servicos?.[0]?.id;
+    if (!servicoId) {
+      return { sucesso: false, mensagem: 'Não localizei o serviço de internet deste contrato.' };
+    }
+
+    // Aplica nos dois rádios: o cliente espera uma senha só para a casa inteira.
+    const r = await sgp.alterarCpe({
+      contratoId,
+      servicoId,
+      ...(ssid ? { ssid, ssid5g: `${ssid}_5G` } : {}),
+      ...(senha ? { senha, senha5g: senha } : {}),
+    });
+
+    const ok = r?.success === true || r?.status === 1;
+    ctx.log.push(`Alterar Wi-Fi contrato ${contratoId}: ${ok ? 'sucesso' : 'falha'}`);
+
+    return {
+      sucesso: ok,
+      mensagem: ok
+        ? 'Wi-Fi alterado. Os aparelhos vão desconectar e precisam ser reconectados com os novos dados. '
+          + 'A mudança pode levar até 2 minutos para chegar no roteador.'
+        : r?.msg ?? 'Não consegui alterar o Wi-Fi agora. O roteador pode estar offline.',
+      ...(ok && ssid ? { novo_nome: ssid } : {}),
+    };
+  });
+
+  // Reboot do roteador via TR-069 — diferente de reiniciar_onu (fibra).
+  client.registerTool('reiniciar_roteador', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'reiniciar_roteador');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+    const contratoId = contrato.contratoId;
+
+    const dados = await sgp.dadosDoContrato(contratoId);
+    const ct = dados?.contratos.find((c) => c.contrato === contratoId) ?? dados?.contratos[0];
+    const servicoId = ct?.servicos?.[0]?.id;
+    if (!servicoId) {
+      return { sucesso: false, mensagem: 'Não localizei o serviço de internet deste contrato.' };
+    }
+
+    const ok = await sgp.reiniciarCpe(servicoId).catch(() => false);
+    ctx.log.push(`Reiniciar roteador contrato ${contratoId}: ${ok ? 'sucesso' : 'falha'}`);
+
+    return {
+      sucesso: ok,
+      mensagem: ok
+        ? 'Roteador reiniciando. Aguarde de 2 a 3 minutinhos para voltar.'
+        : 'Não consegui reiniciar o roteador remotamente. '
+          + 'Peça ao cliente para tirar da tomada, esperar 30 segundos e ligar de novo.',
+    };
+  });
+
   // Status do contrato, endereço e serviços vinculados (login PPPoE + ONU).
   // Os dados já vinham da API do SGP; faltava expor.
   client.registerTool('consultar_contrato', async (args) => {

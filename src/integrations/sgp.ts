@@ -104,6 +104,51 @@ export interface SgpCliente {
   clienteId?: number;            // preenchido via consultacliente se disponível
 }
 
+/** Gerenciador CPE (TR-069) — o SGP varia os nomes, então tudo é opcional. */
+export interface SgpCpe {
+  status?: number;
+  msg?: string;
+  modelo?: string;
+  fabricante?: string;
+  ssid?: string;
+  ssid_5g?: string;
+  wifi_status?: string | number;
+  wifi_status_5g?: string | number;
+  ultima_atualizacao?: string;
+  [k: string]: unknown;
+}
+
+export interface SgpCpeResposta {
+  status?: number;
+  msg?: string;
+  success?: boolean;
+  [k: string]: unknown;
+}
+
+/** Ocorrência (chamado) — campos variam por versão do SGP. */
+export interface SgpOcorrencia {
+  id?: number;
+  protocolo?: string;
+  tipo?: string;
+  status?: string;
+  conteudo?: string;
+  data_cadastro?: string;
+  data_finalizacao?: string;
+  [k: string]: unknown;
+}
+
+export interface SgpOrdemServico {
+  id?: number;
+  protocolo?: string;
+  status?: string;
+  motivo?: string;
+  data_cadastro?: string;
+  data_agendamento?: string;
+  data_finalizacao?: string;
+  tecnico?: string;
+  [k: string]: unknown;
+}
+
 export interface SgpFatura2via {
   status: number;
   razaoSocial: string;
@@ -450,7 +495,68 @@ export class SgpClient {
     return r?.success === true || r?.status === 1;
   }
 
+  // ─── CPE / Wi-Fi (Gerenciador CPE, TR-069) ─────────────────────────────────
+
+  /** Configuração atual do Wi-Fi do cliente (SSID 2.4G e 5G, status). */
+  async consultarCpe(contratoId: number, servicoId?: number): Promise<SgpCpe | null> {
+    return this.getParams<SgpCpe>('/api/ura/cpemanage/', {
+      contrato: contratoId,
+      ...(servicoId ? { servico: servicoId } : {}),
+    });
+  }
+
+  /**
+   * Altera SSID e/ou senha do Wi-Fi via TR-069. Só envia os campos informados —
+   * mandar vazio apagaria a configuração atual do cliente.
+   */
+  async alterarCpe(params: {
+    contratoId: number;
+    servicoId: number;
+    ssid?: string;
+    senha?: string;
+    ssid5g?: string;
+    senha5g?: string;
+  }): Promise<SgpCpeResposta | null> {
+    const body: Record<string, unknown> = {
+      contrato: params.contratoId,
+      servico: params.servicoId,
+    };
+    if (params.ssid) body.novo_ssid = params.ssid;
+    if (params.senha) body.nova_senha = params.senha;
+    if (params.ssid5g) body.novo_ssid_5g = params.ssid5g;
+    if (params.senha5g) body.nova_senha_5g = params.senha5g;
+    return this.postForm<SgpCpeResposta>('/api/ura/cpemanage/', body);
+  }
+
+  /** Reinicia o roteador do cliente (TR-069). Diferente do reset da ONU. */
+  async reiniciarCpe(servicoId: number): Promise<boolean> {
+    const r = await this.postForm<{ status?: number; success?: boolean; msg?: string }>(
+      `/api/cpemanager/servico/${servicoId}/command/boot/`,
+    );
+    return r?.success === true || r?.status === 1;
+  }
+
   // ─── Chamados ──────────────────────────────────────────────────────────────
+
+  /** Histórico de ocorrências (chamados) do contrato, mais recentes primeiro. */
+  async listarOcorrencias(contratoId: number, limit = 10): Promise<SgpOcorrencia[]> {
+    const r = await this.postForm<{ ocorrencias?: SgpOcorrencia[]; results?: SgpOcorrencia[] }>(
+      '/api/ura/ocorrencia/list/',
+      { contrato: contratoId, limit, offset: 0 },
+    );
+    return r?.ocorrencias ?? r?.results ?? [];
+  }
+
+  /** Ordens de serviço do contrato — inclui as agendadas (visita técnica). */
+  async listarOrdensServico(contratoId: number, limit = 10): Promise<SgpOrdemServico[]> {
+    const r = await this.postForm<{ ordens_servico?: SgpOrdemServico[]; results?: SgpOrdemServico[] }>(
+      '/api/ura/ordemservico/list/',
+      { contrato: contratoId, limit, offset: 0 },
+    );
+    return r?.ordens_servico ?? r?.results ?? [];
+  }
+
+
 
   async abrirChamado(params: {
     contratoId: number;
