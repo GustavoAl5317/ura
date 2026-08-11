@@ -14,7 +14,7 @@ import {
   usuariosOnline, derrubarSessoes,
   type Papel,
 } from './auth';
-import { auditoriaConversas, auditoriaResumo, conversaDetalheAuditoria } from './repo';
+import { auditoriaConversas, auditoriaResumo, conversaDetalheAuditoria, conversasRecentesPainel } from './repo';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -256,11 +256,20 @@ export async function tratarPainel(
 
   // ── Conversas ────────────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/conversas') {
+    // A sessão viva é a fonte da verdade; o banco completa com as que já
+    // saíram da memória (encerradas ou descartadas por inatividade), para
+    // nenhuma conversa sumir da tela da atendente.
+    const vivas = store.list().map((s) => s.resumo());
+    const chavesVivas = new Set(vivas.map((c) => c.key));
+    const doBanco = conversasRecentesPainel(24 * 60 * 60 * 1000)
+      .filter((c) => !chavesVivas.has(c.key))
+      .map((c) => ({ ...c, instance: c.instance ?? config.whatsapp.instance, pendingTransfer: false }));
+
     json(res, 200, {
       agora: Date.now(),
       empresa: config.company.name,
       agente: config.company.agentName,
-      conversas: store.list().map((s) => s.resumo()),
+      conversas: [...vivas, ...doBanco].sort((a, b) => b.lastActivity - a.lastActivity),
     });
     return true;
   }
@@ -273,8 +282,22 @@ export async function tratarPainel(
   const key = decodeURIComponent(m[1]);
   const acao = m[2];
   const session = store.find(key);
+
+  // Conversa fora da memória (encerrada ou descartada): a leitura ainda tem de
+  // funcionar — o histórico está no banco. Só as ações exigem sessão viva.
   if (!session) {
-    json(res, 404, { erro: 'Conversa não encontrada. Ela pode ter expirado.' });
+    if (req.method === 'GET' && !acao) {
+      const detalhe = conversaDetalheAuditoria(key);
+      if (detalhe) {
+        json(res, 200, { ...detalhe, somenteLeitura: true });
+        return true;
+      }
+    }
+    json(res, 404, {
+      erro: acao
+        ? 'Esta conversa já foi encerrada. Peça ao cliente para escrever de novo para reabrir o atendimento.'
+        : 'Conversa não encontrada.',
+    });
     return true;
   }
 

@@ -126,6 +126,62 @@ export function eventosDaConversa(chave: string, limite = 300): PanelEvent[] {
   ).all(chave, limite).map(linhaParaEvento).reverse();
 }
 
+/**
+ * Conversas recentes para a LISTA do painel — inclui as encerradas.
+ * A lista viva mostra só o que está em memória; sem isto, conversa encerrada
+ * (por inatividade ou pela IA) desaparece da tela junto com o histórico.
+ */
+export function conversasRecentesPainel(janelaMs: number, limite = 200): Array<{
+  key: string;
+  numero: string;
+  instance?: string;
+  pushName: string | null;
+  clienteNome: string | null;
+  modo: 'ia' | 'humano';
+  atendenteId: string | null;
+  atendenteNome: string | null;
+  encerrada: boolean;
+  ultimaMsg: string | null;
+  ultimaTs: number;
+  lastActivity: number;
+}> {
+  const desde = Date.now() - janelaMs;
+  const linhas = db().prepare(
+    `SELECT c.*, (
+        SELECT e.texto FROM eventos e
+         WHERE e.conversa = c.chave AND e.tipo IN ('cliente','ia','atendente')
+         ORDER BY e.id DESC LIMIT 1
+      ) AS ultima_msg
+       FROM conversas c
+      WHERE c.ultima_atividade >= ?
+      ORDER BY c.ultima_atividade DESC
+      LIMIT ?`,
+  ).all(desde, limite);
+
+  return linhas.map((r) => {
+    let clienteNome: string | null = null;
+    try {
+      const ctx = JSON.parse(String(r.ctx_json ?? '{}')) as { cliente?: { nome?: string } };
+      clienteNome = ctx.cliente?.nome ?? null;
+    } catch { /* ctx corrompido não pode derrubar a lista */ }
+
+    return {
+      key: String(r.chave),
+      numero: String(r.numero),
+      instance: r.instancia == null ? undefined : String(r.instancia),
+      pushName: r.push_name == null ? null : String(r.push_name),
+      clienteNome,
+      modo: r.modo === 'humano' ? 'humano' : 'ia',
+      atendenteId: r.atendente_id == null ? null : String(r.atendente_id),
+      atendenteNome: r.atendente_nome == null ? null : String(r.atendente_nome),
+      encerrada: Number(r.encerrada) === 1,
+      ultimaMsg: r.ultima_msg == null ? null : String(r.ultima_msg),
+      ultimaTs: Number(r.ultima_atividade),
+      lastActivity: Number(r.ultima_atividade),
+    };
+  });
+}
+
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
 export function conversasParaRetomar(idadeMaximaMs: number): ConversaSalva[] {
   const limite = Date.now() - idadeMaximaMs;

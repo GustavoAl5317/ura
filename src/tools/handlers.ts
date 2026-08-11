@@ -702,6 +702,28 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
         corrigido: digitos,
       });
     }
+    // Segundo CPF na mesma conversa: pode ser cliente com mais de um cadastro,
+    // mas pode ser digitação errada ou terceiro pedindo dado alheio. Confirma
+    // antes de trocar — trocar em silêncio mistura os atendimentos.
+    const cpfAtual = ctx.cliente ? cpfDigitos(ctx.cliente.cpfcnpj) : '';
+    if (
+      cpfAtual
+      && digitos.length === 11
+      && digitos !== cpfAtual
+      && args.confirmar_troca !== true
+    ) {
+      return {
+        encontrado: false,
+        erro: 'troca_de_cadastro_nao_confirmada',
+        cliente_atual: ctx.cliente?.nome ?? null,
+        mensagem:
+          `Você já está atendendo ${ctx.cliente?.nome ?? 'este cliente'} nesta conversa e agora `
+          + 'veio um CPF diferente. PERGUNTE ao cliente se ele quer falar sobre OUTRO cadastro '
+          + '(outra casa, outro titular) ou se apenas digitou errado. Só depois do "sim" dele, '
+          + 'chame de novo com confirmar_troca=true. NÃO troque de cadastro por conta própria.',
+      };
+    }
+
     if (digitos.length !== 11) {
       return {
         encontrado: false,

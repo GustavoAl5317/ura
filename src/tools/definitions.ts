@@ -5,11 +5,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     name: 'buscar_cliente_por_cpf',
     description:
-      'Busca o cadastro pelo CPF. Após encontrar, confirme o titular (nome no contrato) com o cliente antes de usar outras ferramentas.',
+      'Busca o cadastro pelo CPF. Após encontrar, confirme o titular (nome no contrato) com o cliente antes de usar outras ferramentas. '
+      + 'Se um cliente JÁ foi identificado nesta conversa e vier um CPF diferente, a ferramenta recusa e pede confirmação: '
+      + 'pergunte se ele quer tratar de outro cadastro ou se digitou errado, e só então repita a chamada com confirmar_troca=true.',
     parameters: {
       type: 'object',
       properties: {
         cpf: { type: 'string', description: 'CPF do cliente com exatamente 11 dígitos numéricos, sem pontuação (ex.: "80066969000")' },
+        confirmar_troca: {
+          type: 'boolean',
+          description: 'true somente depois de o cliente confirmar que quer falar de OUTRO cadastro.',
+        },
       },
       required: ['cpf'],
     },
