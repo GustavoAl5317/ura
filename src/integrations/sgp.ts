@@ -118,6 +118,41 @@ export interface SgpCpe {
   [k: string]: unknown;
 }
 
+/** Rádio Wi-Fi do CPE. `index` é a chave usada no /wifi/update/ (ex.: "1-1"). */
+export interface SgpWifiRadio {
+  index?: string;
+  ssid?: string;
+  channel?: number | string;
+  frequency?: number | string;
+  enabled?: boolean | string;
+  [k: string]: unknown;
+}
+
+/** Sessão RADIUS (radacct). Contém a senha PPPoE — nunca repassar ao cliente. */
+export interface SgpRadacct {
+  nome?: string;
+  plano?: string;
+  ip?: string;
+  online?: boolean | number | string;
+  acctstarttime?: string;
+  acctstoptime?: string;
+  callingstationid?: string;
+  nasportid?: string;
+  [k: string]: unknown;
+}
+
+export interface SgpOsAgenda {
+  os_id?: number;
+  contrato_id?: number;
+  cliente?: string;
+  os_status?: number | string;
+  os_motivo_descricao?: string;
+  os_data_agendamento?: string;
+  endereco_bairro?: string;
+  endereco_cidade?: string;
+  [k: string]: unknown;
+}
+
 export interface SgpCpeResposta {
   status?: number;
   msg?: string;
@@ -526,6 +561,62 @@ export class SgpClient {
     if (params.ssid5g) body.novo_ssid_5g = params.ssid5g;
     if (params.senha5g) body.nova_senha_5g = params.senha5g;
     return this.postForm<SgpCpeResposta>('/api/ura/cpemanage/', body);
+  }
+
+  /** Rádios Wi-Fi do CPE, com o índice que o /wifi/update/ usa nas chaves. */
+  async listarWifi(servicoId: number): Promise<SgpWifiRadio[]> {
+    const r = await this.getParams<SgpWifiRadio[] | { result?: SgpWifiRadio[] }>(
+      `/api/cpemanager/servico/${servicoId}/wifi/list/`,
+    );
+    if (Array.isArray(r)) return r;
+    return r?.result ?? [];
+  }
+
+  /**
+   * Altera o canal de um rádio. O SGP indexa os campos por rádio
+   * ("1-1_frequency"), então o índice precisa vir do /wifi/list/.
+   */
+  async alterarCanalWifi(servicoId: number, indice: string, canal: number): Promise<boolean> {
+    const r = await this.postJson<SgpCpeResposta>(
+      `/api/cpemanager/servico/${servicoId}/wifi/update/`,
+      { [`${indice}_channel`]: canal, [`${indice}_enabled`]: 'on' },
+    );
+    return r?.success === true || r?.status === 1;
+  }
+
+  /** Dispara um teste de velocidade no roteador do cliente (TR-069). */
+  async speedtestCpe(servicoId: number): Promise<SgpCpeResposta | null> {
+    return this.postForm<SgpCpeResposta>(`/api/cpemanager/servico/${servicoId}/command/speedtest/`);
+  }
+
+  /** Sessão RADIUS do login PPPoE: se está autenticado, IP e desde quando. */
+  async statusPppoe(login: string): Promise<SgpRadacct | null> {
+    const r = await this.postForm<{ result?: SgpRadacct[] }>('/ws/radius/radacct/list/all/', {
+      username: login,
+      limit: 1,
+      offset: 0,
+      last_session: 1,
+    });
+    return r?.result?.[0] ?? null;
+  }
+
+  /** Ordens de serviço agendadas num intervalo — a agenda dos técnicos. */
+  async agendaTecnica(dataInicial: string, dataFinal: string): Promise<SgpOsAgenda[]> {
+    const r = await this.postForm<SgpOsAgenda[]>('/api/os/list/', {
+      filtro_data: 'agendamento',
+      agendamento_inicial: dataInicial,
+      agendamento_final: dataFinal,
+      status_encerrada: 0,
+    });
+    return Array.isArray(r) ? r : [];
+  }
+
+  /** Troca o plano do serviço (muda a velocidade e o valor da mensalidade). */
+  async alterarPlanoServico(servicoId: number, planoId: number): Promise<SgpCpeResposta | null> {
+    return this.postForm<SgpCpeResposta>(`/api/suporte/service/update/${servicoId}/`, {
+      action: 'update',
+      plano_id: planoId,
+    });
   }
 
   /** Reinicia o roteador do cliente (TR-069). Diferente do reset da ONU. */

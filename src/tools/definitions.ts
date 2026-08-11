@@ -145,6 +145,88 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: 'function',
+    name: 'consultar_pppoe',
+    description:
+      'Verifica no RADIUS se o cliente está autenticado na rede agora: login, IP e desde quando. '
+      + 'Use em problemas de conexão para separar "não autentica" (ONU/cabo/bloqueio) de '
+      + '"autentica mas está lento" (Wi-Fi ou capacidade).',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'number', description: 'ID do CONTRATO. Opcional se cliente já identificado.' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'testar_velocidade',
+    description:
+      'Dispara um teste de velocidade no roteador do cliente via TR-069. Mede o que chega no '
+      + 'equipamento, sem depender do celular ou do Wi-Fi dele. Use em reclamação de lentidão, '
+      + 'depois de descartar massiva.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cliente_id: { type: 'number', description: 'ID do CONTRATO. Opcional se cliente já identificado.' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'alterar_canal_wifi',
+    description:
+      'Troca o canal do Wi-Fi. Use quando houver muita interferência de redes vizinhas — '
+      + 'sintoma típico é lentidão só no Wi-Fi, com o cabo funcionando bem. '
+      + 'Em 2.4 GHz prefira 1, 6 ou 11, que não se sobrepõem.',
+    parameters: {
+      type: 'object',
+      properties: {
+        canal: { type: 'number', description: 'Número do canal. Em 2.4 GHz use 1, 6 ou 11.' },
+        cliente_id: { type: 'number', description: 'ID do CONTRATO. Opcional se cliente já identificado.' },
+      },
+      required: ['canal'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'consultar_agenda_tecnica',
+    description:
+      'Mostra quantas visitas técnicas já estão agendadas por dia num período. '
+      + 'Use ANTES de agendar_visita_tecnica para sugerir ao cliente o dia com menos visitas marcadas.',
+    parameters: {
+      type: 'object',
+      properties: {
+        data_inicial: { type: 'string', description: 'Início do período, formato AAAA-MM-DD.' },
+        data_final: { type: 'string', description: 'Fim do período, formato AAAA-MM-DD.' },
+      },
+      required: ['data_inicial', 'data_final'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'alterar_plano',
+    description:
+      'Troca o plano do cliente — muda a VELOCIDADE e o VALOR DA MENSALIDADE. '
+      + 'Fluxo obrigatório: 1) consultar_planos para pegar o plano_id e o preço; '
+      + '2) dizer ao cliente o plano e o novo valor exato; 3) obter o "sim" dele; '
+      + '4) só então chamar com confirmado=true. Nunca altere por iniciativa própria.',
+    parameters: {
+      type: 'object',
+      properties: {
+        plano_id: { type: 'number', description: 'ID do plano obtido em consultar_planos.' },
+        confirmado: {
+          type: 'boolean',
+          description: 'true somente depois de o cliente confirmar o plano e o valor.',
+        },
+        cliente_id: { type: 'number', description: 'ID do CONTRATO. Opcional se cliente já identificado.' },
+      },
+      required: ['plano_id', 'confirmado'],
+    },
+  },
+  {
+    type: 'function',
     name: 'consultar_historico_chamados',
     description:
       'Lista os chamados anteriores do cliente e as visitas técnicas já agendadas. '

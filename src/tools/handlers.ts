@@ -1303,6 +1303,184 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     };
   });
 
+  /** Primeiro serviço de internet do contrato — id e login PPPoE. */
+  async function servicoDoContrato(contratoId: number): Promise<{ id?: number; login?: string } | null> {
+    const dados = await sgp.dadosDoContrato(contratoId);
+    const ct = dados?.contratos.find((c) => c.contrato === contratoId) ?? dados?.contratos[0];
+    const s = ct?.servicos?.[0];
+    return s ? { id: s.id, login: s.login } : null;
+  }
+
+  // Sessão RADIUS: prova se o cliente está autenticado na rede agora.
+  client.registerTool('consultar_pppoe', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'consultar_pppoe');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+
+    const servico = await servicoDoContrato(contrato.contratoId);
+    if (!servico?.login) {
+      return { erro: 'Não localizei o login de conexão deste contrato.' };
+    }
+
+    const sessao = await sgp.statusPppoe(servico.login).catch(() => null);
+    if (!sessao) {
+      return {
+        login: servico.login,
+        autenticado: false,
+        interpretacao: 'Sem sessão ativa no RADIUS — o cliente NÃO está autenticado na rede.',
+      };
+    }
+
+    const online = sessao.online === true || sessao.online === 1 || sessao.online === '1';
+    return {
+      login: servico.login,
+      autenticado: online,
+      ip: sessao.ip ?? null,
+      plano: sessao.plano ?? null,
+      conectado_desde: sessao.acctstarttime ?? null,
+      desconectado_em: online ? null : sessao.acctstoptime ?? null,
+      // pppoe_senha vem no retorno do SGP e é deliberadamente omitida.
+      interpretacao: online
+        ? 'Autenticado na rede. Se o cliente reclama de lentidão, o problema é depois do PPPoE (Wi-Fi ou capacidade).'
+        : 'Não autenticado. Verifique ONU, cabo ou bloqueio financeiro.',
+    };
+  });
+
+  // Speedtest no roteador do cliente — mede o que chega no CPE, não no celular dele.
+  client.registerTool('testar_velocidade', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'testar_velocidade');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+
+    const servico = await servicoDoContrato(contrato.contratoId);
+    if (!servico?.id) return { erro: 'Não localizei o serviço deste contrato.' };
+
+    const r = await sgp.speedtestCpe(servico.id).catch(() => null);
+    const ok = r?.success === true || r?.status === 1;
+    ctx.log.push(`Speedtest contrato ${contrato.contratoId}: ${ok ? 'disparado' : 'falha'}`);
+
+    return {
+      sucesso: ok,
+      resultado: r ?? null,
+      mensagem: ok
+        ? 'Teste de velocidade disparado no roteador. O resultado aparece no SGP em instantes.'
+        : 'Não consegui rodar o teste remoto. O roteador pode não suportar TR-069 ou estar offline.',
+    };
+  });
+
+  // Canal do Wi-Fi — útil quando há muita interferência de vizinhos (2.4 GHz).
+  client.registerTool('alterar_canal_wifi', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'alterar_canal_wifi');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+
+    const canal = Number(args.canal);
+    if (!Number.isInteger(canal) || canal < 1) {
+      return { sucesso: false, mensagem: 'Informe um número de canal válido.' };
+    }
+
+    const servico = await servicoDoContrato(contrato.contratoId);
+    if (!servico?.id) return { erro: 'Não localizei o serviço deste contrato.' };
+
+    // O índice do rádio ("1-1") é obrigatório na chave do update e só vem da listagem.
+    const radios = await sgp.listarWifi(servico.id).catch(() => []);
+    const radio = radios.find((r) => r.index) ?? radios[0];
+    if (!radio?.index) {
+      return { sucesso: false, mensagem: 'Não consegui identificar o rádio Wi-Fi deste roteador.' };
+    }
+
+    const ok = await sgp.alterarCanalWifi(servico.id, radio.index, canal).catch(() => false);
+    ctx.log.push(`Canal Wi-Fi contrato ${contrato.contratoId} → ${canal}: ${ok ? 'ok' : 'falha'}`);
+
+    return {
+      sucesso: ok,
+      canal_anterior: radio.channel ?? null,
+      canal_novo: ok ? canal : null,
+      mensagem: ok
+        ? `Canal alterado para ${canal}. A rede pode oscilar por alguns segundos.`
+        : 'Não consegui alterar o canal agora.',
+    };
+  });
+
+  // Agenda dos técnicos num intervalo — para propor data de visita com base real.
+  client.registerTool('consultar_agenda_tecnica', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const inicio = typeof args.data_inicial === 'string' ? args.data_inicial.trim() : '';
+    const fim = typeof args.data_final === 'string' ? args.data_final.trim() : '';
+    if (!inicio || !fim) {
+      return { erro: 'Informe data_inicial e data_final no formato AAAA-MM-DD.' };
+    }
+
+    const os = await sgp.agendaTecnica(inicio, fim).catch(() => []);
+    const porDia: Record<string, number> = {};
+    for (const o of os) {
+      const dia = String(o.os_data_agendamento ?? '').slice(0, 10);
+      if (dia) porDia[dia] = (porDia[dia] ?? 0) + 1;
+    }
+
+    return {
+      periodo: { de: inicio, ate: fim },
+      total_agendadas: os.length,
+      por_dia: porDia,
+      interpretacao: os.length
+        ? 'Use a distribuição por dia para sugerir a data com menos visitas marcadas.'
+        : 'Nenhuma visita agendada nesse período — agenda livre.',
+    };
+  });
+
+  // Troca de plano: muda velocidade E valor da mensalidade. Exige confirmação.
+  client.registerTool('alterar_plano', async (args) => {
+    const bloqueio = bloqueioConsultas(ctx);
+    if (bloqueio) return bloqueio;
+
+    const contrato = resolverContratoId(ctx, args.cliente_id, 'alterar_plano');
+    if ('erro' in contrato) return { sucesso: false, ...contrato };
+
+    const planoId = Number(args.plano_id);
+    if (!Number.isInteger(planoId) || planoId <= 0) {
+      return { sucesso: false, mensagem: 'Informe o plano_id obtido em consultar_planos.' };
+    }
+    if (args.confirmado !== true) {
+      return {
+        sucesso: false,
+        mensagem: 'Confirme o novo plano e o novo valor com o cliente e chame de novo com confirmado=true.',
+      };
+    }
+
+    const servico = await servicoDoContrato(contrato.contratoId);
+    if (!servico?.id) return { erro: 'Não localizei o serviço deste contrato.' };
+
+    const r = await sgp.alterarPlanoServico(servico.id, planoId).catch(() => null);
+    const ok = !!r && r.status !== 0;
+    ctx.log.push(`Alterar plano contrato ${contrato.contratoId} → plano ${planoId}: ${ok ? 'ok' : 'falha'}`);
+
+    // Deixa rastro no cadastro: troca de plano mexe em cobrança.
+    const clienteId = ctx.cliente?.clienteId;
+    if (ok && clienteId) {
+      await sgp.adicionarAnotacao({
+        clienteId,
+        contratoId: contrato.contratoId,
+        anotacao: `Plano alterado para o ID ${planoId} via atendimento automatizado.`,
+      }).catch(() => undefined);
+    }
+
+    return {
+      sucesso: ok,
+      mensagem: ok
+        ? 'Plano alterado. A nova velocidade vale após a próxima renovação da conexão, '
+          + 'e o valor muda na próxima fatura.'
+        : r?.msg ?? 'Não consegui alterar o plano. Encaminhe para um atendente.',
+    };
+  });
+
   // Histórico de atendimentos: ocorrências + ordens de serviço do contrato.
   client.registerTool('consultar_historico_chamados', async (args) => {
     const bloqueio = bloqueioConsultas(ctx);
