@@ -2013,9 +2013,27 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       });
 
       if (temCobertura) return { tem_cobertura: true, fonte: 'sgp' };
+      return { tem_cobertura: false, fonte: 'sgp', oferecer_cadastro_interesse: true };
     }
 
-    return { tem_cobertura: false, oferecer_cadastro_interesse: true };
+    // Chegar aqui com o GeoSite desligado significa que NENHUMA fonte foi
+    // consultada: o SGP está bloqueado por useGeositeOnly. Responder "sem
+    // cobertura" seria inventar — recusaria todo prospect, em qualquer endereço.
+    if (!config.geosite.enabled) {
+      logger.error('Viabilidade sem fonte: GEOSITE_ENABLED=0 com COVERAGE_USE_GEOSITE_ONLY=1', {
+        endereco: endStr || cepStr,
+      });
+      return {
+        tem_cobertura: null,
+        erro: 'sem_fonte_de_cobertura',
+        mensagem:
+          'Não foi possível verificar a cobertura — NÃO afirme que não temos. '
+          + 'Colete nome e celular com DDD, registre com registrar_interesse e diga que '
+          + 'a equipe comercial confirma a disponibilidade em seguida.',
+      };
+    }
+
+    return { tem_cobertura: false, fonte: 'geosite', oferecer_cadastro_interesse: true };
   });
 
   client.registerTool('registrar_interesse', async (args) => {
