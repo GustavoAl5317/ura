@@ -138,8 +138,24 @@ export class GeositeClient {
   // configurado, portanto todas "cobrem" o endereço. Ordena da mais próxima para a
   // mais distante e seleciona a primeira que tem porta disponível — se a mais
   // próxima estiver lotada, cai para a próxima mais próxima que cobre, e assim por diante.
+  /**
+   * A API responde { success, caixas: [...] } — objeto, não array. Ler direto
+   * com Array.isArray dava lista vazia e TODO endereço saía "sem cobertura".
+   * Aceita as duas formas para não quebrar se a API mudar.
+   */
+  private extrairCaixas(data: unknown): GeositeCaixa[] {
+    if (Array.isArray(data)) return data as GeositeCaixa[];
+    if (data && typeof data === 'object') {
+      const obj = data as Record<string, unknown>;
+      for (const k of ['caixas', 'result', 'results', 'data']) {
+        if (Array.isArray(obj[k])) return obj[k] as GeositeCaixa[];
+      }
+    }
+    return [];
+  }
+
   private processarCaixas(data: unknown): Viabilidade {
-    const caixas = Array.isArray(data) ? (data as GeositeCaixa[]) : [];
+    const caixas = this.extrairCaixas(data);
     if (!caixas.length) {
       logger.info('Geosite: Nenhuma CTO encontrada no raio configurado.');
       return { temCobertura: false, caixasProximas: 0 };
