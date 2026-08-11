@@ -1340,10 +1340,15 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       interpretacao:
         status === 'offline'
           ? (sinalOk
-            ? 'Cliente DESCONECTADO, mas o sinal óptico está bom — chega luz na ONU e '
-              + 'mesmo assim não há sessão ativa. Provável falha do equipamento, do cabo '
-              + 'de rede ou da configuração. Tente reiniciar_onu; persistindo, abra chamado.'
-            : 'ONU offline — verifique a luz da ONU ou se houve queda de energia')
+            ? 'Cliente DESCONECTADO, mas o sinal óptico está bom — chega luz na ONU e mesmo '
+              + 'assim não há sessão ativa. Aponta equipamento, cabo de rede ou configuração, '
+              + 'NÃO rompimento de fibra. PRÓXIMO PASSO: fale com o cliente. Conte o que você '
+              + 'viu, pergunte se as luzes do equipamento estão acesas e peça para ele tirar da '
+              + 'tomada por 30 segundos. AGUARDE a resposta dele antes de qualquer outra ação. '
+              + 'NÃO abra chamado agora.'
+            : 'ONU offline e sem sinal óptico. PRÓXIMO PASSO: fale com o cliente — pergunte se '
+              + 'houve queda de energia, se o cabo da fibra está conectado e se alguma luz do '
+              + 'equipamento está acesa. AGUARDE a resposta antes de abrir chamado.')
           : sinalOk === false
           ? `Sinal fraco (${onu.rx} dBm). O ideal é entre -7 e -27 dBm`
           : status === 'online'
@@ -1802,6 +1807,29 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const contrato = resolverContratoId(ctx, args.cliente_id, 'abrir_chamado');
     if ('erro' in contrato) return { sucesso: false, ...contrato };
     const contratoId = contrato.contratoId;
+
+    // Trava anti-duplicata: a regra existe no prompt, mas o modelo pula. Como
+    // chamado repetido gera visita técnica duplicada, a checagem fica aqui.
+    if (args.confirmar_duplicado !== true) {
+      const abertas = (await sgp.listarOcorrencias(contratoId, 10).catch(() => []))
+        .filter((o) => !ocorrenciaEncerrada(o));
+      if (abertas.length) {
+        const p = abertas[0];
+        return {
+          sucesso: false,
+          erro: 'ja_existe_chamado_aberto',
+          protocolo_existente: p.numero ?? p.protocolo ?? String(p.id ?? ''),
+          aberto_em: p.data_cadastro ?? null,
+          total_abertos: abertas.length,
+          mensagem:
+            'JÁ EXISTE chamado aberto para este contrato. NÃO abra outro para o mesmo '
+            + 'problema: informe ao cliente o protocolo acima e a data, e diga que a equipe '
+            + 'já está com o caso. Só chame de novo com confirmar_duplicado=true se o cliente '
+            + 'relatar um problema CLARAMENTE DIFERENTE do que já está registrado.',
+        };
+      }
+    }
+
     const r = await sgp.abrirChamado({
       contratoId,
       ocorrenciaTipo: config.features.chamadoOcorrenciaTipo,

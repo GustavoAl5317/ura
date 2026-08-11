@@ -15,6 +15,31 @@ export interface WhatsappSendResult {
   remoteJid?: string;
 }
 
+/**
+ * Primeiro nome só quando o cadastro é mesmo de uma pessoa.
+ *
+ * Boa parte da base tem contrato de infraestrutura no lugar do titular
+ * ("FTTX 3 CONJUNTO CEARÁ AV. A C/833"), e cumprimentar com "Olá, FTTX!"
+ * queima a credibilidade do atendimento logo na primeira linha.
+ */
+export function primeiroNomeSeguro(nomeCompleto?: string | null): string | null {
+  const nome = (nomeCompleto ?? '').trim();
+  if (!nome) return null;
+
+  // Códigos de rede e endereço no lugar do nome.
+  if (/\d/.test(nome)) return null;
+  if (/\b(FTTX|FTTH|GPON|CTO|OLT|PON|POP|CONDOMINIO|CONDOMÍNIO|APTO|BLOCO|QUADRA|LOTE|RUA|AV|AVENIDA)\b/i.test(nome)) {
+    return null;
+  }
+
+  const primeiro = nome.split(/\s+/)[0];
+  if (primeiro.length < 2 || primeiro.length > 20) return null;
+  if (!/^[A-Za-zÀ-ÿ'-]+$/.test(primeiro)) return null;
+
+  // Capitaliza: o SGP guarda tudo em caixa alta.
+  return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
+}
+
 export class WhatsAppClient {
   private http: AxiosInstance | null = null;
 
@@ -282,9 +307,9 @@ export class WhatsAppClient {
       linhaDigitavel?: string | null;
     };
   }): string {
-    const primeiroNome = params.clienteNome.split(' ')[0];
+    const primeiroNome = primeiroNomeSeguro(params.clienteNome);
     const linhas = [
-      `Olá, ${primeiroNome}! 😊`,
+      primeiroNome ? `Olá, ${primeiroNome}! 😊` : `Olá! 😊`,
       ``,
       `📋 *Resumo do atendimento*`,
       params.resumoAtendimento.trim(),

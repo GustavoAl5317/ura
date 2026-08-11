@@ -344,7 +344,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         descricao: {
           type: 'string',
           description:
-            'Descrição detalhada: o que o cliente relatou, diagnóstico realizado, ações tentadas e resultado',
+            'Descrição detalhada: o que o cliente relatou, diagnóstico realizado, ações tentadas e resultado. '
+            + 'Descreva APENAS o que foi de fato executado ou pedido ao cliente — não invente etapas.',
+        },
+        confirmar_duplicado: {
+          type: 'boolean',
+          description:
+            'A ferramenta recusa se já houver chamado aberto. Use true só quando o cliente relatar '
+            + 'um problema claramente DIFERENTE do que já está registrado.',
         },
         enviar_whatsapp: {
           type: 'boolean',
