@@ -440,6 +440,15 @@ function resolverWhatsAppCliente(
     return { numero: null, motivo: 'celular_nao_informado' };
   }
 
+  // No chat o número É o remetente da conversa: ele provou ter WhatsApp ao
+  // escrever. Validar formato aqui rejeita wa_id legítimo — o Brasil tem
+  // números antigos sem o nono dígito (55 + DDD + 8) — e faz a IA pedir ao
+  // cliente um número que ela já tem na mão.
+  if (ctx.canal === 'chat' && ctx.celularWhatsApp && !informado) {
+    const d = ctx.celularWhatsApp.replace(/\D/g, '');
+    if (d.length >= 10) return { numero: d };
+  }
+
   const resolvido = resolveCelularInformado(tel, ctx.lastClientSpeech);
   if (!resolvido.numero) {
     return { numero: null, motivo: 'celular_invalido' };
