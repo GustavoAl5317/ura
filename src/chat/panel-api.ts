@@ -26,12 +26,12 @@ function json(res: http.ServerResponse, status: number, body: unknown, cookie?: 
   res.end(JSON.stringify(body));
 }
 
-function lerCorpo(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+function lerCorpo(req: http.IncomingMessage, maxBytes = 200_000): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     let body = '';
     req.on('data', (d) => {
       body += d;
-      if (body.length > 200_000) req.destroy();
+      if (body.length > maxBytes) req.destroy();
     });
     req.on('end', () => {
       try { resolve(JSON.parse(body || '{}')); } catch { resolve({}); }
@@ -39,6 +39,10 @@ function lerCorpo(req: http.IncomingMessage): Promise<Record<string, unknown>> {
     req.on('error', () => resolve({}));
   });
 }
+
+/** Teto do arquivo já decodificado. O WhatsApp recusa documento acima de 100 MB,
+ *  mas 16 MB cobre boleto/contrato/foto e evita segurar memória do processo. */
+const MAX_ARQUIVO_BYTES = 16 * 1024 * 1024;
 
 const txt = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -261,7 +265,9 @@ export async function tratarPainel(
     return true;
   }
 
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar))?$/.exec(p);
+  // 'enviar-arquivo' vem antes de 'enviar' na alternância: a regex é gulosa da
+  // esquerda e casaria só o prefixo, jogando o resto para dentro da chave.
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar-arquivo|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -318,6 +324,44 @@ export async function tratarPainel(
     return true;
   }
 
+  if (req.method === 'POST' && acao === 'enviar-arquivo') {
+    if (!podeAgir()) {
+      json(res, 409, { erro: `Quem está com esta conversa é ${session.atendenteNome}.` });
+      return true;
+    }
+    // base64 infla ~33%; a folga cobre o envelope JSON e o nome do arquivo.
+    const body = await lerCorpo(req, Math.ceil(MAX_ARQUIVO_BYTES * 1.4));
+    const nome = txt(body.nome).trim() || 'arquivo';
+    const mimetype = txt(body.mimetype).trim() || 'application/octet-stream';
+    const legenda = txt(body.legenda).trim();
+    const base64 = txt(body.base64);
+
+    if (!base64) {
+      json(res, 400, { ok: false, erro: 'Selecione um arquivo antes de enviar.' });
+      return true;
+    }
+
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length) {
+      json(res, 400, { ok: false, erro: 'Não consegui ler esse arquivo. Tente outro.' });
+      return true;
+    }
+    if (buffer.length > MAX_ARQUIVO_BYTES) {
+      json(res, 413, { ok: false, erro: 'Arquivo muito grande. O limite é 16 MB.' });
+      return true;
+    }
+
+    const r = await session.enviarArquivoComoAtendente({ nome, mimetype, buffer, legenda }, eu.nome);
+    if (!r.enviado) {
+      logger.warn('[painel] falha ao enviar arquivo', { key, nome, motivo: r.motivo });
+      json(res, 400, { ok: false, erro: motivoLegivel(r.motivo) });
+      return true;
+    }
+    logger.info('[painel] arquivo enviado', { key, nome, bytes: buffer.length, por: eu.nome });
+    json(res, 200, { ok: true });
+    return true;
+  }
+
   json(res, 405, { erro: 'metodo_nao_suportado' });
   return true;
 }
@@ -328,6 +372,12 @@ function motivoLegivel(motivo?: string): string {
     case 'modo_ia': return 'A IA voltou a conduzir. Clique em Interferir para assumir de novo.';
     case 'numero_sem_whatsapp': return 'Este número não tem WhatsApp.';
     case 'nao_configurado': return 'A integração com o WhatsApp não está configurada.';
+    case 'arquivo_vazio': return 'Selecione um arquivo antes de enviar.';
+    case 'falha_upload': return 'Não consegui subir o arquivo para o WhatsApp. Tente novamente.';
+    case 'upload_sem_id': return 'O WhatsApp aceitou o arquivo mas não devolveu o identificador. Tente novamente.';
+    case 'fora_da_janela_24h':
+      return 'Passaram-se mais de 24h desde a última mensagem do cliente. '
+        + 'O WhatsApp só permite retomar com modelo aprovado — peça para o cliente escrever primeiro.';
     default: return 'O WhatsApp não aceitou a mensagem. Tente novamente.';
   }
 }

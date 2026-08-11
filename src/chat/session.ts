@@ -12,6 +12,7 @@
 import { createContext, type CallContext } from '../session/context';
 import { registerTools } from '../tools/handlers';
 import { whatsapp } from '../integrations/whatsapp';
+import { whatsappCloud } from '../integrations/whatsapp-cloud';
 import { config } from '../config';
 import { logger } from '../logger';
 import { ChatToolRegistry } from './tool-registry';
@@ -189,6 +190,38 @@ export class ChatSession {
     if (r.enviado) {
       this.history.push({ role: 'assistant', content: t });
       this.record({ tipo: 'atendente', texto: t, autor: autor ?? this.atendenteNome });
+      this.trimHistory();
+      this.lastActivity = Date.now();
+    }
+    return { enviado: r.enviado, motivo: r.motivo };
+  }
+
+  /**
+   * Envia um arquivo ao cliente em nome da atendente. Escolhe o canal pela
+   * instância da conversa: phone_number_id numérico = Cloud API, senão Evolution.
+   */
+  async enviarArquivoComoAtendente(
+    arq: { nome: string; mimetype: string; buffer: Buffer; legenda?: string },
+    autor?: string,
+  ): Promise<{ enviado: boolean; motivo?: string }> {
+    if (!arq.buffer?.length) return { enviado: false, motivo: 'arquivo_vazio' };
+    if (this.modo !== 'humano') return { enviado: false, motivo: 'modo_ia' };
+
+    const inst = this.instance ?? '';
+    const ehCloud = config.cloud.enabled
+      && (/^\d{10,}$/.test(inst) || config.cloud.allowedPhoneIds.includes(inst));
+
+    const r = ehCloud
+      ? await whatsappCloud.enviarMidia(inst, this.numero, arq)
+      : await whatsapp.enviarMidia(this.numero, arq, this.instance);
+
+    if (r.enviado) {
+      // A IA precisa saber que um arquivo foi enviado para não repetir a oferta.
+      const descricao = arq.legenda
+        ? `[arquivo enviado: ${arq.nome}] ${arq.legenda}`
+        : `[arquivo enviado: ${arq.nome}]`;
+      this.history.push({ role: 'assistant', content: descricao });
+      this.record({ tipo: 'atendente', texto: descricao, autor: autor ?? this.atendenteNome });
       this.trimHistory();
       this.lastActivity = Date.now();
     }

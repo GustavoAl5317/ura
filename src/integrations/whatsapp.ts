@@ -170,6 +170,53 @@ export class WhatsAppClient {
     }
   }
 
+  /**
+   * Envia um arquivo pela Evolution (base64 no corpo). Espelha o
+   * `enviarMidia` da Cloud API para o painel funcionar nos dois canais.
+   */
+  async enviarMidia(
+    para: string,
+    arq: { nome: string; mimetype: string; buffer: Buffer; legenda?: string },
+    instance?: string,
+  ): Promise<WhatsappSendResult> {
+    if (!this.isAvailable(instance)) {
+      return { enviado: false, motivo: 'nao_configurado' };
+    }
+    const numero = this.normalize(para);
+    const mediatype = arq.mimetype.startsWith('image/') ? 'image'
+      : arq.mimetype.startsWith('video/') ? 'video'
+      : arq.mimetype.startsWith('audio/') ? 'audio'
+      : 'document';
+
+    try {
+      const res = await this.client.post(`/message/sendMedia/${this.instancePath(instance)}`, {
+        number: numero,
+        mediatype,
+        mimetype: arq.mimetype,
+        media: arq.buffer.toString('base64'),
+        fileName: arq.nome,
+        caption: arq.legenda ?? '',
+      }, { maxBodyLength: Infinity });
+
+      const meta = this.extractSendMeta(res.data);
+      if (!meta.ok) {
+        logger.error('WhatsApp: mídia sem confirmação', {
+          para: numero,
+          body: JSON.stringify(res.data ?? '').slice(0, 400),
+        });
+        return { enviado: false, motivo: 'falha_api' };
+      }
+      logger.info('WhatsApp mídia enviada', { para: numero, nome: arq.nome, mediatype });
+      return { enviado: true, messageId: meta.messageId, remoteJid: meta.remoteJid };
+    } catch (err: unknown) {
+      const { motivo, status, body } = this.parseSendError(err);
+      logger.error('WhatsApp erro ao enviar mídia', {
+        para: numero, nome: arq.nome, motivo, status, body: body.slice(0, 400),
+      });
+      return { enviado: false, motivo };
+    }
+  }
+
   async enviarTexto(para: string, mensagem: string, instance?: string): Promise<WhatsappSendResult> {
     if (!this.isAvailable(instance)) {
       logger.error('WhatsApp não configurado', {

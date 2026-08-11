@@ -207,6 +207,9 @@
   .live-bar textarea{flex:1;background:#fff;border-radius:8px;padding:9px 12px;resize:none;font-size:14.4px;line-height:1.4;max-height:110px;min-height:38px;border:1px solid var(--take-line)}
   .send{width:40px;height:40px;border-radius:50%;background:var(--take);color:#fff;flex:0 0 auto;display:grid;place-items:center;font-size:16px}
   .send[disabled]{opacity:.45}
+  .clip{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--take);flex:0 0 auto;display:grid;place-items:center;font-size:18px;border:1px solid var(--take-line)}
+  .clip:hover{background:#fff}
+  .clip[disabled]{opacity:.45}
 
   .dossie-body{flex:1;overflow-y:auto;padding:16px}
   .card{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
@@ -926,11 +929,48 @@
 
     el.composer.innerHTML = `<div class="live-bar">
       <span class="note">Você no comando</span>
+      <input type="file" id="arq" hidden>
+      <button class="clip" id="btnClip" aria-label="Anexar arquivo" title="Anexar arquivo (até 16 MB)">📎</button>
       <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
       <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
       <button class="btn back" id="btnBack">Voltar com a IA</button></div>`;
 
-    const txt=$('txt'), send=$('btnSend');
+    const txt=$('txt'), send=$('btnSend'), clip=$('btnClip'), arq=$('arq');
+
+    clip.onclick = () => arq.click();
+    arq.onchange = async () => {
+      const f = arq.files && arq.files[0];
+      if (!f) return;
+      if (f.size > 16*1024*1024){ toast('Arquivo muito grande. O limite é 16 MB.', true); arq.value=''; return; }
+
+      clip.disabled = send.disabled = true;
+      const rotulo = f.name.length > 28 ? f.name.slice(0,25)+'…' : f.name;
+      toast('Enviando '+rotulo+'…');
+      try{
+        const base64 = await new Promise((ok, erro)=>{
+          const fr = new FileReader();
+          // readAsDataURL devolve "data:<mime>;base64,XXXX" — só o que vem depois da vírgula.
+          fr.onload = () => ok(String(fr.result).split(',')[1] || '');
+          fr.onerror = () => erro(new Error('Não consegui ler o arquivo.'));
+          fr.readAsDataURL(f);
+        });
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/enviar-arquivo',{
+          method:'POST',
+          body: JSON.stringify({
+            nome: f.name,
+            mimetype: f.type || 'application/octet-stream',
+            legenda: txt.value.trim(),
+            base64,
+          }),
+        });
+        txt.value=''; ajusta();
+        toast(rotulo+' enviado.');
+        await carregarDetalhe(true);
+      }catch(ex){ toast(ex.message, true); }
+      arq.value='';
+      clip.disabled = send.disabled = false;
+      txt.focus();
+    };
     const ajusta=()=>{txt.style.height='auto'; txt.style.height=Math.min(txt.scrollHeight,110)+'px';};
     txt.addEventListener('input',ajusta);
     txt.addEventListener('keydown',(e)=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); enviar();} });
