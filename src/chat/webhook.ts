@@ -201,12 +201,18 @@ export function startChatServer(): void {
       return;
     }
 
-    let body = '';
-    req.on('data', (d) => {
-      body += d;
-      if (body.length > 2_000_000) req.destroy();               // proteção contra payload gigante
+    // Acumula em Buffer: concatenar como string quebraria acentos partidos entre
+    // chunks e invalidaria a assinatura HMAC da Meta.
+    const chunks: Buffer[] = [];
+    let recebido = 0;
+    req.on('data', (d: Buffer) => {
+      chunks.push(d);
+      recebido += d.length;
+      if (recebido > 2_000_000) req.destroy();                  // proteção contra payload gigante
     });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+
       // ── Cloud API (Meta): valida assinatura e processa ──
       if (url.pathname === '/cloud/webhook') {
         if (!assinaturaValida(body, req.headers['x-hub-signature-256'])) {
