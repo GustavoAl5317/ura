@@ -29,6 +29,59 @@ function limparParaFala(texto: string): string {
 }
 
 /**
+ * Caminho dos modelos gpt-audio: a voz sai como anexo da resposta do chat,
+ * em base64. Pedimos para o modelo apenas LER o texto — sem isso ele
+ * responde à mensagem em vez de narrá-la.
+ */
+async function sintetizarPorChat(fala: string, voz: string, chave: string): Promise<Buffer | null> {
+  try {
+    const res = await axios.post<{
+      choices?: Array<{ message?: { audio?: { data?: string } } }>;
+    }>(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: config.chat.ttsModel,
+        modalities: ['text', 'audio'],
+        // opus = OGG/Opus, formato nativo de mensagem de voz do WhatsApp.
+        audio: { voice: voz, format: 'opus' },
+        messages: [
+          {
+            role: 'system',
+            content: 'Você é um narrador. Leia em voz alta, em português do Brasil, '
+              + 'EXATAMENTE o texto do usuário, com tom de atendente cordial. '
+              + 'Não comente, não responda, não acrescente nada.',
+          },
+          { role: 'user', content: fala },
+        ],
+      },
+      {
+        headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+        timeout: 40_000,
+      },
+    );
+
+    const b64 = res.data?.choices?.[0]?.message?.audio?.data;
+    if (!b64) {
+      logger.error('[voz] resposta sem áudio', { modelo: config.chat.ttsModel });
+      return null;
+    }
+    const ogg = Buffer.from(b64, 'base64');
+    logger.info('[voz] áudio gerado (chat)', { chars: fala.length, bytes: ogg.length, voz });
+    return ogg;
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: unknown }; message?: string };
+    logger.error('[voz] falha na síntese via chat', {
+      status: e.response?.status,
+      modelo: config.chat.ttsModel,
+      voz,
+      body: JSON.stringify(e.response?.data ?? '').slice(0, 300),
+      err: e.message,
+    });
+    return null;
+  }
+}
+
+/**
  * Converte a resposta em áudio de mensagem de voz do WhatsApp.
  * Retorna null quando não deve/não dá para responder em áudio — quem chama
  * cai no texto, que é sempre o caminho seguro.
@@ -51,6 +104,12 @@ export async function sintetizarParaWhatsapp(
   }
 
   const voz = genero === 'masculino' ? config.chat.vozMasculina : config.chat.vozFeminina;
+
+  // Modelos "gpt-audio*" não atendem em /v1/audio/speech: geram voz pelo
+  // chat completions, com saída de áudio. É o que está liberado neste projeto.
+  if (/^gpt-audio/.test(config.chat.ttsModel)) {
+    return sintetizarPorChat(fala, voz, chave);
+  }
 
   try {
     const res = await axios.post<ArrayBuffer>(

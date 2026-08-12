@@ -177,11 +177,18 @@ export const config = {
     transcribeEnabled: optBool('CHAT_TRANSCRIBE_ENABLED', true),
     /** Responde em áudio QUANDO o cliente mandou áudio (TTS da OpenAI). */
     responderAudio: optBool('CHAT_RESPONDER_AUDIO', false),
-    /** Modelo de TTS. gpt-4o-mini-tts aceita `instructions` para ajustar o tom. */
-    ttsModel: opt('CHAT_TTS_MODEL', 'gpt-4o-mini-tts'),
-    /** Vozes da OpenAI por gênero da persona (Ana/Bruna x Alex). */
+    /**
+     * Modelo de voz. Nomes "gpt-audio*" geram áudio pelo chat completions;
+     * os demais usam /v1/audio/speech. Precisa estar liberado no projeto.
+     */
+    ttsModel: opt('CHAT_TTS_MODEL', 'gpt-audio-mini'),
+    /**
+     * Vozes por gênero da persona (Ana/Bruna x Alex). Atenção: os modelos
+     * gpt-audio aceitam apenas alloy, ash, ballad, coral, echo, sage,
+     * shimmer e verse — `onyx` e `nova` só existem no TTS dedicado.
+     */
     vozFeminina: opt('CHAT_VOZ_FEMININA', 'coral'),
-    vozMasculina: opt('CHAT_VOZ_MASCULINA', 'onyx'),
+    vozMasculina: opt('CHAT_VOZ_MASCULINA', 'ash'),
     /** Modelo de transcrição da OpenAI (whisper-1, gpt-4o-mini-transcribe...). */
     transcribeModel: opt('CHAT_TRANSCRIBE_MODEL', 'whisper-1'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),
