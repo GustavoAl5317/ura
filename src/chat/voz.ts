@@ -10,6 +10,7 @@
 import axios from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
+import { numerosParaFala } from '../utils/numeroPorFala';
 
 export type Genero = 'feminino' | 'masculino';
 
@@ -112,12 +113,16 @@ export async function sintetizarParaWhatsapp(
     return null;
   }
 
-  const fala = limparParaFala(texto);
-  if (!fala) return null;
-  if (fala.length > MAX_CHARS_AUDIO) {
-    logger.info('[voz] resposta longa demais para áudio, enviando texto', { chars: fala.length });
+  const limpo = limparParaFala(texto);
+  if (!limpo) return null;
+  // O limite vale para a mensagem escrita: a conversão de números para fala
+  // aumenta o texto de propósito e não deve derrubar a resposta em áudio.
+  if (limpo.length > MAX_CHARS_AUDIO) {
+    logger.info('[voz] resposta longa demais para áudio, enviando texto', { chars: limpo.length });
     return null;
   }
+
+  const fala = numerosParaFala(limpo);
 
   const voz = genero === 'masculino' ? config.chat.vozMasculina : config.chat.vozFeminina;
 

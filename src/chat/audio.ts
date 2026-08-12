@@ -13,6 +13,20 @@ function extensaoDoMime(mime?: string): { ext: string; tipo: string } {
   return { ext: 'ogg', tipo: tipo || 'audio/ogg' };            // WhatsApp manda OGG/Opus
 }
 
+/**
+ * Contexto dado ao modelo de transcrição. Sem isso ele "arredonda" os números
+ * ditados (CEP vira endereço, CPF perde grupo) porque não sabe do que se trata.
+ * Whisper e gpt-4o-transcribe usam este texto como viés de vocabulário.
+ */
+const CONTEXTO_TRANSCRICAO =
+  'Atendimento de provedora de internet fibra em Fortaleza, Ceará. '
+  + 'O cliente pode ditar CEP, CPF, telefone com DDD, número de protocolo ou endereço, '
+  + 'em português do Brasil, agrupado por extenso — por exemplo: '
+  + '"sessenta mil, quinhentos e trinta, quatrocentos e trinta", '
+  + '"oitocentos e dez, duzentos e vinte, trezentos e trinta, quarenta", '
+  + '"oitenta e cinco, nove nove seis um, dois três quatro cinco". '
+  + 'Transcreva os números exatamente como foram ditos, sem converter nem arredondar.';
+
 /** Converte o áudio (base64) em texto. Retorna null se falhar. */
 export async function transcreverAudio(base64: string, mimetype?: string): Promise<string | null> {
   if (!base64) return null;
@@ -25,6 +39,10 @@ export async function transcreverAudio(base64: string, mimetype?: string): Promi
   form.append('file', new Blob([buffer], { type: tipo }), `audio.${ext}`);
   form.append('model', config.chat.transcribeModel);
   form.append('language', 'pt');
+  form.append('prompt', CONTEXTO_TRANSCRICAO);
+  // Sem temperatura o modelo "inventa" quando o áudio está ruim — e número
+  // inventado leva o atendimento inteiro para o cadastro errado.
+  form.append('temperature', '0');
 
   try {
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
