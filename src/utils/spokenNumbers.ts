@@ -197,72 +197,75 @@ function collectDigitRun(
   return out ? { digits: out, end: i } : null;
 }
 
-function parseTensAndUnits(tokens: string[], start: number): { value: number; end: number } | null {
+/**
+ * Consome UMA frase numérica a partir de tokens[start] e devolve seus dígitos decimais,
+ * sem preencher com zero à esquerda — "cinquenta" vira "50", não "050".
+ *
+ * Cobre tanto número por extenso ("novecentos e dezoito" → 918) quanto dígito solto
+ * ("zero" → 0). Sem tratar os dois casos no mesmo lugar, uma leitura que mistura os dois
+ * estilos (comum quando o cliente lê o CPF em blocos) desalinha tudo que vem depois.
+ */
+function parseNumberPhrase(tokens: string[], start: number): { digits: string; end: number } | null {
   let i = start;
   let value = 0;
-  const startI = i;
-
-  if (i < tokens.length && TENS[tokens[i]!] !== undefined) {
-    value += TENS[tokens[i]!]!;
-    i += 1;
-  }
-
-  if (i < tokens.length && tokens[i]! === 'e') i += 1;
-
-  if (i < tokens.length && TWO_DIGIT_WORD[tokens[i]!]) {
-    value += parseInt(TWO_DIGIT_WORD[tokens[i]!]!, 10);
-    i += 1;
-  } else if (i < tokens.length && DIGIT_WORD[tokens[i]!]) {
-    value += parseInt(DIGIT_WORD[tokens[i]!]!, 10);
-    i += 1;
-  }
-
-  if (i === startI) return null;
-  return { value, end: i };
-}
-
-function parseOneCpfGroup(
-  tokens: string[],
-  start: number,
-  maxDigits: number,
-): { digits: string; end: number } | null {
-  if (maxDigits === 2) {
-    const run = collectDigitRun(tokens, start, 2);
-    if (run) {
-      return { digits: run.digits.padStart(2, '0').slice(-2), end: run.end };
-    }
-    const small = parseTensAndUnits(tokens, start);
-    if (small) {
-      return { digits: String(small.value).padStart(2, '0').slice(-2), end: small.end };
-    }
-    return null;
-  }
-
-  let i = start;
-  let value = 0;
-  const startI = i;
+  let matched = false;
 
   if (i < tokens.length && HUNDREDS[tokens[i]!] !== undefined) {
     value += HUNDREDS[tokens[i]!]!;
     i += 1;
+    matched = true;
+    if (i < tokens.length && tokens[i]! === 'e') i += 1;
   }
 
-  if (i < tokens.length && tokens[i]! === 'e') i += 1;
-
-  const rest = parseTensAndUnits(tokens, i);
-  if (rest) {
-    value += rest.value;
-    i = rest.end;
-  } else if (i === startI) {
-    const run = collectDigitRun(tokens, start, 3);
-    if (run) {
-      return { digits: run.digits.padStart(3, '0').slice(-3), end: run.end };
+  if (i < tokens.length && TENS[tokens[i]!] !== undefined) {
+    value += TENS[tokens[i]!]!;
+    i += 1;
+    matched = true;
+    if (i < tokens.length && tokens[i]! === 'e' && DIGIT_WORD[tokens[i + 1] ?? ''] !== undefined) {
+      value += parseInt(DIGIT_WORD[tokens[i + 1]!]!, 10);
+      i += 2;
     }
+  } else if (i < tokens.length && TWO_DIGIT_WORD[tokens[i]!] !== undefined) {
+    // Sem gate por `matched`: precisa valer também depois de centena, ex. "novecentos e dezoito" = 918.
+    value += parseInt(TWO_DIGIT_WORD[tokens[i]!]!, 10);
+    i += 1;
+    matched = true;
+  } else if (i < tokens.length && DIGIT_WORD[tokens[i]!] !== undefined) {
+    if (!matched) {
+      // Dígito isolado (fala dígito a dígito) — consome só este token, não o resto da frase.
+      return { digits: DIGIT_WORD[tokens[i]!]!, end: i + 1 };
+    }
+    // Unidade depois de centena sem dezena, ex. "trezentos e cinco" = 305.
+    value += parseInt(DIGIT_WORD[tokens[i]!]!, 10);
+    i += 1;
+  }
+
+  if (!matched) {
+    if (i < tokens.length && /^\d+$/.test(tokens[i]!)) return { digits: tokens[i]!, end: i + 1 };
     return null;
   }
 
-  if (i === startI) return null;
-  return { digits: String(value).padStart(3, '0').slice(-3), end: i };
+  return { digits: String(value), end: i };
+}
+
+/** Percorre todos os tokens somando os dígitos de cada frase numérica encontrada. */
+function parseNumberStreamDigits(tokens: string[]): string {
+  let out = '';
+  let i = 0;
+  while (i < tokens.length) {
+    if (tokens[i] === 'e') {
+      i += 1;
+      continue;
+    }
+    const parsed = parseNumberPhrase(tokens, i);
+    if (parsed) {
+      out += parsed.digits;
+      i = parsed.end;
+      continue;
+    }
+    i += 1;
+  }
+  return out;
 }
 
 /** Extrai CPF (11 dígitos) de fala agrupada (ex.: "oitocentos... sessenta e nove...") ou dígito a dígito. */
@@ -276,22 +279,8 @@ export function parseCpfFromSpeech(text: string): string | null {
 
   const tryGrouped = (): string | null => {
     const tokens = tokenizeSpeech(text);
-    const groups: string[] = [];
-    let i = 0;
-
-    while (i < tokens.length && groups.length < 4) {
-      const isLast = groups.length === 3;
-      const parsed = parseOneCpfGroup(tokens, i, isLast ? 2 : 3);
-      if (!parsed) break;
-      groups.push(parsed.digits);
-      i = parsed.end;
-    }
-
-    if (groups.length === 4) {
-      const cpf = groups.join('');
-      return cpf.length === 11 ? cpf : null;
-    }
-    return null;
+    const digits = parseNumberStreamDigits(tokens);
+    return digits.length === 11 ? digits : null;
   };
 
   const acceptDigitCpf = (digits: string): string | null => {
