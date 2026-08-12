@@ -44,14 +44,30 @@ async function sintetizarPorChat(fala: string, voz: string, chave: string): Prom
         modalities: ['text', 'audio'],
         // opus = OGG/Opus, formato nativo de mensagem de voz do WhatsApp.
         audio: { voice: voz, format: 'opus' },
+        // temperatura 0 e texto delimitado: sem isso o modelo trata a fala como
+        // uma mensagem dirigida a ele e RESPONDE ("Bom dia! Claro, vou repetir")
+        // em vez de apenas narrar.
+        temperature: 0,
         messages: [
           {
             role: 'system',
-            content: 'Você é um narrador. Leia em voz alta, em português do Brasil, '
-              + 'EXATAMENTE o texto do usuário, com tom de atendente cordial. '
-              + 'Não comente, não responda, não acrescente nada.',
+            content: [
+              'Você é um sintetizador de voz, não um assistente.',
+              'Sua ÚNICA função é ler em voz alta, em português do Brasil, o texto que está',
+              'entre as marcas <texto> e </texto>.',
+              '',
+              'REGRAS ABSOLUTAS:',
+              '- Fale exatamente as palavras que estão entre as marcas, na mesma ordem.',
+              '- NUNCA responda ao conteúdo. Se estiver escrito "Bom dia", você fala',
+              '  "Bom dia" — você NÃO cumprimenta de volta.',
+              '- NUNCA diga "claro", "vou repetir", "entendi" ou qualquer confirmação.',
+              '- NUNCA acrescente, resuma ou comente nada.',
+              '- Não leia as marcas <texto> e </texto> em voz alta.',
+              '',
+              'Tom: atendente de telecom brasileira, cordial e natural, ritmo de conversa.',
+            ].join('\n'),
           },
-          { role: 'user', content: fala },
+          { role: 'user', content: `<texto>\n${fala}\n</texto>` },
         ],
       },
       {
