@@ -29,6 +29,7 @@ const DIGIT_WORD: Record<string, string> = {
   sete: '7',
   oito: '8',
   nove: '9',
+  meia: '6',
 };
 
 const TWO_DIGIT_WORD: Record<string, string> = {
@@ -95,13 +96,48 @@ export function digitsFromSpoken(text: string): string {
       continue;
     }
 
-    if (tok === 'trinta' && next === 'e') {
-      const unit = i + 2 < parts.length ? normalizeToken(parts[i + 2]!) : '';
-      if (unit === 'tres') {
-        out += '33';
-        i += 3;
-        continue;
+    if (HUNDREDS[tok]) {
+      let val = HUNDREDS[tok];
+      let adv = 1;
+      if (next === 'e') {
+        const tenTok = i + 2 < parts.length ? normalizeToken(parts[i + 2]!) : '';
+        if (TENS[tenTok]) {
+          val += TENS[tenTok]!;
+          adv = 3;
+          const afterTen = i + 3 < parts.length ? normalizeToken(parts[i + 3]!) : '';
+          if (afterTen === 'e') {
+            const unitTok = i + 4 < parts.length ? normalizeToken(parts[i + 4]!) : '';
+            if (DIGIT_WORD[unitTok]) {
+              val += parseInt(DIGIT_WORD[unitTok]!, 10);
+              adv = 5;
+            }
+          }
+        } else if (TWO_DIGIT_WORD[tenTok]) {
+          val += parseInt(TWO_DIGIT_WORD[tenTok]!, 10);
+          adv = 3;
+        } else if (DIGIT_WORD[tenTok]) {
+          val += parseInt(DIGIT_WORD[tenTok]!, 10);
+          adv = 3;
+        }
       }
+      out += val.toString();
+      i += adv;
+      continue;
+    }
+
+    if (TENS[tok]) {
+      let val = TENS[tok];
+      let adv = 1;
+      if (next === 'e') {
+        const unitTok = i + 2 < parts.length ? normalizeToken(parts[i + 2]!) : '';
+        if (DIGIT_WORD[unitTok]) {
+          val += parseInt(DIGIT_WORD[unitTok]!, 10);
+          adv = 3;
+        }
+      }
+      out += val.toString();
+      i += adv;
+      continue;
     }
 
     if (TWO_DIGIT_WORD[tok]) {
@@ -300,16 +336,13 @@ export function parseCpfFromSpeech(text: string): string | null {
     return digits;
   };
 
-  const looksLikePhoneDdd = /\b(onze|doze|treze|quatorze|quinze|dezesseis|dezessete|dezoito|dezenove)\b/i.test(
-    text,
-  );
+  const exactDigits = acceptDigitCpf(digitsFromSpoken(text));
+  if (exactDigits) return exactDigits;
 
   if (hasGrouped) {
     const grouped = tryGrouped();
     if (grouped) return grouped;
   }
-
-  if (!hasGrouped && looksLikePhoneDdd) return null;
 
   const tokens = tokenizeSpeech(text);
   const digitRun = collectDigitRun(tokens, 0, 11);
@@ -321,7 +354,7 @@ export function parseCpfFromSpeech(text: string): string | null {
     if (grouped) return grouped;
   }
 
-  return acceptDigitCpf(digitsFromSpoken(text));
+  return null;
 }
 
 export function looksLikeCpfDictation(text: string): boolean {
