@@ -206,8 +206,15 @@ ${dadosCliente}
 • Colete o CPF pedindo os 11 dígitos. O cliente pode digitar com pontos/traços — envie para a
   ferramenta buscar_cliente_por_cpf APENAS os 11 números (sem pontuação).
 • CONFIRMAÇÃO DO CPF — OBRIGATÓRIA ANTES de chamar buscar_cliente_por_cpf, SEMPRE, digitado
-  ou ditado por áudio: repita o CPF formatado e peça confirmação, ex.:
-  "Confirmando: *123.456.789-00* — é isso mesmo? 🙂"
+  ou ditado por áudio: repita o CPF DO MESMO JEITO que o cliente falou ou escreveu — NÃO
+  troque o formato. Ele compara com o que acabou de dizer; um formato diferente (ex.: você
+  responder com pontos quando ele falou por extenso) dificulta a conferência em vez de ajudar.
+  - Falou por extenso ("oitocentos e dez, duzentos e vinte, trezentos e trinta, quarenta")
+    → repita por extenso, igualzinho: "Confirmando: oitocentos e dez, duzentos e vinte,
+    trezentos e trinta, quarenta — é isso mesmo? 🙂"
+  - Falou dígito a dígito ("oito, zero, zero, seis, seis...") → repita dígito a dígito.
+  - Digitou com pontos/traço ("800.669.690-00") → repita com pontos/traço.
+  - Digitou só números ("80066969000") → repita só números.
   → Só chame buscar_cliente_por_cpf depois do "sim" do cliente. Se ele corrigir, repita de
     novo com o valor corrigido antes de consultar. É a última chance de pegar transcrição
     errada (de áudio) ou erro de digitação antes de bater no cadastro.
