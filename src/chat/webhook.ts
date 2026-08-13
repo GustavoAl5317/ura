@@ -83,6 +83,7 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
   const numero = remoteJid.split('@')[0];
 
   let texto = extrairTexto(msg.message);
+  let deAudio = false;
 
   // Mensagem de voz: baixa o áudio da Evolution e transcreve para texto.
   if (!texto && config.chat.transcribeEnabled && msg.message?.audioMessage) {
@@ -91,6 +92,7 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
       texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.message.audioMessage.mimetype)) ?? '';
     }
     if (texto) {
+      deAudio = true;
       logger.info(`[chat] 🎙️  [${instance}] ${numero} (áudio): ${texto}`);
     } else {
       logger.warn(`[chat] não consegui transcrever o áudio de ${numero}`);
@@ -113,7 +115,7 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
   // assumiu a conversa pelo painel.
   const session = store.get(remoteJid, numero, instance);
   try {
-    await session.handle(texto, msg.pushName);
+    await session.handle(texto, msg.pushName, { deAudio });
   } catch (err: unknown) {
     logger.error('[chat] erro ao processar mensagem', {
       remoteJid,

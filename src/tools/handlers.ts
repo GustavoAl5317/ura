@@ -2,7 +2,7 @@ import { sgp, formatarEndereco, ocorrenciaEncerrada, semGerenciadorCpe } from '.
 import { geosite } from '../integrations/geosite';
 import { zabbix, type ZabbixEventoTipo } from '../integrations/zabbix';
 import { whatsapp } from '../integrations/whatsapp';
-import { resolveCelularInformado, resolveCpfInformado } from '../utils/spokenNumbers';
+import { resolveCelularInformado, resolveCepInformado, resolveCpfInformado } from '../utils/spokenNumbers';
 import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/address';
 import { config } from '../config';
 import { logger } from '../logger';
@@ -2093,6 +2093,23 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const cidade = args.cidade ? String(args.cidade).trim() : '';
     let cepDigitos = args.cep ? String(args.cep).replace(/\D/g, '') : '';
 
+    // O cliente dita o CEP por extenso ("sessenta mil quinhentos e trinta,
+    // quatrocentos e trinta") e o modelo erra a conversão — principalmente o
+    // "mil". A fala dele é a fonte da verdade; endereço falado fica de fora
+    // porque "Rua 830 casa 71" tem tratamento próprio logo abaixo.
+    if (ctx.lastClientSpeech && !looksLikeEnderecoFalado(ctx.lastClientSpeech)) {
+      const doCliente = resolveCepInformado(cepDigitos, ctx.lastClientSpeech);
+      if (doCliente.cep && doCliente.cep !== cepDigitos) {
+        logger.info(`[${ctx.callId}] CEP ajustado pela fala do cliente`, {
+          informado: cepDigitos || '(vazio)',
+          usado: doCliente.cep,
+          fonte: doCliente.fonte,
+          cliente_falou: ctx.lastClientSpeech,
+        });
+        cepDigitos = doCliente.cep;
+      }
+    }
+
     // Viabilidade depende do endereço EXATO (a CTO mais próxima varia rua a rua).
     // Exige CEP válido OU endereço com rua + número + bairro. Nunca consulta só por bairro/cidade.
     let cepValido = cepDigitos.length === 8;
@@ -2143,9 +2160,14 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       };
     }
 
-    let cepStr = cepValido ? String(args.cep).replace(/\D/g, '') : '';
+    let cepStr = cepValido ? cepDigitos : '';
     const cidadeBusca = args.cidade ? String(args.cidade) : 'Fortaleza';
-    const endStr = [logradouro, numero, bairro, cidadeBusca].filter(Boolean).join(', ');
+    // Só existe "endereço" quando há logradouro. Sem ele a lista virava apenas
+    // "Fortaleza" — e o GeoSite era consultado pelo centro da cidade, jogando
+    // fora o CEP que o cliente informou.
+    const endStr = logradouro
+      ? [logradouro, numero, bairro, cidadeBusca].filter(Boolean).join(', ')
+      : '';
 
     // Fallback: ViaCEP para descobrir o CEP pela rua e cidade (se não fornecido)
     if (!cepStr && logradouro && cidadeBusca) {

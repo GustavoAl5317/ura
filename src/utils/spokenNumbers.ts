@@ -29,6 +29,8 @@ const DIGIT_WORD: Record<string, string> = {
   sete: '7',
   oito: '8',
   nove: '9',
+  // No Brasil se dita "meia" para não confundir "seis" com "três" ao telefone.
+  meia: '6',
 };
 
 const TWO_DIGIT_WORD: Record<string, string> = {
@@ -201,9 +203,12 @@ function collectDigitRun(
  * Consome UMA frase numérica a partir de tokens[start] e devolve seus dígitos decimais,
  * sem preencher com zero à esquerda — "cinquenta" vira "50", não "050".
  *
- * Cobre tanto número por extenso ("novecentos e dezoito" → 918) quanto dígito solto
- * ("zero" → 0). Sem tratar os dois casos no mesmo lugar, uma leitura que mistura os dois
- * estilos (comum quando o cliente lê o CPF em blocos) desalinha tudo que vem depois.
+ * Cobre número por extenso ("novecentos e dezoito" → 918) e dígito solto ("zero" → 0)
+ * no mesmo parser. A versão antiga (parseOneCpfGroup/parseTensAndUnits) tratava cada
+ * grupo do CPF como um bloco fixo de 3 dígitos: ao encontrar um dígito solto no meio
+ * de um grupo (cliente lê metade em extenso, metade dígito a dígito — comum na
+ * prática), ela consumia só essa palavra, preenchia o resto com zero e empurrava o
+ * restante da fala para o grupo seguinte, desalinhando o CPF inteiro.
  */
 function parseNumberPhrase(tokens: string[], start: number): { digits: string; end: number } | null {
   let i = start;
@@ -248,22 +253,43 @@ function parseNumberPhrase(tokens: string[], start: number): { digits: string; e
   return { digits: String(value), end: i };
 }
 
-/** Percorre todos os tokens somando os dígitos de cada frase numérica encontrada. */
-function parseNumberStreamDigits(tokens: string[]): string {
+/** Concatena frases numéricas consecutivas a partir de `start`, parando no primeiro token que não continua a leitura. */
+function parseNumberRunDigits(tokens: string[], start: number): { digits: string; end: number } {
   let out = '';
-  let i = 0;
+  let i = start;
+
   while (i < tokens.length) {
     if (tokens[i] === 'e') {
+      const parsed = parseNumberPhrase(tokens, i + 1);
+      if (!parsed) break;
       i += 1;
       continue;
     }
     const parsed = parseNumberPhrase(tokens, i);
-    if (parsed) {
-      out += parsed.digits;
-      i = parsed.end;
-      continue;
-    }
-    i += 1;
+    if (!parsed) break;
+    out += parsed.digits;
+    i = parsed.end;
+  }
+
+  return { digits: out, end: i };
+}
+
+/** Token que carrega número ("oitocentos", "trinta", "sete", "42"). */
+function ehTokenNumerico(tok: string): boolean {
+  return (
+    DIGIT_WORD[tok] !== undefined ||
+    TWO_DIGIT_WORD[tok] !== undefined ||
+    TENS[tok] !== undefined ||
+    HUNDREDS[tok] !== undefined ||
+    /^\d+$/.test(tok)
+  );
+}
+
+/** Posições onde um número pode começar — o cliente raramente abre a frase com ele. */
+function iniciosNumericos(tokens: string[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (ehTokenNumerico(tokens[i]!)) out.push(i);
   }
   return out;
 }
@@ -272,15 +298,35 @@ function parseNumberStreamDigits(tokens: string[]): string {
 export function parseCpfFromSpeech(text: string): string | null {
   if (!text?.trim()) return null;
 
+  // "Meu telefone é oitenta e cinco, nove nove..." não é CPF: os grupos de DDD
+  // caberiam nos grupos de CPF e sairia um documento inventado. Celular tem
+  // parser próprio (parseCelularFromSpeech).
+  const falouCpf = /\bcpf\b/i.test(text);
+  const falouTelefone = /\b(telefone|celular|whats\s?app|zap|contato)\b/i.test(text);
+  if (falouTelefone && !falouCpf) return null;
+
   const hasGrouped =
     /\b(oitocentos|novecentos|seiscentos|setecentos|duzentos|trezentos|quatrocentos|quinhentos|cento|cem)\b/i.test(
       text,
     );
 
+  /** Sem palavra de centena, fala longa de dígitos é telefone — não force um CPF. */
+  const aceitarAgrupado = (cpf: string | null): string | null => {
+    if (!cpf) return null;
+    if (!hasGrouped && !falouCpf && looksLikePhoneDictation(text)) return null;
+    return cpf;
+  };
+
+  // "Meu CPF é oitocentos e dez..." — o número quase nunca abre a frase, então
+  // a varredura tenta cada ponto onde ele pode começar.
   const tryGrouped = (): string | null => {
     const tokens = tokenizeSpeech(text);
-    const digits = parseNumberStreamDigits(tokens);
-    return digits.length === 11 ? digits : null;
+
+    for (const start of iniciosNumericos(tokens)) {
+      const { digits } = parseNumberRunDigits(tokens, start);
+      if (digits.length === 11) return digits;
+    }
+    return null;
   };
 
   const acceptDigitCpf = (digits: string): string | null => {
@@ -294,19 +340,21 @@ export function parseCpfFromSpeech(text: string): string | null {
   );
 
   if (hasGrouped) {
-    const grouped = tryGrouped();
+    const grouped = aceitarAgrupado(tryGrouped());
     if (grouped) return grouped;
   }
 
   if (!hasGrouped && looksLikePhoneDdd) return null;
 
   const tokens = tokenizeSpeech(text);
-  const digitRun = collectDigitRun(tokens, 0, 11);
-  const fromDigits = acceptDigitCpf(digitRun?.digits ?? '');
-  if (fromDigits) return fromDigits;
+  for (const start of iniciosNumericos(tokens)) {
+    const digitRun = collectDigitRun(tokens, start, 11);
+    const fromDigits = acceptDigitCpf(digitRun?.digits ?? '');
+    if (fromDigits) return fromDigits;
+  }
 
   if (!hasGrouped) {
-    const grouped = tryGrouped();
+    const grouped = aceitarAgrupado(tryGrouped());
     if (grouped) return grouped;
   }
 
@@ -325,6 +373,195 @@ export function looksLikeCpfDictation(text: string): boolean {
   }
   const d = digitsFromSpoken(text);
   return d.length >= 9 && d.length <= 11;
+}
+
+// ── CEP ditado por extenso ──────────────────────────────────────────────────
+//
+// CEP é ditado de um jeito que os parsers de CPF/telefone não cobrem: o cliente
+// mistura milhar com centena — "sessenta mil quinhentos e trinta, quatrocentos e
+// trinta" = 60530-430. Sem "mil" o valor sai errado (o modelo chuta 60534-300),
+// então aqui a fala é lida como uma sequência de números por extenso e os
+// dígitos de cada um são concatenados na ordem em que foram ditos.
+
+/** Tokeniza sem os "consertos" de telefone — eles corrompem grupos de CEP. */
+function tokenizePlain(text: string): string[] {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** Palavras que só separam grupos do número — não encerram a sequência. */
+const SEPARADORES = new Set(['e', 'traco', 'tracinho', 'hifen', 'ifen', 'menos', 'barra', 'ponto', 'virgula']);
+
+/** Lê "quatrocentos e trinta e dois" a partir de `start`. Máximo 999. */
+function parseAte999(tokens: string[], start: number): { valor: number; end: number } | null {
+  let i = start;
+  let valor = 0;
+  let leu = false;
+
+  if (i < tokens.length && HUNDREDS[tokens[i]!] !== undefined) {
+    valor += HUNDREDS[tokens[i]!]!;
+    i += 1;
+    leu = true;
+  }
+
+  // O "e" só é consumido se de fato houver continuação numérica depois dele.
+  let j = i;
+  if (leu && tokens[j] === 'e') j += 1;
+
+  if (j < tokens.length && TENS[tokens[j]!] !== undefined) {
+    valor += TENS[tokens[j]!]!;
+    i = j + 1;
+    leu = true;
+
+    let k = i;
+    if (tokens[k] === 'e') k += 1;
+    const unidade = k < tokens.length ? DIGIT_WORD[tokens[k]!] : undefined;
+    if (unidade && unidade !== '0') {
+      valor += Number(unidade);
+      i = k + 1;
+    }
+  } else if (j < tokens.length && TWO_DIGIT_WORD[tokens[j]!]) {
+    valor += Number(TWO_DIGIT_WORD[tokens[j]!]);
+    i = j + 1;
+    leu = true;
+  } else if (j < tokens.length && DIGIT_WORD[tokens[j]!] !== undefined) {
+    // "cento e cinco" = 105; sozinho, é dígito a dígito ("cinco" = 5).
+    valor += Number(DIGIT_WORD[tokens[j]!]);
+    i = j + 1;
+    leu = true;
+  }
+
+  return leu ? { valor, end: i } : null;
+}
+
+/**
+ * Lê um número por extenso, inclusive com milhar ("sessenta mil quinhentos e trinta").
+ *
+ * `milAbsorve` resolve a ambiguidade do CEP ditado: "sessenta mil duzentos e
+ * vinte e dois" pode ser 60222 (leitura natural) ou 60000 + 222 = 60000-222
+ * (leitura de CEP). Quem chama tenta as duas e fica com a que fecha 8 dígitos.
+ */
+function parseNumeroExtenso(
+  tokens: string[],
+  start: number,
+  milAbsorve = true,
+): { valor: number; end: number } | null {
+  const antes = parseAte999(tokens, start);
+  let i = antes ? antes.end : start;
+  let valor = antes?.valor ?? 0;
+  let leu = !!antes;
+
+  if (i < tokens.length && tokens[i] === 'mil') {
+    valor = (leu ? valor : 1) * 1000;
+    i += 1;
+    leu = true;
+
+    // O "e" logo depois de "mil" amarra o número: "sessenta mil E quinhentos"
+    // é 60500, nunca 60000 + 500. Sem ele ("sessenta mil, quinhentos e trinta")
+    // a separação em grupos de CEP é legítima.
+    const amarradoPeloE = tokens[i] === 'e';
+    if (milAbsorve || amarradoPeloE) {
+      let j = i;
+      if (amarradoPeloE) j += 1;
+      const depois = parseAte999(tokens, j);
+      if (depois) {
+        valor += depois.valor;
+        i = depois.end;
+      }
+    }
+  }
+
+  return leu ? { valor, end: i } : null;
+}
+
+/**
+ * Extrai um CEP (8 dígitos) de fala em português ou de texto já digitado.
+ * Aceita "sessenta mil quinhentos e trinta, quatrocentos e trinta",
+ * "sessenta, quinhentos e trinta, quatrocentos e trinta" e dígito a dígito.
+ * Retorna null quando a sequência não fecha exatamente 8 dígitos — chutar CEP
+ * manda o cliente para a cobertura de outra rua.
+ */
+export function parseCepFromSpeech(text: string): string | null {
+  if (!text?.trim()) return null;
+
+  // Já veio escrito (cliente digitou): 60530-430, 60530 430 ou 60530430.
+  const escrito = text.match(/(?<!\d)(\d{5})\s*[-–.\s]?\s*(\d{3})(?!\d)/);
+  if (escrito) return escrito[1]! + escrito[2]!;
+
+  const tokens = tokenizePlain(text);
+
+  // Só serve o que fecha 8 dígitos: 11 dígitos é CPF/celular, 5 é CEP pela metade.
+  return sequenciasDeDigitos(tokens, true).find((s) => s.length === 8)
+    ?? sequenciasDeDigitos(tokens, false).find((s) => s.length === 8)
+    ?? null;
+}
+
+/** Concatena os dígitos dos números ditos em sequência, cortando nas palavras. */
+function sequenciasDeDigitos(tokens: string[], milAbsorve: boolean): string[] {
+  const sequencias: string[] = [];
+  let atual = '';
+  let i = 0;
+
+  const fechar = () => {
+    if (atual) sequencias.push(atual);
+    atual = '';
+  };
+
+  while (i < tokens.length) {
+    const tok = tokens[i]!;
+
+    if (atual && SEPARADORES.has(tok)) {
+      i += 1;
+      continue;
+    }
+
+    if (/^\d+$/.test(tok)) {
+      atual += tok;
+      i += 1;
+      continue;
+    }
+
+    const num = parseNumeroExtenso(tokens, i, milAbsorve);
+    if (num) {
+      atual += String(num.valor);
+      i = num.end;
+      continue;
+    }
+
+    fechar();                                        // palavra sem número corta a sequência
+    i += 1;
+  }
+  fechar();
+
+  return sequencias;
+}
+
+/** O cliente estava ditando um CEP (e não um endereço ou outro número). */
+export function looksLikeCepDictation(text: string): boolean {
+  if (!text?.trim()) return false;
+  return /\bcep\b/i.test(text) || parseCepFromSpeech(text) !== null;
+}
+
+/** Normaliza CEP informado pelo modelo, com fallback na última fala do cliente. */
+export function resolveCepInformado(
+  informado: string,
+  ultimaFala?: string,
+): { cep: string | null; fonte?: 'informado' | 'fala' | 'corrigido' } {
+  const digitos = (informado ?? '').replace(/\D/g, '');
+  const daFala = ultimaFala ? parseCepFromSpeech(ultimaFala) : null;
+
+  // A fala do cliente é a fonte da verdade: o modelo erra ao converter "mil".
+  if (digitos.length === 8 && daFala && daFala !== digitos) {
+    return { cep: daFala, fonte: 'corrigido' };
+  }
+  if (digitos.length === 8) return { cep: digitos, fonte: 'informado' };
+  if (daFala) return { cep: daFala, fonte: 'fala' };
+  return { cep: null };
 }
 
 /** Normaliza CPF informado pelo modelo, com fallback na última fala do cliente. */

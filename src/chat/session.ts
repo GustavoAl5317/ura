@@ -18,6 +18,7 @@ import { logger } from '../logger';
 import { ChatToolRegistry } from './tool-registry';
 import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
 import { buildChatSystemPrompt } from './prompt';
+import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
 import { salvarConversa, salvarEvento, conversasParaRetomar } from './repo';
@@ -308,22 +309,35 @@ export class ChatSession {
   // ── Fluxo de mensagens ───────────────────────────────────────────────────
 
   /** Enfileira o processamento de uma mensagem (garante ordem por cliente). */
-  handle(userText: string, pushName?: string): Promise<void> {
+  handle(userText: string, pushName?: string, opts?: { deAudio?: boolean }): Promise<void> {
     if (pushName?.trim()) this.pushName = pushName.trim();
     this.chain = this.chain
       .catch(() => undefined)
-      .then(() => this.process(userText));
+      .then(() => this.process(userText, opts?.deAudio === true));
     return this.chain;
   }
 
-  private async process(userText: string): Promise<void> {
+  private async process(userText: string, deAudio = false): Promise<void> {
     this.lastActivity = Date.now();
     // Cliente respondeu: zera o ciclo de inatividade.
     this.ultimoContatoCliente = Date.now();
     this.pingInatividadeEm = undefined;
     this.ctx.lastClientSpeech = userText;
     this.history.push({ role: 'user', content: userText });
-    this.record({ tipo: 'cliente', texto: userText });
+    this.record({ tipo: 'cliente', texto: deAudio ? `🎙️ ${userText}` : userText });
+
+    // Áudio: entrega os números já convertidos. Sem isso o modelo tenta fazer a
+    // conta de cabeça na transcrição e erra o CEP/CPF do cliente.
+    if (deAudio) {
+      const nota = notaDeNumerosDitados(userText);
+      if (nota) {
+        this.history.push({ role: 'system', content: nota });
+        logger.info(`[${this.ctx.callId}] números extraídos do áudio`, {
+          numero: this.numero,
+          nota: nota.replace(/\n/g, ' | '),
+        });
+      }
+    }
 
     // Atendente no comando: só registra — quem responde é o humano pelo painel.
     if (this.modo === 'humano') return;

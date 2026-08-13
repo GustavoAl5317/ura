@@ -136,6 +136,7 @@ async function tratarMensagemCloud(
   const enviar = senderCloud(phoneNumberId);
 
   let texto = textoDaMensagem(msg);
+  let deAudio = false;
 
   // Mensagem de voz: baixa o áudio pela Cloud API e transcreve.
   if (!texto && config.chat.transcribeEnabled && msg.type === 'audio' && msg.audio?.id) {
@@ -144,6 +145,7 @@ async function tratarMensagemCloud(
       texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.audio.mime_type)) ?? '';
     }
     if (texto) {
+      deAudio = true;
       logger.info(`[cloud] 🎙️  [${phoneNumberId}] ${numero} (áudio): ${texto}`);
     } else {
       await enviar(numero, 'Recebi seu áudio, mas não consegui entender por aqui 😕 Pode me mandar por escrito, por favor?');
@@ -161,11 +163,11 @@ async function tratarMensagemCloud(
   const session = store.get(remoteJid, numero, phoneNumberId, enviar);
   // Espelha o formato do cliente: áudio recebido, áudio devolvido. O flag é por
   // mensagem — se ele voltar a digitar, a resposta volta a ser texto.
-  session.responderEmAudio = config.chat.responderAudio && msg.type === 'audio';
+  session.responderEmAudio = config.chat.responderAudio && deAudio;
   session.enviarAudio = senderAudioCloud(phoneNumberId);
 
   try {
-    await session.handle(texto, pushName);
+    await session.handle(texto, pushName, { deAudio });
   } catch (err: unknown) {
     logger.error('[cloud] erro ao processar mensagem', {
       phoneNumberId,
