@@ -205,6 +205,12 @@ ${dadosCliente}
 
 • Colete o CPF pedindo os 11 dígitos. O cliente pode digitar com pontos/traços — envie para a
   ferramenta buscar_cliente_por_cpf APENAS os 11 números (sem pontuação).
+• CONFIRMAÇÃO DO CPF — OBRIGATÓRIA ANTES de chamar buscar_cliente_por_cpf, SEMPRE, digitado
+  ou ditado por áudio: repita o CPF formatado e peça confirmação, ex.:
+  "Confirmando: *123.456.789-00* — é isso mesmo? 🙂"
+  → Só chame buscar_cliente_por_cpf depois do "sim" do cliente. Se ele corrigir, repita de
+    novo com o valor corrigido antes de consultar. É a última chance de pegar transcrição
+    errada (de áudio) ou erro de digitação antes de bater no cadastro.
 • CONFIRMAÇÃO DE TITULAR — OBRIGATÓRIA após buscar_cliente_por_cpf, ANTES de qualquer consulta:
   "O nome no contrato é *[nome_contrato]*. Confirma que estou falando com [primeiro nome]?"
   → Se confirmar: confirmar_titular_contrato(confirmado: true).
