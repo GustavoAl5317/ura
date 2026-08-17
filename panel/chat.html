@@ -210,6 +210,12 @@
   .clip{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--take);flex:0 0 auto;display:grid;place-items:center;font-size:18px;border:1px solid var(--take-line)}
   .clip:hover{background:#fff}
   .clip[disabled]{opacity:.45}
+  .mic{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--take);flex:0 0 auto;display:grid;place-items:center;font-size:18px;border:1px solid var(--take-line)}
+  .mic:hover{background:#fff}
+  .mic[disabled]{opacity:.45}
+  .mic.rec{background:var(--danger);border-color:var(--danger);color:#fff;animation:pulse 1.2s infinite}
+  .rec-time{font-size:12.5px;color:var(--danger);font-weight:600;font-variant-numeric:tabular-nums;min-width:38px}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.35)}50%{box-shadow:0 0 0 6px rgba(192,57,43,0)}}
 
   .dossie-body{flex:1;overflow-y:auto;padding:16px}
   .card{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
@@ -863,6 +869,28 @@
     renderComposer();
   }
 
+  function bytesLegivel(n){
+    if(!n) return '';
+    if(n<1024) return n+' B';
+    if(n<1024*1024) return (n/1024).toFixed(0)+' KB';
+    return (n/1024/1024).toFixed(1)+' MB';
+  }
+  function anexo(a){
+    if(!a) return '';
+    const url = '/api/arquivos/'+encodeURIComponent(a.id);
+    if(/^audio\//.test(a.mimetype||'')){
+      return `<audio controls preload="none" src="${url}" style="display:block;margin:2px 0 4px;max-width:240px;height:36px"></audio>`;
+    }
+    if(/^image\//.test(a.mimetype||'')){
+      return `<a href="${url}" target="_blank" rel="noopener" style="display:block;margin:2px 0 4px">
+        <img src="${url}" alt="${esc(a.nome)}" style="max-width:220px;max-height:220px;border-radius:8px;display:block"></a>`;
+    }
+    return `<a href="${url}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;margin:2px 0 4px;padding:8px 10px;background:rgba(0,0,0,.045);border-radius:8px;text-decoration:none;color:inherit">
+      <span style="font-size:17px">📎</span>
+      <span style="min-width:0"><b style="display:block;font-size:12.8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(a.nome)}</b>
+      <span style="font-size:11px;color:var(--muted)">${bytesLegivel(a.tamanho)} · baixar</span></span></a>`;
+  }
+
   function linha(ev){
     if (ev.tipo==='sistema') return `<div class="sys"><span>${esc(ev.texto)}</span></div>`;
     if (ev.tipo==='tool'){
@@ -878,10 +906,10 @@
       </div>`;
     }
     if (ev.tipo==='cliente')
-      return `<div class="msg left"><div class="bub">${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
+      return `<div class="msg left"><div class="bub">${anexo(ev.arquivo)}${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
     const humano = ev.tipo==='atendente';
     return `<div class="msg right ${humano?'by-human':''}"><div class="bub">
-      <b class="who">${humano?esc(ev.autor||'Atendente'):'IA'}</b>${esc(ev.texto)}
+      <b class="who">${humano?esc(ev.autor||'Atendente'):'IA'}</b>${anexo(ev.arquivo)}${esc(ev.texto)}
       <span class="time">${hora(ev.ts)}</span></div></div>`;
   }
 
@@ -931,11 +959,13 @@
       <span class="note">Você no comando</span>
       <input type="file" id="arq" hidden>
       <button class="clip" id="btnClip" aria-label="Anexar arquivo" title="Anexar arquivo (até 16 MB)">📎</button>
+      <button class="mic" id="btnMic" aria-label="Gravar áudio" title="Gravar mensagem de voz">🎙️</button>
+      <span class="rec-time hidden" id="recTime">0:00</span>
       <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
       <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
       <button class="btn back" id="btnBack">Voltar com a IA</button></div>`;
 
-    const txt=$('txt'), send=$('btnSend'), clip=$('btnClip'), arq=$('arq');
+    const txt=$('txt'), send=$('btnSend'), clip=$('btnClip'), arq=$('arq'), mic=$('btnMic'), recTime=$('recTime');
 
     clip.onclick = () => arq.click();
     arq.onchange = async () => {
@@ -971,6 +1001,71 @@
       clip.disabled = send.disabled = false;
       txt.focus();
     };
+    // ── Gravação de áudio ──────────────────────────────────
+    let gravador=null, pedacos=[], gravando=false, relogio=null, inicioGravacao=0;
+
+    async function iniciarGravacao(){
+      if (!navigator.mediaDevices?.getUserMedia){
+        toast('Este navegador não permite gravar áudio aqui.', true); return;
+      }
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeSuportado = ['audio/webm;codecs=opus','audio/webm','audio/mp4']
+          .find((t)=>window.MediaRecorder?.isTypeSupported?.(t)) || '';
+        gravador = mimeSuportado ? new MediaRecorder(stream, { mimeType: mimeSuportado }) : new MediaRecorder(stream);
+        pedacos = [];
+        gravador.ondataavailable = (e) => { if (e.data.size) pedacos.push(e.data); };
+        gravador.onstop = () => {
+          stream.getTracks().forEach((t)=>t.stop());
+          enviarGravacao(new Blob(pedacos, { type: gravador.mimeType || 'audio/webm' }));
+        };
+        gravador.start();
+        gravando = true;
+        inicioGravacao = Date.now();
+        mic.classList.add('rec'); mic.textContent='⏹'; mic.title='Parar e enviar';
+        clip.disabled = true;
+        recTime.classList.remove('hidden');
+        relogio = setInterval(()=>{
+          const s = Math.floor((Date.now()-inicioGravacao)/1000);
+          recTime.textContent = Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+        }, 250);
+      }catch(ex){
+        toast('Não consegui acessar o microfone. Verifique a permissão do navegador.', true);
+      }
+    }
+
+    function pararGravacao(){
+      if (!gravando) return;
+      gravando = false;
+      clearInterval(relogio);
+      mic.classList.remove('rec'); mic.textContent='🎙️'; mic.title='Gravar mensagem de voz';
+      clip.disabled = false;
+      recTime.classList.add('hidden');
+      gravador.stop();
+    }
+
+    async function enviarGravacao(blob){
+      if (!blob.size || blob.size < 500){ return; }   // clique acidental, sem áudio de fato
+      mic.disabled = send.disabled = true;
+      toast('Enviando áudio…');
+      try{
+        const base64 = await new Promise((ok, erro)=>{
+          const fr = new FileReader();
+          fr.onload = () => ok(String(fr.result).split(',')[1] || '');
+          fr.onerror = () => erro(new Error('Não consegui ler a gravação.'));
+          fr.readAsDataURL(blob);
+        });
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/enviar-audio',{
+          method:'POST', body: JSON.stringify({ base64 }),
+        });
+        toast('Áudio enviado.');
+        await carregarDetalhe(true);
+      }catch(ex){ toast(ex.message, true); }
+      mic.disabled = send.disabled = false;
+    }
+
+    mic.onclick = () => gravando ? pararGravacao() : iniciarGravacao();
+
     const ajusta=()=>{txt.style.height='auto'; txt.style.height=Math.min(txt.scrollHeight,110)+'px';};
     txt.addEventListener('input',ajusta);
     txt.addEventListener('keydown',(e)=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); enviar();} });

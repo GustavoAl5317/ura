@@ -9,7 +9,8 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { whatsappCloud } from '../integrations/whatsapp-cloud';
 import { transcreverAudio } from './audio';
-import type { ChatSessionStore, EnviarTexto, EnviarAudio } from './session';
+import { salvarArquivo } from './arquivos';
+import type { ChatSessionStore, EnviarTexto, EnviarAudio, PanelEvent } from './session';
 
 /** Transporte de envio pela Cloud API, amarrado a um phone_number_id. */
 export function senderCloud(phoneNumberId: string): EnviarTexto {
@@ -68,7 +69,9 @@ interface CloudMessage {
   type?: string;
   text?: { body?: string };
   audio?: { id?: string; mime_type?: string; voice?: boolean };
-  image?: { caption?: string };
+  image?: { id?: string; mime_type?: string; caption?: string };
+  video?: { id?: string; mime_type?: string; caption?: string };
+  document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
   button?: { text?: string };
   interactive?: {
     button_reply?: { title?: string };
@@ -86,11 +89,19 @@ function textoDaMensagem(m: CloudMessage): string {
   return (
     m.text?.body ||
     m.image?.caption ||
+    m.video?.caption ||
+    m.document?.caption ||
     m.button?.text ||
     m.interactive?.button_reply?.title ||
     m.interactive?.list_reply?.title ||
     ''
   ).trim();
+}
+
+/** Extensão a partir do mimetype — só pro nome do arquivo quando a Meta não manda filename. */
+function extensaoPeloMime(mimetype: string): string {
+  const m = /\/([a-z0-9.+-]+)/i.exec(mimetype);
+  return (m?.[1] ?? 'bin').replace('jpeg', 'jpg');
 }
 
 /** Processa o payload do webhook e responde pela mesma Cloud API. */
@@ -153,10 +164,28 @@ async function tratarMensagemCloud(
     }
   }
 
-  if (!texto) return;                                    // mídia sem texto, reações, etc.
+  // Documento/imagem/vídeo: baixa e guarda pra virar link de download na
+  // timeline. Sem isso, mídia sem legenda batia no `if (!texto) return` logo
+  // abaixo e sumia — o cliente mandava o boleto e a IA nem ficava sabendo.
+  let arquivo: PanelEvent['arquivo'];
+  const midiaDoc = msg.document ?? msg.image ?? msg.video;
+  if (midiaDoc?.id && msg.type !== 'audio') {
+    const baixada = await whatsappCloud.baixarMidia(midiaDoc.id);
+    if (baixada?.base64) {
+      const buffer = Buffer.from(baixada.base64, 'base64');
+      const mimetype = baixada.mimetype || midiaDoc.mime_type || 'application/octet-stream';
+      const nome = msg.document?.filename || `arquivo.${extensaoPeloMime(mimetype)}`;
+      arquivo = salvarArquivo(`${phoneNumberId}:${remoteJid}`, 'entrada', nome, mimetype, buffer);
+      logger.info(`[cloud] 📎 [${phoneNumberId}] ${numero} enviou arquivo: ${nome} (${mimetype}, ${buffer.length}b)`);
+    } else {
+      logger.warn(`[cloud] não consegui baixar o arquivo de ${numero}`);
+    }
+  }
+
+  if (!texto && !arquivo) return;                        // reação, status etc. — nada útil aqui
 
   if (msg.type !== 'audio') {
-    logger.info(`[cloud] ⬇️  [${phoneNumberId}] ${numero}: ${texto}`);
+    logger.info(`[cloud] ⬇️  [${phoneNumberId}] ${numero}: ${texto || '(sem texto)'}`);
   }
   if (msg.id) void whatsappCloud.marcarLido(phoneNumberId, msg.id);
 
@@ -167,7 +196,7 @@ async function tratarMensagemCloud(
   session.enviarAudio = senderAudioCloud(phoneNumberId);
 
   try {
-    await session.handle(texto, pushName, { deAudio });
+    await session.handle(texto, pushName, { deAudio, arquivo });
   } catch (err: unknown) {
     logger.error('[cloud] erro ao processar mensagem', {
       phoneNumberId,

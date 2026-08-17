@@ -14,7 +14,12 @@ import {
   usuariosOnline, derrubarSessoes,
   type Papel,
 } from './auth';
-import { auditoriaConversas, auditoriaResumo, conversaDetalheAuditoria, conversasRecentesPainel } from './repo';
+import {
+  auditoriaConversas, auditoriaResumo, conversaDetalheAuditoria,
+  conversasRecentesPainel, detalheConversaPainel,
+} from './repo';
+import { buscarArquivo } from './arquivos';
+import { paraOggOpus } from './audio-transcode';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -119,6 +124,24 @@ export async function tratarPainel(
       empresa: config.company.name,
       agente: config.company.agentName,
     });
+    return true;
+  }
+
+  // ── Download de documento/imagem trocado na conversa ─────────────────────
+  const mArq = /^\/api\/arquivos\/([^/]+)$/.exec(p);
+  if (req.method === 'GET' && mArq) {
+    const arq = buscarArquivo(decodeURIComponent(mArq[1]));
+    if (!arq) {
+      json(res, 404, { erro: 'Arquivo não encontrado.' });
+      return true;
+    }
+    res.writeHead(200, {
+      'Content-Type': arq.mimetype,
+      'Content-Length': String(arq.tamanho),
+      'Content-Disposition': `inline; filename="${arq.nome.replace(/"/g, '')}"`,
+      'Cache-Control': 'private, max-age=3600',
+    });
+    fs.createReadStream(arq.caminho).pipe(res);
     return true;
   }
 
@@ -257,12 +280,13 @@ export async function tratarPainel(
   // ── Conversas ────────────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/conversas') {
     // A sessão viva é a fonte da verdade; o banco completa com as que já
-    // saíram da memória (encerradas ou descartadas por inatividade), para
-    // nenhuma conversa sumir da tela da atendente.
-    const vivas = store.list().map((s) => s.resumo());
+    // saíram da memória mas SEGUEM ATIVAS (só descartadas por idle do processo).
+    // Conversa encerrada não aparece aqui — fica só no histórico (Auditoria ou
+    // pelo link direto /api/conversas/:key), pra não poluir a tela principal.
+    const vivas = store.list().map((s) => s.resumo()).filter((c) => !c.encerrada);
     const chavesVivas = new Set(vivas.map((c) => c.key));
     const doBanco = conversasRecentesPainel(24 * 60 * 60 * 1000)
-      .filter((c) => !chavesVivas.has(c.key))
+      .filter((c) => !c.encerrada && !chavesVivas.has(c.key))
       .map((c) => ({ ...c, instance: c.instance ?? config.whatsapp.instance, pendingTransfer: false }));
 
     json(res, 200, {
@@ -274,9 +298,10 @@ export async function tratarPainel(
     return true;
   }
 
-  // 'enviar-arquivo' vem antes de 'enviar' na alternância: a regex é gulosa da
-  // esquerda e casaria só o prefixo, jogando o resto para dentro da chave.
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar-arquivo|enviar))?$/.exec(p);
+  // 'enviar-arquivo'/'enviar-audio' vêm antes de 'enviar' na alternância: a
+  // regex é gulosa da esquerda e casaria só o prefixo, jogando o resto para
+  // dentro da chave.
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -287,7 +312,7 @@ export async function tratarPainel(
   // funcionar — o histórico está no banco. Só as ações exigem sessão viva.
   if (!session) {
     if (req.method === 'GET' && !acao) {
-      const detalhe = conversaDetalheAuditoria(key);
+      const detalhe = detalheConversaPainel(key);
       if (detalhe) {
         json(res, 200, { ...detalhe, somenteLeitura: true });
         return true;
@@ -381,6 +406,51 @@ export async function tratarPainel(
       return true;
     }
     logger.info('[painel] arquivo enviado', { key, nome, bytes: buffer.length, por: eu.nome });
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && acao === 'enviar-audio') {
+    if (!podeAgir()) {
+      json(res, 409, { erro: `Quem está com esta conversa é ${session.atendenteNome}.` });
+      return true;
+    }
+    const MAX_AUDIO_BYTES = 8 * 1024 * 1024;                   // mensagem de voz não passa disso
+    const body = await lerCorpo(req, Math.ceil(MAX_AUDIO_BYTES * 1.4));
+    const base64 = txt(body.base64);
+    if (!base64) {
+      json(res, 400, { ok: false, erro: 'Gravação vazia. Tente de novo.' });
+      return true;
+    }
+
+    const bruto = Buffer.from(base64, 'base64');
+    if (!bruto.length) {
+      json(res, 400, { ok: false, erro: 'Não consegui ler essa gravação. Tente de novo.' });
+      return true;
+    }
+    if (bruto.length > MAX_AUDIO_BYTES) {
+      json(res, 413, { ok: false, erro: 'Áudio muito longo. Grave uma mensagem mais curta.' });
+      return true;
+    }
+
+    // O navegador grava em webm/opus (ou mp4/aac no Safari) — WhatsApp só
+    // reconhece OGG/Opus como mensagem de voz nativa.
+    const ogg = paraOggOpus(bruto);
+    if (!ogg) {
+      json(res, 500, { ok: false, erro: 'Não consegui converter o áudio. Tente gravar de novo.' });
+      return true;
+    }
+
+    const r = await session.enviarArquivoComoAtendente(
+      { nome: 'audio.ogg', mimetype: 'audio/ogg', buffer: ogg },
+      eu.nome,
+    );
+    if (!r.enviado) {
+      logger.warn('[painel] falha ao enviar áudio', { key, motivo: r.motivo });
+      json(res, 400, { ok: false, erro: motivoLegivel(r.motivo) });
+      return true;
+    }
+    logger.info('[painel] áudio enviado', { key, bytes: ogg.length, por: eu.nome });
     json(res, 200, { ok: true });
     return true;
   }

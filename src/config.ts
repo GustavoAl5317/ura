@@ -147,6 +147,12 @@ export const config = {
     raioMetros: optInt('GEOSITE_RAIO_METROS', 600),
     timeoutMs: optInt('GEOSITE_TIMEOUT_MS', 12000),
     useGeositeOnly: optBool('COVERAGE_USE_GEOSITE_ONLY'),
+    /**
+     * Distância máxima (m) da CTO até o endereço para a IA confirmar cobertura
+     * sozinha. Acima disso, mesmo com porta livre, a distância real de rota
+     * pode variar e é melhor um humano validar antes de vender.
+     */
+    distanciaMaximaAutomaticaM: optInt('VIABILIDADE_DISTANCIA_MAXIMA_M', 230),
   },
 
   whatsapp: {
@@ -195,12 +201,18 @@ export const config = {
     maxTokens: optInt('CHAT_MAX_TOKENS', 700),
     /** Máx. de rodadas de ferramentas por mensagem (proteção contra loop). */
     maxToolRounds: optInt('CHAT_MAX_TOOL_ROUNDS', 8),
-    /** Minutos de inatividade até a sessão do cliente ser descartada. */
-    sessionIdleMin: optInt('CHAT_SESSION_IDLE_MIN', 30),
+    /**
+     * Minutos de inatividade até a sessão do cliente ser descartada da memória.
+     * Tem que ficar bem acima de (inatividadePingMin + inatividadeFecharMin) —
+     * senão a sessão sai da memória ANTES do fluxo de encerramento terminar, a
+     * mensagem final com o protocolo nunca sai, e se o cliente escrever de novo
+     * depois ele cai numa sessão nova, sem o contexto que já tinha sido levantado.
+     */
+    sessionIdleMin: optInt('CHAT_SESSION_IDLE_MIN', 60),
     /** Minutos sem resposta do cliente até perguntar se ele ainda está aí. 0 desliga. */
-    inatividadePingMin: optInt('CHAT_INATIVIDADE_PING_MIN', 10),
+    inatividadePingMin: optInt('CHAT_INATIVIDADE_PING_MIN', 35),
     /** Minutos após o aviso até encerrar o atendimento e mandar o protocolo. */
-    inatividadeFecharMin: optInt('CHAT_INATIVIDADE_FECHAR_MIN', 5),
+    inatividadeFecharMin: optInt('CHAT_INATIVIDADE_FECHAR_MIN', 10),
     /** Também atende mensagens vindas de grupos (@g.us). Padrão: só conversas 1:1. */
     atenderGrupos: optBool('CHAT_ATENDER_GRUPOS', false),
     /**
@@ -244,6 +256,24 @@ export const config = {
     name: opt('COMPANY_NAME', 'Aquitelecom'),
     agentName: opt('AGENT_NAME', 'Ana'),
     agentNameMale: opt('AGENT_NAME_MALE', 'João'),
+    /** Canais oficiais citados ao encerrar por inatividade — vazio some da mensagem. */
+    phoneDisplay: opt('COMPANY_PHONE_DISPLAY', ''),
+    site: opt('COMPANY_SITE', ''),
+    appLink: opt('COMPANY_APP_LINK', ''),
+  },
+
+  /**
+   * Janela de atendimento HUMANO — a IA continua respondendo 24h. Usada só
+   * para avisar o cliente quando ele insiste em falar com um atendente fora
+   * do expediente, em vez de prometer um humano que não está disponível.
+   */
+  businessHours: {
+    enabled: optBool('BUSINESS_HOURS_ENABLED', true),
+    start: opt('BUSINESS_HOURS_START', '08:00'),
+    end: opt('BUSINESS_HOURS_END', '18:00'),
+    /** 0=domingo … 6=sábado */
+    days: opt('BUSINESS_DAYS', '1,2,3,4,5,6')
+      .split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0 && n <= 6),
   },
 
   plans: {

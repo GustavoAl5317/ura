@@ -8,6 +8,7 @@ import { whatsapp } from '../integrations/whatsapp';
 import { config } from '../config';
 import { logger } from '../logger';
 import type { ChatToolRegistry } from './tool-registry';
+import { estaNoHorarioComercial, descricaoHorarioComercial } from '../utils/horario-comercial';
 
 // Ferramentas que enviam algo "por WhatsApp". No chat, o número do cliente é o
 // próprio remetente da conversa — então forçamos o destino e a confirmação, sem
@@ -29,11 +30,13 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
     ctx.log.push(`Transferência (chat): ${motivo}`);
     logger.info(`[${ctx.callId}] Transferência solicitada (chat): ${motivo}`);
 
+    const foraDoHorario = !estaNoHorarioComercial();
+
     if (config.chat.handoffGroupId) {
       const nome = ctx.cliente?.nome ?? 'Cliente não identificado';
       const numero = ctx.callerNumber || '(desconhecido)';
       const texto = [
-        '🔔 *Transferência de atendimento (chat)*',
+        `🔔 *Transferência de atendimento (chat)*${foraDoHorario ? ' — fora do expediente' : ''}`,
         '',
         `👤 *Cliente:* ${nome}`,
         `📱 *WhatsApp:* ${numero}`,
@@ -47,9 +50,13 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
 
     return {
       sucesso: true,
-      mensagem:
-        'Transferência registrada. Avise o cliente que um atendente humano vai continuar ' +
-        'o atendimento por aqui em breve e finalize sua mensagem com empatia.',
+      fora_do_horario: foraDoHorario,
+      mensagem: foraDoHorario
+        ? `No momento não há atendimento humano disponível — nosso horário é ${descricaoHorarioComercial()}. `
+          + 'Avise o cliente disso com empatia, diga que o pedido ficou registrado e que um atendente '
+          + 'continua assim que o expediente reabrir. NÃO prometa retorno imediato.'
+        : 'Transferência registrada. Avise o cliente que um atendente humano vai continuar ' +
+          'o atendimento por aqui em breve e finalize sua mensagem com empatia.',
     };
   });
 

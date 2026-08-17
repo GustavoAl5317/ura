@@ -14,6 +14,8 @@ import { initAuth } from './auth';
 import { initDb } from './db';
 import { transcreverAudio } from './audio';
 import { verificarWebhookCloud, assinaturaValida, processarCloudPayload, resolveEnviarCloud } from './cloud-webhook';
+import { salvarArquivo } from './arquivos';
+import type { PanelEvent } from './session';
 
 const store = new ChatSessionStore();
 
@@ -26,12 +28,19 @@ interface EvolutionKey {
 interface EvolutionMessageContent {
   conversation?: string;
   extendedTextMessage?: { text?: string };
-  imageMessage?: { caption?: string };
-  videoMessage?: { caption?: string };
+  imageMessage?: { caption?: string; mimetype?: string };
+  videoMessage?: { caption?: string; mimetype?: string };
+  documentMessage?: { caption?: string; mimetype?: string; fileName?: string };
   audioMessage?: { mimetype?: string; seconds?: number; ptt?: boolean };
   buttonsResponseMessage?: { selectedDisplayText?: string };
   listResponseMessage?: { title?: string };
   templateButtonReplyMessage?: { selectedDisplayText?: string };
+}
+
+/** Extensão a partir do mimetype — só pro nome do arquivo quando a Evolution não manda fileName. */
+function extensaoPeloMime(mimetype: string): string {
+  const m = /\/([a-z0-9.+-]+)/i.exec(mimetype);
+  return (m?.[1] ?? 'bin').replace('jpeg', 'jpg');
 }
 
 interface EvolutionMessage {
@@ -105,17 +114,35 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
     }
   }
 
-  if (!texto) return;                                          // mídia sem legenda, reações, etc.
+  // Documento/imagem/vídeo: baixa e guarda pra virar link de download na
+  // timeline. Sem isso o painel só mostrava a legenda (se tinha) e o arquivo
+  // em si nunca chegava — nem pra ver, nem pra baixar depois.
+  let arquivo: PanelEvent['arquivo'];
+  const midiaDoc = msg.message?.documentMessage ?? msg.message?.imageMessage ?? msg.message?.videoMessage;
+  if (midiaDoc && !msg.message?.audioMessage) {
+    const baixada = await whatsapp.obterBase64Midia(msg.key ?? {}, instance);
+    if (baixada?.base64) {
+      const buffer = Buffer.from(baixada.base64, 'base64');
+      const mimetype = baixada.mimetype || midiaDoc.mimetype || 'application/octet-stream';
+      const nome = msg.message?.documentMessage?.fileName || `arquivo.${extensaoPeloMime(mimetype)}`;
+      arquivo = salvarArquivo(`${instance}:${remoteJid}`, 'entrada', nome, mimetype, buffer);
+      logger.info(`[chat] 📎 [${instance}] ${numero} enviou arquivo: ${nome} (${mimetype}, ${buffer.length}b)`);
+    } else {
+      logger.warn(`[chat] não consegui baixar o arquivo de ${numero}`);
+    }
+  }
+
+  if (!texto && !arquivo) return;                              // reação, status etc. — nada útil aqui
 
   if (!msg.message?.audioMessage) {
-    logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto}`);
+    logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto || '(sem texto)'}`);
   }
 
   // A sessão decide: IA responde (e entrega) ou apenas registra, se a atendente
   // assumiu a conversa pelo painel.
   const session = store.get(remoteJid, numero, instance);
   try {
-    await session.handle(texto, msg.pushName, { deAudio });
+    await session.handle(texto, msg.pushName, { deAudio, arquivo });
   } catch (err: unknown) {
     logger.error('[chat] erro ao processar mensagem', {
       remoteJid,

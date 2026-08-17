@@ -21,10 +21,15 @@ import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
+import { montarDossie } from './dossie';
+import { salvarArquivo } from './arquivos';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
+
+/** Até quanto tempo depois de encerrada uma conversa ainda vale reabrir com o histórico. */
+const JANELA_REABERTURA_MS = 6 * 60 * 60 * 1000;
 
 export type ChatMode = 'ia' | 'humano';
 
@@ -44,6 +49,8 @@ export interface PanelEvent {
   /** Nome da atendente que escreveu (eventos do tipo 'atendente'). */
   autor?: string;
   tool?: { name: string; args: Record<string, unknown>; resultado: string };
+  /** Documento/imagem trocado nesta mensagem — link de download no painel. */
+  arquivo?: { id: string; nome: string; mimetype: string; tamanho: number };
 }
 
 export class ChatSession {
@@ -165,6 +172,26 @@ export class ChatSession {
     this.eventos.push(...dados.eventos);
   }
 
+  /**
+   * Cliente escreveu de novo depois que a conversa já tinha sido encerrada
+   * (por inatividade, pela IA ou por atendente). Mantém a identificação e o
+   * histórico — não faz o cliente repetir CPF nem se apresentar de novo — mas
+   * refaz as consultas de negócio: financeiro/ONU/massiva podem ter mudado
+   * desde então, então essas flags voltam a "não consultado ainda".
+   */
+  reabrir(): void {
+    this.ctx.pendingHangup = false;
+    this.ctx.consultaFinanceiraFeita = false;
+    this.ctx.consultaMassivaFeita = false;
+    this.ctx.consultaPlanosFeita = false;
+    this.ctx.onu = undefined;
+    this.ctx.titulos = undefined;
+    this.ultimoContatoCliente = Date.now();
+    this.pingInatividadeEm = undefined;
+    this.record({ tipo: 'sistema', texto: 'Cliente voltou a escrever — atendimento retomado do histórico.' });
+    logger.info(`[${this.ctx.callId}] painel: conversa reaberta após encerramento (${this.numero})`);
+  }
+
   // ── Controle do painel ───────────────────────────────────────────────────
 
   /** Atendente assume a conversa: IA para de responder até retomar(). */
@@ -195,6 +222,17 @@ export class ChatSession {
 
     const last = [...this.history].reverse().find((m) => m.role === 'user' || m.role === 'assistant');
     if (last?.role === 'user') {
+      // Sem isto a IA não tem como saber que quem respondeu por último foi um
+      // humano — ela só vê texto puro no histórico — e podia se apresentar de
+      // novo ou mudar de tom no meio do assunto, como se fosse outra pessoa
+      // entrando na conversa.
+      this.history.push({
+        role: 'system',
+        content: '[SISTEMA] Um atendente humano conduziu parte desta conversa e acabou de devolver '
+          + 'para você. NÃO se apresente de novo, NÃO cumprimente como se fosse o início da conversa '
+          + 'e NÃO troque de tom — continue exatamente o assunto de onde ele parou, como se você e o '
+          + 'atendente fossem a mesma pessoa.',
+      });
       this.chain = this.chain.catch(() => undefined).then(() => this.run());
     }
   }
@@ -241,7 +279,13 @@ export class ChatSession {
         ? `[arquivo enviado: ${arq.nome}] ${arq.legenda}`
         : `[arquivo enviado: ${arq.nome}]`;
       this.history.push({ role: 'assistant', content: descricao });
-      this.record({ tipo: 'atendente', texto: descricao, autor: autor ?? this.atendenteNome });
+      // Guarda o arquivo em disco pra sobrar um link de download na timeline —
+      // sem isso só ficava a descrição em texto, sem como reabrir o que foi mandado.
+      const salvo = salvarArquivo(this.key, 'saida', arq.nome, arq.mimetype, arq.buffer);
+      this.record({
+        tipo: 'atendente', texto: descricao, autor: autor ?? this.atendenteNome,
+        arquivo: salvo,
+      });
       this.trimHistory();
       this.lastActivity = Date.now();
     }
@@ -269,8 +313,7 @@ export class ChatSession {
     if (this.pingInatividadeEm === undefined) {
       if (parado < pingMs) return false;
       this.pingInatividadeEm = agora;
-      const r = await this.enviar(
-        this.numero,
+      const r = await this.enviarTextoOuAudio(
         'Você ainda está aí? 😊 Se precisar de mais alguma coisa, é só me chamar.',
       );
       if (r.enviado) {
@@ -291,10 +334,17 @@ export class ChatSession {
       linhas.push('', '📄 Protocolos do atendimento:');
       for (const p of protocolos) linhas.push(`• *${p}*`);
     }
-    linhas.push('', 'Qualquer coisa, é só mandar mensagem que eu te atendo de novo. '
-      + `${config.company.name} agradece o contato! 🚀`);
+    linhas.push('', 'Qualquer coisa, é só mandar mensagem que eu te atendo de novo.');
 
-    await this.enviar(this.numero, linhas.join('\n'));
+    const canais: string[] = [];
+    if (config.company.phoneDisplay) canais.push(`📞 ${config.company.phoneDisplay}`);
+    if (config.company.site) canais.push(`🌐 ${config.company.site}`);
+    if (config.company.appLink) canais.push(`📱 App: ${config.company.appLink}`);
+    if (canais.length) linhas.push('', 'Outros canais:', ...canais);
+
+    linhas.push('', `${config.company.name} agradece o contato! 🚀`);
+
+    await this.enviarTextoOuAudio(linhas.join('\n'));
     this.record({
       tipo: 'sistema',
       texto: `Atendimento encerrado por inatividade${
@@ -309,22 +359,43 @@ export class ChatSession {
   // ── Fluxo de mensagens ───────────────────────────────────────────────────
 
   /** Enfileira o processamento de uma mensagem (garante ordem por cliente). */
-  handle(userText: string, pushName?: string, opts?: { deAudio?: boolean }): Promise<void> {
+  handle(
+    userText: string,
+    pushName?: string,
+    opts?: { deAudio?: boolean; arquivo?: PanelEvent['arquivo'] },
+  ): Promise<void> {
     if (pushName?.trim()) this.pushName = pushName.trim();
     this.chain = this.chain
       .catch(() => undefined)
-      .then(() => this.process(userText, opts?.deAudio === true));
+      .then(() => this.process(userText, opts?.deAudio === true, opts?.arquivo));
     return this.chain;
   }
 
-  private async process(userText: string, deAudio = false): Promise<void> {
+  private async process(userText: string, deAudio = false, arquivo?: PanelEvent['arquivo']): Promise<void> {
     this.lastActivity = Date.now();
     // Cliente respondeu: zera o ciclo de inatividade.
     this.ultimoContatoCliente = Date.now();
     this.pingInatividadeEm = undefined;
     this.ctx.lastClientSpeech = userText;
-    this.history.push({ role: 'user', content: userText });
-    this.record({ tipo: 'cliente', texto: deAudio ? `🎙️ ${userText}` : userText });
+
+    // Documento sem legenda: sem isso o histórico levaria uma mensagem 'user'
+    // vazia pra API. O balão no painel mostra só o anexo (texto fica undefined).
+    const conteudoParaIA = userText || (arquivo ? `[cliente enviou um arquivo: ${arquivo.nome}]` : '');
+    this.history.push({ role: 'user', content: conteudoParaIA });
+    this.record({
+      tipo: 'cliente',
+      texto: deAudio ? `🎙️ ${userText}` : (userText || undefined),
+      arquivo,
+    });
+
+    if (arquivo) {
+      this.history.push({
+        role: 'system',
+        content: `[SISTEMA] O cliente anexou um arquivo nesta mensagem: "${arquivo.nome}" (${arquivo.mimetype}). `
+          + 'Você não consegue abrir o conteúdo, mas ele já ficou registrado e disponível pra atendente '
+          + 'baixar no painel. Reconheça o recebimento; se não estiver claro do que se trata, pergunte.',
+      });
+    }
 
     // Áudio: entrega os números já convertidos. Sem isso o modelo tenta fazer a
     // conta de cabeça na transcrição e erra o CEP/CPF do cliente.
@@ -444,6 +515,23 @@ export class ChatSession {
   }
 
   /**
+   * Manda um texto ao cliente, em áudio quando a última mensagem dele foi
+   * áudio (mesma regra das respostas da IA) — usado também pelos avisos de
+   * inatividade, pra não quebrar o formato da conversa no meio.
+   */
+  private async enviarTextoOuAudio(texto: string): Promise<{ enviado: boolean; motivo?: string }> {
+    if (this.responderEmAudio && this.enviarAudio) {
+      const ogg = await sintetizarParaWhatsapp(texto, this.genero).catch(() => null);
+      if (ogg) {
+        const r = await this.enviarAudio(this.numero, ogg);
+        if (r.enviado) return r;
+        logger.warn('[chat] envio de áudio falhou, caindo para texto', { motivo: r.motivo });
+      }
+    }
+    return this.enviar(this.numero, texto);
+  }
+
+  /**
    * Entrega a resposta da IA. Responde em áudio só quando a última mensagem do
    * cliente foi áudio — e o texto é sempre registrado na timeline, para a
    * atendente ler no painel sem precisar ouvir.
@@ -451,19 +539,8 @@ export class ChatSession {
   private async entregar(texto: string): Promise<void> {
     logger.info(`[chat] ⬆️  [${this.instance ?? 'padrão'}] ${this.numero}: ${texto}`);
     this.record({ tipo: 'ia', texto });
-
     this.detectarPersona(texto);
-
-    if (this.responderEmAudio && this.enviarAudio) {
-      const ogg = await sintetizarParaWhatsapp(texto, this.genero).catch(() => null);
-      if (ogg) {
-        const r = await this.enviarAudio(this.numero, ogg);
-        if (r.enviado) return;
-        logger.warn('[chat] envio de áudio falhou, caindo para texto', { motivo: r.motivo });
-      }
-    }
-
-    await this.enviar(this.numero, texto);
+    await this.enviarTextoOuAudio(texto);
   }
 
   // ── Snapshot para o painel ───────────────────────────────────────────────
@@ -488,46 +565,10 @@ export class ChatSession {
   }
 
   detalhe() {
-    const c = this.ctx.cliente;
-    const contrato = c?.contratoId
-      ? c.contratos.find((ct) => ct.contrato === c.contratoId) ?? c.contratos[0]
-      : c?.contratos[0];
     return {
       ...this.resumo(),
       startedAt: this.startedAt,
-      cliente: c
-        ? {
-            nome: c.nome,
-            cpf: c.cpfcnpj,
-            confirmado: this.ctx.clienteConfirmado,
-            contratoId: c.contratoId ?? null,
-            totalContratos: c.contratos.length,
-            status: contrato?.status ?? null,
-            motivoStatus: contrato?.motivo_status ?? null,
-            plano: contrato?.servicos[0]?.plano?.descricao ?? null,
-            endereco: c.endereco
-              ? [c.endereco.logradouro, c.endereco.numero, c.endereco.bairro, c.endereco.cidade]
-                  .filter(Boolean).join(', ')
-              : null,
-            telefones: c.telefones ?? [],
-          }
-        : null,
-      financeiro: {
-        consultado: this.ctx.consultaFinanceiraFeita === true,
-        bloqueado: this.ctx.financeiroBloqueado === true,
-        faturasAbertas: this.ctx.titulos?.length ?? null,
-      },
-      onu: this.ctx.onu
-        ? {
-            status: this.ctx.onu.conexao?.status ?? 'desconhecido',
-            sinalRx: this.ctx.onu.rx,
-            olt: this.ctx.onu.olt_nome,
-            cto: this.ctx.onu.cto_nome ?? this.ctx.onu.caixa ?? null,
-          }
-        : null,
-      massivaAtiva: this.ctx.massivaAtiva,
-      protocolos: this.ctx.protocolos,
-      transferMotivo: this.ctx.transferMotivo ?? null,
+      ...montarDossie(this.ctx),
       eventos: this.eventos,
     };
   }
@@ -596,11 +637,41 @@ export class ChatSessionStore {
       s = undefined;
     }
     if (!s) {
-      s = new ChatSession(remoteJid, numero, instance, enviar);
+      s = this.tentarReabrir(key, remoteJid, numero, instance, enviar);
+      if (s) {
+        logger.info(`[chat] conversa reaberta para ${numero} (${remoteJid}) — histórico recuperado do banco`);
+      } else {
+        s = new ChatSession(remoteJid, numero, instance, enviar);
+        logger.info(`[chat] Nova sessão para ${numero} (${remoteJid}) via instância ${instance ?? '(padrão)'}`);
+      }
       this.sessions.set(key, s);
-      logger.info(`[chat] Nova sessão para ${numero} (${remoteJid}) via instância ${instance ?? '(padrão)'}`);
     }
     return s;
+  }
+
+  /**
+   * Cliente escreveu de novo e a sessão já não está na memória (foi encerrada
+   * — por inatividade, IA ou atendente — ou descartada por idle). Sem isto,
+   * toda vez cairia numa sessão vazia e o cliente teria que se identificar de
+   * novo. Só reabre dentro de uma janela recente: reviver uma conversa de
+   * dias atrás confunde mais do que ajuda, e os dados de financeiro/ONU já
+   * ficariam velhos demais pra confiar.
+   */
+  private tentarReabrir(
+    key: string, remoteJid: string, numero: string, instance?: string, enviar?: EnviarTexto,
+  ): ChatSession | undefined {
+    try {
+      const dados = buscarConversaParaReabrir(key);
+      if (!dados) return undefined;
+      if (Date.now() - dados.ultimaAtividade > JANELA_REABERTURA_MS) return undefined;
+      const s = new ChatSession(remoteJid, numero, instance, enviar);
+      s.restaurar(dados);
+      s.reabrir();
+      return s;
+    } catch (err) {
+      logger.error('[chat] falha ao tentar reabrir conversa', { key, err: String(err) });
+      return undefined;
+    }
   }
 
   find(key: string): ChatSession | undefined {

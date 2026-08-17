@@ -72,10 +72,25 @@ CREATE TABLE IF NOT EXISTS eventos (
   autor          TEXT,
   tool_name      TEXT,
   tool_args      TEXT,
-  tool_resultado TEXT
+  tool_resultado TEXT,
+  arquivo_json   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_eventos_conversa ON eventos(conversa, id);
 CREATE INDEX IF NOT EXISTS ix_eventos_ts ON eventos(ts DESC);
+
+-- Documentos/imagens trocados na conversa (enviados pela atendente ou pelo
+-- cliente). Os bytes ficam em data/arquivos/<id> — esta tabela só guarda o
+-- metadado pra servir o download com o nome/mimetype certos.
+CREATE TABLE IF NOT EXISTS arquivos (
+  id         TEXT PRIMARY KEY,
+  conversa   TEXT NOT NULL,
+  direcao    TEXT NOT NULL,
+  nome       TEXT NOT NULL,
+  mimetype   TEXT NOT NULL,
+  tamanho    INTEGER NOT NULL,
+  criado_em  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_arquivos_conversa ON arquivos(conversa);
 `;
 
 export function db(): SqlDatabase {
@@ -101,11 +116,21 @@ export function initDb(): void {
   bd.exec('PRAGMA journal_mode = WAL');
   bd.exec('PRAGMA foreign_keys = ON');
   bd.exec(SCHEMA);
+  migrarColunasNovas();
 
   migrarUsuariosDoJson();
   limparSessoesExpiradas();
 
   logger.info(`Banco do atendimento: ${ARQUIVO}`);
+}
+
+/** CREATE TABLE IF NOT EXISTS não adiciona coluna nova a uma tabela que já existia
+ *  antes dela — precisa de ALTER TABLE explícito nesses casos. */
+function migrarColunasNovas(): void {
+  try {
+    bd!.exec('ALTER TABLE eventos ADD COLUMN arquivo_json TEXT');
+    logger.info('Banco: coluna arquivo_json adicionada em eventos');
+  } catch { /* coluna já existe — instalação nova já nasce com ela */ }
 }
 
 /** Traz os usuários do arquivo JSON antigo (versão anterior do painel). */

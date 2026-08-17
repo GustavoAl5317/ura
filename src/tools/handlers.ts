@@ -2206,6 +2206,28 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       if (geo.temCobertura && geo.caixaSelecionada) {
         const cto = geo.caixaSelecionada;
         const distancia = Math.round(cto.distanciaMetros);
+        const limite = config.geosite.distanciaMaximaAutomaticaM;
+
+        // Acima do limite, mesmo com porta livre a distância real de rota pode
+        // variar bastante (a linha reta do GeoSite não é a rota do cabo) —
+        // confirmar cobertura sozinha aqui vira promessa que pode não se sustentar.
+        if (distancia > limite) {
+          ctx.log.push(
+            `Viabilidade GeoSite: CTO ${cto.tipoCodigo} a ${distancia}m (acima do limite de ${limite}m) — requer validação humana`,
+          );
+          return {
+            tem_cobertura: null,
+            fonte: 'geosite',
+            motivo: 'distancia_acima_do_limite_automatico',
+            oferecer_cadastro_interesse: true,
+            mensagem:
+              'Há CTO na região, mas a distância está acima do que o sistema confirma automaticamente. '
+              + 'NÃO diga que TEM nem que NÃO TEM cobertura — diga que o endereço será validado com '
+              + 'precisão pelo atendimento humano. Colete nome e celular com DDD e registre com '
+              + 'registrar_interesse.',
+          };
+        }
+
         ctx.log.push(
           `Viabilidade GeoSite: CTO ${cto.tipoCodigo} a ${distancia}m com ${cto.portasDisponiveis} porta(s) livre(s)`,
         );

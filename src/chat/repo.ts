@@ -5,6 +5,7 @@
 import { db } from './db';
 import type { CallContext } from '../session/context';
 import type { PanelEvent } from './session';
+import { montarDossie } from './dossie';
 
 export interface ConversaSalva {
   chave: string;
@@ -93,13 +94,14 @@ function serializarCtx(ctx: CallContext): Partial<CallContext> {
 /** Grava um evento da timeline e devolve o id gerado pelo banco. */
 export function salvarEvento(chave: string, ev: Omit<PanelEvent, 'id'>): number {
   const r = db().prepare(
-    `INSERT INTO eventos (conversa, ts, tipo, texto, autor, tool_name, tool_args, tool_resultado)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO eventos (conversa, ts, tipo, texto, autor, tool_name, tool_args, tool_resultado, arquivo_json)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
   ).run(
     chave, ev.ts, ev.tipo, ev.texto ?? null, ev.autor ?? null,
     ev.tool?.name ?? null,
     ev.tool ? JSON.stringify(ev.tool.args ?? {}) : null,
     ev.tool?.resultado ?? null,
+    ev.arquivo ? JSON.stringify(ev.arquivo) : null,
   );
   return Number(r.lastInsertRowid);
 }
@@ -116,6 +118,9 @@ function linhaParaEvento(r: Record<string, unknown>): PanelEvent {
     let args: Record<string, unknown> = {};
     try { args = JSON.parse(String(r.tool_args ?? '{}')); } catch { /* ignora */ }
     ev.tool = { name: String(r.tool_name), args, resultado: String(r.tool_resultado ?? '') };
+  }
+  if (r.arquivo_json != null) {
+    try { ev.arquivo = JSON.parse(String(r.arquivo_json)); } catch { /* ignora */ }
   }
   return ev;
 }
@@ -180,6 +185,35 @@ export function conversasRecentesPainel(janelaMs: number, limite = 200): Array<{
       lastActivity: Number(r.ultima_atividade),
     };
   });
+}
+
+/**
+ * Busca uma conversa pela chave, MESMO que já esteja encerrada — usada quando
+ * o cliente escreve de novo depois do encerramento por inatividade. Sem isso,
+ * a sessão em memória já foi descartada e uma nova mensagem cria um
+ * atendimento do zero, perdendo identificação e histórico que já existiam.
+ */
+export function buscarConversaParaReabrir(chave: string): ConversaSalva | null {
+  const r = db().prepare('SELECT * FROM conversas WHERE chave = ?').get(chave);
+  if (!r) return null;
+  let ctx: Partial<CallContext> = {};
+  let history: unknown[] = [];
+  try { ctx = JSON.parse(String(r.ctx_json ?? '{}')); } catch { /* ignora */ }
+  try { history = JSON.parse(String(r.history_json ?? '[]')); } catch { /* ignora */ }
+  return {
+    chave: String(r.chave),
+    numero: String(r.numero),
+    instancia: r.instancia == null ? undefined : String(r.instancia),
+    pushName: r.push_name == null ? undefined : String(r.push_name),
+    modo: r.modo === 'humano' ? 'humano' : 'ia',
+    atendenteId: r.atendente_id == null ? undefined : String(r.atendente_id),
+    atendenteNome: r.atendente_nome == null ? undefined : String(r.atendente_nome),
+    encerrada: Number(r.encerrada) === 1,
+    iniciadaEm: Number(r.iniciada_em),
+    ultimaAtividade: Number(r.ultima_atividade),
+    ctx, history,
+    eventos: eventosDaConversa(String(r.chave)),
+  };
 }
 
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
@@ -329,5 +363,58 @@ export function conversaDetalheAuditoria(chave: string) {
     iniciadaEm: Number(r.iniciada_em),
     ultimaAtividade: Number(r.ultima_atividade),
     eventos: eventosDaConversa(chave, 1000),
+  };
+}
+
+/**
+ * Detalhe de uma conversa para a TELA DE ATENDIMENTO (não a Auditoria) quando
+ * ela já saiu da memória — mesmo formato que ChatSession.detalhe(), montado a
+ * partir do ctx_json salvo no banco. Sem isso, abrir uma conversa encerrada
+ * pela lista principal quebrava o dossiê (cliente virava string solta em vez
+ * de objeto) e faltavam campos como key/instance/modo que o painel espera.
+ */
+export function detalheConversaPainel(chave: string): (ReturnType<typeof montarDossie> & {
+  key: string;
+  numero: string;
+  instance?: string;
+  pushName: string | null;
+  clienteNome: string | null;
+  modo: 'ia' | 'humano';
+  atendenteId: string | null;
+  atendenteNome: string | null;
+  encerrada: boolean;
+  pendingTransfer: boolean;
+  ultimaMsg: string | null;
+  ultimaTs: number;
+  lastActivity: number;
+  startedAt: number;
+  eventos: PanelEvent[];
+}) | null {
+  const r = db().prepare('SELECT * FROM conversas WHERE chave = ?').get(chave);
+  if (!r) return null;
+
+  let ctx: Partial<CallContext> = {};
+  try { ctx = JSON.parse(String(r.ctx_json ?? '{}')); } catch { /* ctx corrompido não pode derrubar a tela */ }
+
+  const eventos = eventosDaConversa(chave, 1000);
+  const ultimo = [...eventos].reverse().find((e) => e.tipo !== 'tool' && e.tipo !== 'sistema');
+
+  return {
+    key: String(r.chave),
+    numero: String(r.numero),
+    instance: r.instancia == null ? undefined : String(r.instancia),
+    pushName: r.push_name == null ? null : String(r.push_name),
+    clienteNome: ctx.cliente?.nome ?? null,
+    modo: r.modo === 'humano' ? 'humano' : 'ia',
+    atendenteId: r.atendente_id == null ? null : String(r.atendente_id),
+    atendenteNome: r.atendente_nome == null ? null : String(r.atendente_nome),
+    encerrada: Number(r.encerrada) === 1,
+    pendingTransfer: false,
+    ultimaMsg: ultimo?.texto ?? null,
+    ultimaTs: ultimo?.ts ?? Number(r.ultima_atividade),
+    lastActivity: Number(r.ultima_atividade),
+    startedAt: Number(r.iniciada_em),
+    ...montarDossie(ctx),
+    eventos,
   };
 }
