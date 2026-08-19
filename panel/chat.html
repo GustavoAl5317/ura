@@ -554,6 +554,46 @@
   const abertos = new Set();
   let sigLista='', sigThread='', sigComposer='', sigDossie='';
 
+  // ── Som de notificação (transferência p/ atendente) ─────
+  // Sintetizado no navegador (sem arquivo externo) — dois tons, tipo "ding-dong".
+  let audioCtx = null;
+  const transferenciasAvisadas = new Set();
+  let primeiraCargaConversas = true;
+
+  function tocarNotificacao(){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const t0 = audioCtx.currentTime;
+      [[988, 0], [1319, 0.14]].forEach(([freq, atraso])=>{
+        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, t0+atraso);
+        gain.gain.linearRampToValueAtTime(0.32, t0+atraso+0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0+atraso+0.4);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t0+atraso); osc.stop(t0+atraso+0.42);
+      });
+    }catch{ /* navegador sem Web Audio ou sem interação prévia — silencioso, não trava a tela */ }
+  }
+
+  /** Toca ao ver, pela primeira vez, um pedido de transferência ainda sem dono. */
+  function avisarNovasTransferencias(lista){
+    const pendentesAgora = new Set(
+      lista.filter((c)=>c.pendingTransfer && !c.encerrada).map((c)=>c.key),
+    );
+    if (primeiraCargaConversas){
+      // Não dispara som pelo que já estava esperando antes de abrir o painel.
+      primeiraCargaConversas = false;
+    } else {
+      for (const key of pendentesAgora){
+        if (!transferenciasAvisadas.has(key)) tocarNotificacao();
+      }
+    }
+    transferenciasAvisadas.clear();
+    for (const key of pendentesAgora) transferenciasAvisadas.add(key);
+  }
+
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const hora = (ts) => new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   function quando(ts){
@@ -599,6 +639,10 @@
 
   $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    // Destrava o áudio agora, no clique — o navegador bloqueia som iniciado
+    // sem interação direta do usuário, e a notificação de transferência
+    // dispara sozinha durante o polling, minutos depois deste clique.
+    try{ audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }catch{}
     const btn=$('loginBtn'), err=$('loginErro');
     btn.disabled=true; btn.textContent='Entrando…'; err.classList.add('hidden');
     try{
@@ -1157,6 +1201,7 @@
     try{
       const data = await api('/api/conversas');
       conversas = data.conversas;
+      avisarNovasTransferencias(conversas);
       $('brandName').textContent = data.empresa||'Atendimento';
       $('brandSub').textContent = `${conversas.length} conversa(s) · IA ${data.agente}`;
       $('menuMk').textContent = $('loginMk').textContent = iniciais(data.empresa||'AQ');
