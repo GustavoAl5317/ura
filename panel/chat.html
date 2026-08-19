@@ -436,7 +436,10 @@
             </form>
           </div>
           <div class="sheet">
-            <h3>Equipe <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="uResumo"></span></h3>
+            <h3 style="display:flex;align-items:center;gap:10px">
+              <span>Equipe <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="uResumo"></span></span>
+              <button class="mini danger" id="btnDerrubarTodos" style="margin-left:auto">Desconectar todos</button>
+            </h3>
             <table><thead><tr><th>Atendente</th><th>Situação</th><th>Atendendo agora</th><th></th></tr></thead>
             <tbody id="uBody"><tr><td colspan="4" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
           </div>
@@ -764,6 +767,15 @@
       carregarUsuarios();
     }catch(ex){ toast(ex.message,true); }
   });
+
+  $('btnDerrubarTodos').onclick = async () => {
+    if (!confirm('Desconectar TODO MUNDO, inclusive você?\n\nTodos vão precisar entrar de novo. Ninguém perde acesso — só a sessão atual é encerrada.')) return;
+    try{
+      await api('/api/usuarios/sessoes',{method:'DELETE'});
+      toast('Todo mundo foi desconectado — inclusive você. Redirecionando…');
+      setTimeout(mostrarLogin, 900);
+    }catch(ex){ toast(ex.message,true); }
+  };
 
   // ── Auditoria ───────────────────────────────────────────
   async function carregarAuditoria(){

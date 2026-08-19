@@ -11,7 +11,7 @@ import {
   autenticar, login as fazerLogin, logout as encerrarSessao,
   cookieSessao, cookieLimpo, usuarioPublico,
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
-  usuariosOnline, derrubarSessoes,
+  usuariosOnline, derrubarSessoes, derrubarTodasSessoes,
   type Papel,
 } from './auth';
 import {
@@ -225,6 +225,13 @@ export async function tratarPainel(
         json(res, 200, { ok: true, conversasLiberadas: liberadas });
         return true;
       }
+    }
+
+    // Derrubar TODAS as sessões (inclusive de quem chamou) — força login geral.
+    if (req.method === 'DELETE' && p === '/api/usuarios/sessoes') {
+      const n = derrubarTodasSessoes();
+      json(res, 200, { ok: true, sessoesEncerradas: n });
+      return true;
     }
 
     // Derrubar as sessões de alguém sem bloquear a conta (força novo login).

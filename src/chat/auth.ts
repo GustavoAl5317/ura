@@ -212,6 +212,11 @@ export function derrubarSessoes(userId: string): number {
   return db().prepare('DELETE FROM sessoes WHERE user_id = ?').run(userId).changes;
 }
 
+/** Derruba TODAS as sessões — todo mundo (inclusive quem chamou) precisa logar de novo. */
+export function derrubarTodasSessoes(): number {
+  return db().prepare('DELETE FROM sessoes').run().changes;
+}
+
 function lerCookie(req: http.IncomingMessage): string | undefined {
   const raw = req.headers.cookie;
   if (!raw) return undefined;
