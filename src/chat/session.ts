@@ -339,6 +339,7 @@ export class ChatSession {
     const canais: string[] = [];
     if (config.company.phoneDisplay) canais.push(`📞 ${config.company.phoneDisplay}`);
     if (config.company.site) canais.push(`🌐 ${config.company.site}`);
+    if (config.company.instagram) canais.push(`📸 Instagram: ${config.company.instagram}`);
     if (config.company.appLink) canais.push(`📱 App: ${config.company.appLink}`);
     if (canais.length) linhas.push('', 'Outros canais:', ...canais);
 

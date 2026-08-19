@@ -258,19 +258,26 @@ export const config = {
     agentNameMale: opt('AGENT_NAME_MALE', 'João'),
     /** Canais oficiais citados ao encerrar por inatividade — vazio some da mensagem. */
     phoneDisplay: opt('COMPANY_PHONE_DISPLAY', ''),
-    site: opt('COMPANY_SITE', ''),
+    site: opt('COMPANY_SITE', 'https://www.aquitelecom.com'),
     appLink: opt('COMPANY_APP_LINK', ''),
+    instagram: opt('COMPANY_INSTAGRAM', '@aquitelecom'),
+    endereco: opt('COMPANY_ENDERECO', 'Av. A, 919 - Conj. Ceará, Fortaleza - CE, 60532-260'),
   },
 
   /**
    * Janela de atendimento HUMANO — a IA continua respondendo 24h. Usada só
    * para avisar o cliente quando ele insiste em falar com um atendente fora
    * do expediente, em vez de prometer um humano que não está disponível.
+   * Aceita mais de uma faixa por dia (ex.: fecha pro almoço).
    */
   businessHours: {
     enabled: optBool('BUSINESS_HOURS_ENABLED', true),
-    start: opt('BUSINESS_HOURS_START', '08:00'),
-    end: opt('BUSINESS_HOURS_END', '18:00'),
+    /** "08:00-12:00,14:00-18:00" */
+    ranges: opt('BUSINESS_HOURS_RANGES', '08:00-12:00,14:00-18:00')
+      .split(',').map((faixa) => {
+        const [inicio, fim] = faixa.split('-').map((s) => s.trim());
+        return { inicio: inicio || '00:00', fim: fim || '23:59' };
+      }),
     /** 0=domingo … 6=sábado */
     days: opt('BUSINESS_DAYS', '1,2,3,4,5,6')
       .split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0 && n <= 6),

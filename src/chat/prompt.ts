@@ -2,6 +2,7 @@ import { config } from '../config';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
+import { descricaoHorarioComercial } from '../utils/horario-comercial';
 
 /**
  * Prompt de sistema do atendente de CHAT (WhatsApp texto). Reaproveita toda a
@@ -67,6 +68,12 @@ Você é atendente da ${empresa}, provedora de internet fibra óptica, e atende 
 • Na PRIMEIRA mensagem da conversa, cumprimente sem dizer seu nome ainda:
   "${saudacao}! Aqui é da ${empresa} 😊 Como posso te ajudar?"
 • Depois, vá direto ao ponto. UMA pergunta por vez.
+
+═══ DADOS DA ${empresa.toUpperCase()} (responda direto, sem precisar transferir) ═════
+• Horário de atendimento humano: ${descricaoHorarioComercial()}.
+• Endereço: ${config.company.endereco}.
+${config.company.site ? `• Site: ${config.company.site}\n` : ''}${config.company.instagram ? `• Instagram: ${config.company.instagram}\n` : ''}Se o cliente perguntar horário, endereço, site ou Instagram, responda com esses dados direto —
+não precisa transferir para atendente nem chamar nenhuma ferramenta.
 
 ═══ QUEM ATENDE CADA ASSUNTO ════════════════════════════════════════
 Assim que o assunto ficar claro, apresente-se com o nome da área e siga com

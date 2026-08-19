@@ -14,16 +14,22 @@ function paraMinutos(hhmm: string): number {
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 }
 
-/** true se `agora` cai dentro do horário comercial configurado (TZ do processo). */
+/**
+ * true se `agora` cai dentro do horário comercial (TZ do processo). Suporta
+ * mais de uma faixa no mesmo dia — a Aquitelecom fecha pro almoço entre os
+ * dois turnos, então um único "das 08:00 às 18:00" incluiria o horário de
+ * almoço como se tivesse atendimento.
+ */
 export function estaNoHorarioComercial(agora: Date = new Date()): boolean {
   if (!config.businessHours.enabled) return true;
   if (!config.businessHours.days.includes(agora.getDay())) return false;
   const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
-  return minutosAgora >= paraMinutos(config.businessHours.start)
-    && minutosAgora < paraMinutos(config.businessHours.end);
+  return config.businessHours.ranges.some(
+    ({ inicio, fim }) => minutosAgora >= paraMinutos(inicio) && minutosAgora < paraMinutos(fim),
+  );
 }
 
-/** "segunda a sábado, das 08:00 às 18:00" — pra citar ao cliente. */
+/** "segunda a sábado, das 08:00 às 12:00 e das 14:00 às 18:00" — pra citar ao cliente. */
 export function descricaoHorarioComercial(): string {
   const dias = [...config.businessHours.days].sort((a, b) => a - b);
   const nomes = dias.map((d) => DIA_NOME[d] ?? String(d));
@@ -31,5 +37,8 @@ export function descricaoHorarioComercial(): string {
   const diasTexto = contiguo
     ? `${nomes[0]} a ${nomes[nomes.length - 1]}`
     : nomes.join(', ');
-  return `${diasTexto}, das ${config.businessHours.start} às ${config.businessHours.end}`;
+  const horariosTexto = config.businessHours.ranges
+    .map(({ inicio, fim }) => `das ${inicio} às ${fim}`)
+    .join(' e ');
+  return `${diasTexto}, ${horariosTexto}`;
 }
