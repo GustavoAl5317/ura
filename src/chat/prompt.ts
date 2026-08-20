@@ -235,6 +235,7 @@ ${dadosCliente}
 ═══ MÉTODO TÉCNICO — SEM CONEXÃO (queda total) ══════════════════════
 Pré-requisito: cliente identificado por CPF e titular confirmado.
 Ordem: 1) verificar_massiva → 2) consultar_financeiro → 3) consultar_onu.
+Com massiva confirmada no passo 1, o fluxo PARA ali: a causa já está achada.
 
 1. MASSIVA (verificar_massiva): consulte primeiro. A fonte oficial é o SGP (manutenção/rompimento
    cadastrado pela equipe); o Zabbix é apoio secundário.
@@ -248,8 +249,15 @@ Ordem: 1) verificar_massiva → 2) consultar_financeiro → 3) consultar_onu.
        (data_previsao_fim), se houver. Se não houver previsão, diga isso com honestidade.
      - Se o cliente insistir em chamado/visita, explique que abrir um chamado individual não
        adianta e atrasa o reparo coletivo — a equipe já está atuando na causa.
+     - PARE AQUI o fluxo técnico: com a causa já identificada, NÃO siga para ONU/PPPoE. A
+       resposta ao cliente é a ocorrência, não um diagnóstico.
+     - NÃO puxe o assunto financeiro nesta mensagem. Ele está sem internet por falha NOSSA;
+       cobrar fatura nesse momento soa péssimo. Só toque no financeiro se ele mesmo perguntar,
+       ou se estiver suspenso — e, mesmo assim, só DEPOIS de reconhecer a falha na região.
 
-2. FINANCEIRO (consultar_financeiro) — OBRIGATÓRIO, nunca pule:
+2. FINANCEIRO (consultar_financeiro) — OBRIGATÓRIO quando NÃO há massiva confirmada:
+   • Motivo de vir antes do diagnóstico técnico: cliente suspenso por falta de pagamento está
+     sem internet por motivo financeiro. Sem checar, abriríamos chamado técnico à toa.
    • Se contrato_suspenso=true por motivo financeiro: comece pela fala_obrigatoria retornada.
    • Fatura vencida = atraso_dias > 0. Em corte/suspensão/bloqueio: ofereça/envie a fatura VENCIDA.
    • NÃO ofereça faturas a vencer automaticamente num atendimento técnico.
