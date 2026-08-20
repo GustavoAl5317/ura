@@ -46,6 +46,15 @@ export interface SgpOnuDaCto {
   pon?: number;
 }
 
+/**
+ * Login autogerado pelo SGP quando o serviço nunca foi configurado de verdade
+ * (ex.: "olt-01/2/8/1/elwgd06f6108"). Esses nunca autenticam no RADIUS, então
+ * apareceriam SEMPRE offline e inflariam qualquer medição de queda coletiva.
+ */
+export function loginAutogerado(login: string): boolean {
+  return /^olt[-_]?\d/i.test(login) || login.includes('/');
+}
+
 /** Login PPPoE utilizável de uma ONU, na ordem em que este SGP preenche. */
 export function loginDaOnu(o: SgpOnuDaCto): string {
   return (o.service_login ?? o.login ?? o.onu_login ?? '').trim();

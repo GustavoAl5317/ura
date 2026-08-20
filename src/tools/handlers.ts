@@ -8,7 +8,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { ToolRegistrar } from './registrar';
-import { loginDaOnu, type SgpOnuDaCto, type SgpPlano, type SgpTitulo } from '../integrations/sgp';
+import { loginDaOnu, loginAutogerado, type SgpOnuDaCto, type SgpPlano, type SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
@@ -754,7 +754,7 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
         // amostra para "queda coletiva" justo quando ela é pequena.
         .filter((o) => !contratoCliente || o.service_contrato !== contratoCliente)
         .map(loginDaOnu)
-        .filter((l) => l.length > 2),
+        .filter((l) => l.length > 2 && !loginAutogerado(l)),
     )];
     if (logins.length < MIN_VIZINHOS_CTO) return null;
 
@@ -763,9 +763,12 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
         .map((login) => sgp.statusPppoe(login).catch(() => undefined)),
     );
 
-    // Login sem resposta do RADIUS é DESCARTADO, não contado como offline:
-    // senão uma instabilidade do RADIUS viraria queda fantasma.
-    const conhecidos = sessoes.filter((s) => s !== undefined && s !== null);
+    // Só conta quem o RADIUS soube responder COM o campo de status. Sem essa
+    // exigência, um SGP que omitisse `online` faria todo mundo parecer offline
+    // — viraria queda fantasma bloqueando os chamados de uma PON inteira.
+    const conhecidos = sessoes.filter(
+      (s) => s !== undefined && s !== null && (s as { online?: unknown }).online !== undefined,
+    );
     if (conhecidos.length < MIN_VIZINHOS_CTO) return null;
 
     const offline = conhecidos.filter((s) => {

@@ -7,7 +7,7 @@
 // Mostra cada etapa da cadeia (ONU → CTO no cadastro → vizinhos → RADIUS), para
 // saber exatamente ONDE quebra quando não detecta.
 
-const { sgp, loginDaOnu } = require('../dist/integrations/sgp');
+const { sgp, loginDaOnu, loginAutogerado } = require('../dist/integrations/sgp');
 
 const arg = (process.argv[2] || '').replace(/\D/g, '');
 if (!arg) {
@@ -81,7 +81,7 @@ if (!arg) {
     // 4. Vizinhos ------------------------------------------------------------
     const onus = await sgp.onusDaCto(cto.id);
     const logins = [...new Set(
-      onus.map(loginDaOnu).filter((l) => l.length > 2),
+      onus.map(loginDaOnu).filter((l) => l.length > 2 && !loginAutogerado(l)),
     )];
     console.log(`✅ ONUs na CTO: ${onus.length} | com login PPPoE: ${logins.length}`);
 
@@ -99,7 +99,7 @@ if (!arg) {
         onusEscopo
           .filter((o) => o.service_contrato !== contratoId)
           .map(loginDaOnu)
-          .filter((l) => l.length > 2),
+          .filter((l) => l.length > 2 && !loginAutogerado(l)),
       )];
       console.log(`\n--- ${escopo}: ${onusEscopo.length} ONU(s), ${lista.length} vizinho(s) com login (fora o cliente) ---`);
       if (lista.length < 3) {
@@ -111,9 +111,23 @@ if (!arg) {
       const sessoes = await Promise.all(
         amostra.map((l) => sgp.statusPppoe(l).then((s) => ({ l, s })).catch(() => ({ l, s: undefined }))),
       );
+
+      // Se o SGP não devolver o campo `online`, TODO mundo seria contado como
+      // offline e viraria uma "queda coletiva" fantasma que bloquearia todos os
+      // chamados. Este dump é o que prova se o 100% offline é real.
+      if (process.env.DEBUG_RADIUS === '1') {
+        console.log('\n   --- resposta crua do RADIUS (DEBUG_RADIUS=1) ---');
+        for (const { l, s } of sessoes.slice(0, 3)) {
+          console.log(`   [${l}] ${JSON.stringify(s)}`);
+        }
+        console.log('   --- fim ---');
+      }
       let online = 0, offline = 0, mudo = 0;
       for (const { l, s } of sessoes) {
         if (s === undefined || s === null) { mudo++; console.log(`   • ${l}: (RADIUS não respondeu)`); continue; }
+        // Sem o campo `online` não dá para afirmar nada: conta como mudo, não
+        // como offline — senão um campo ausente viraria "queda coletiva".
+        if (s.online === undefined) { mudo++; console.log(`   • ${l}: (resposta SEM campo "online")`); continue; }
         const on = s.online === true || s.online === 1 || s.online === '1';
         on ? online++ : offline++;
         console.log(`   • ${l}: ${on ? 'ONLINE' : 'OFFLINE'}`);
