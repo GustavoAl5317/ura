@@ -294,7 +294,7 @@ export async function tratarPainel(
     const chavesVivas = new Set(vivas.map((c) => c.key));
     const doBanco = conversasRecentesPainel(24 * 60 * 60 * 1000)
       .filter((c) => !c.encerrada && !chavesVivas.has(c.key))
-      .map((c) => ({ ...c, instance: c.instance ?? config.whatsapp.instance, pendingTransfer: false }));
+      .map((c) => ({ ...c, instance: c.instance ?? config.whatsapp.instance }));
 
     json(res, 200, {
       agora: Date.now(),
@@ -313,7 +313,9 @@ export async function tratarPainel(
 
   const key = decodeURIComponent(m[1]);
   const acao = m[2];
-  const session = store.find(key);
+  // Traz de volta do banco a conversa que caiu da memória mas segue na fila,
+  // senão o "Assumir" que o painel mostra devolveria 404.
+  const session = store.findOuReidratarDaFila(key);
 
   // Conversa fora da memória (encerrada ou descartada): a leitura ainda tem de
   // funcionar — o histórico está no banco. Só as ações exigem sessão viva.

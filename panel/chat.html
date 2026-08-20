@@ -146,6 +146,16 @@
   .tag.ia{background:#e7f7f2;color:var(--green-ink)}
   .tag.human{background:var(--take-soft);color:var(--take)}
   .tag.off{background:#eceff1;color:var(--muted)}
+  .filas{display:flex;gap:6px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line);overflow-x:auto}
+  .fchip{
+    display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;white-space:nowrap;
+    padding:5px 11px;border-radius:14px;background:var(--panel);color:var(--muted);border:1px solid transparent;
+  }
+  .fchip:hover{background:#e6eaed}
+  .fchip[aria-pressed="true"]{background:#e7f7f2;color:var(--green-ink);border-color:#b7e4d7}
+  .fchip i{font-style:normal;font-size:11px;font-variant-numeric:tabular-nums;opacity:.75}
+  .fchip[data-fila="atendimento"][aria-pressed="true"],
+  .fchip[data-fila="adesao"][aria-pressed="true"]{background:var(--take-soft);color:var(--take);border-color:var(--take-line)}
   .tag.alert{background:var(--danger-soft);color:var(--danger)}
   .tag.alert.critico{background:var(--danger);color:#fff;animation:pulse 1s infinite}
   .conv.critico{background:var(--danger-soft)}
@@ -381,6 +391,12 @@
             <div class="live" id="live"><i class="dot"></i><span id="liveTxt">ao vivo</span></div>
           </header>
           <div class="search"><input id="q" type="search" placeholder="Buscar por nome, número ou CPF" autocomplete="off"></div>
+          <div class="filas" id="filas">
+            <button class="fchip" data-fila="todas" aria-pressed="true">Todas <i id="nTodas">0</i></button>
+            <button class="fchip" data-fila="atendimento" aria-pressed="false">Atendimento <i id="nAtendimento">0</i></button>
+            <button class="fchip" data-fila="adesao" aria-pressed="false">Adesão <i id="nAdesao">0</i></button>
+            <button class="fchip" data-fila="ia" aria-pressed="false">IA <i id="nIa">0</i></button>
+          </div>
           <div class="list" id="list"><div class="empty">Carregando conversas…</div></div>
         </aside>
 
@@ -557,7 +573,7 @@
   const $ = (id) => document.getElementById(id);
   const el = { list:$('list'), wall:$('wall'), composer:$('composer'), toast:$('toast') };
 
-  let eu = null, conversas = [], atual = null, detalhe = null, filtro = '';
+  let eu = null, conversas = [], atual = null, detalhe = null, filtro = '', filaAtiva = 'todas';
   let ultimoEvento = 0, secao = 'atendimento', timer = null;
   const abertos = new Set();
   let sigLista='', sigThread='', sigComposer='', sigDossie='';
@@ -893,10 +909,30 @@
 
   const FILA_LABEL = { atendimento: 'Atendimento', adesao: 'Adesão' };
 
+  /** A qual fila a conversa pertence: as 3 do fluxo (atendimento/adesão/IA). */
+  function filaDe(c){
+    if (c.pendingTransfer) return c.filaTipo || 'atendimento';
+    return 'ia';
+  }
+
+  function atualizarContadoresFila(){
+    const ativas = conversas.filter((c)=>!c.encerrada);
+    $('nTodas').textContent = ativas.length;
+    $('nAtendimento').textContent = ativas.filter((c)=>filaDe(c)==='atendimento' && c.pendingTransfer).length;
+    $('nAdesao').textContent = ativas.filter((c)=>filaDe(c)==='adesao' && c.pendingTransfer).length;
+    $('nIa').textContent = ativas.filter((c)=>!c.pendingTransfer && c.modo==='ia').length;
+  }
+
   function renderLista(){
     const t = filtro.trim().toLowerCase();
     let vis = conversas.filter((c)=>!t ||
       [c.clienteNome,c.pushName,c.numero,c.ultimaMsg].some((v)=>String(v||'').toLowerCase().includes(t)));
+
+    if (filaAtiva !== 'todas'){
+      vis = vis.filter((c)=> filaAtiva==='ia'
+        ? (!c.pendingTransfer && c.modo==='ia' && !c.encerrada)
+        : (c.pendingTransfer && filaDe(c)===filaAtiva));
+    }
 
     // Fila (pendingTransfer) sobe pro topo — mais crítica primeiro, depois quem espera há mais tempo.
     vis = [...vis].sort((a,b)=>{
@@ -906,14 +942,14 @@
       return (b.ultimaTs||b.lastActivity) - (a.ultimaTs||a.lastActivity);
     });
 
-    const sig = atual+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,
+    const sig = atual+'|'+filaAtiva+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,
       c.filaTipo,nivelDaFila(c),c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
     if (sig===sigLista) return;
     sigLista = sig;
 
     if (!vis.length){
       el.list.innerHTML = `<div class="empty">${conversas.length
-        ? 'Nenhuma conversa corresponde à busca.'
+        ? 'Nenhuma conversa nesta fila no momento.'
         : 'Nenhuma conversa ainda.<br>Assim que um cliente escrever no WhatsApp, ela aparece aqui.'}</div>`;
       return;
     }
@@ -944,6 +980,13 @@
     if(e.key==='Enter'||e.key===' '){const n=e.target.closest('.conv'); if(n){e.preventDefault(); abrir(n.dataset.key);} }
   });
   $('q').addEventListener('input',(e)=>{filtro=e.target.value; sigLista=''; renderLista();});
+
+  $('filas').addEventListener('click',(e)=>{
+    const b = e.target.closest('.fchip'); if(!b) return;
+    filaAtiva = b.dataset.fila;
+    document.querySelectorAll('.fchip').forEach((c)=>c.setAttribute('aria-pressed', String(c.dataset.fila===filaAtiva)));
+    sigLista=''; renderLista();
+  });
 
   // ── Conversa ────────────────────────────────────────────
   function abrir(key){
@@ -1282,6 +1325,7 @@
       const data = await api('/api/conversas');
       conversas = data.conversas;
       processarFilaDeAtendimento(conversas);
+      atualizarContadoresFila();
       $('brandName').textContent = data.empresa||'Atendimento';
       $('brandSub').textContent = `${conversas.length} conversa(s) · IA ${data.agente}`;
       $('menuMk').textContent = $('loginMk').textContent = iniciais(data.empresa||'AQ');

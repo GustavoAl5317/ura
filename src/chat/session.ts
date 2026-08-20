@@ -360,6 +360,10 @@ export class ChatSession {
     if (!pingMs) return false;                       // 0 desliga o recurso
     if (this.modo === 'humano') return false;        // atendente decide a hora de fechar
     if (this.encerrada) return false;
+    // Na fila humana o cliente está esperando A GENTE, não o contrário: cobrar
+    // "ainda está aí?" (e pior, encerrar por silêncio) puniria quem só aguarda
+    // um atendente. Quem fecha esse caso é o atendente, ao assumir.
+    if (this.ctx.pendingTransfer) return false;
     // Conversa que nunca passou de uma mensagem nossa não merece cobrança.
     if (!this.eventos.some((e) => e.tipo === 'cliente')) return false;
 
@@ -702,6 +706,8 @@ export class ChatSession {
 
 export class ChatSessionStore {
   private sessions = new Map<string, ChatSession>();
+  /** Guardado no boot para reidratar sessões sob demanda com o transporte certo. */
+  private resolveEnviar?: (instancia?: string) => EnviarTexto | undefined;
 
   constructor() {
     const idleMs = config.chat.sessionIdleMin * 60_000;
@@ -733,6 +739,7 @@ export class ChatSessionStore {
   /** Recarrega do banco as conversas ativas — chamado no boot do serviço.
    *  `resolveEnviar(instancia)` escolhe o transporte (Evolution x Cloud API). */
   retomarDoBanco(resolveEnviar?: (instancia?: string) => EnviarTexto | undefined): number {
+    this.resolveEnviar = resolveEnviar;
     const idleMs = config.chat.sessionIdleMin * 60_000;
     let n = 0;
     try {
@@ -797,6 +804,32 @@ export class ChatSessionStore {
 
   find(key: string): ChatSession | undefined {
     return this.sessions.get(key);
+  }
+
+  /**
+   * Igual a find(), mas traz de volta do banco a conversa que caiu da memória
+   * e ainda está NA FILA esperando atendente. Sem isso o painel mostra o
+   * cliente na fila (o estado vem do banco) mas o botão "Assumir" devolve 404
+   * — justamente no caso pior, o que ninguém pegou por mais tempo.
+   */
+  findOuReidratarDaFila(key: string): ChatSession | undefined {
+    const viva = this.sessions.get(key);
+    if (viva) return viva;
+    try {
+      const dados = buscarConversaParaReabrir(key);
+      if (!dados || dados.encerrada || dados.ctx?.pendingTransfer !== true) return undefined;
+      const remoteJid = key.slice(key.indexOf(':') + 1);
+      const s = new ChatSession(
+        remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),
+      );
+      s.restaurar(dados);
+      this.sessions.set(key, s);
+      logger.info(`[chat] conversa na fila reidratada para o painel: ${dados.numero}`);
+      return s;
+    } catch (err) {
+      logger.error('[chat] falha ao reidratar conversa da fila', { key, err: String(err) });
+      return undefined;
+    }
   }
 
   list(): ChatSession[] {

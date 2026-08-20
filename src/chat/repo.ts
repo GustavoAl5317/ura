@@ -150,6 +150,10 @@ export function conversasRecentesPainel(janelaMs: number, limite = 200): Array<{
   atendenteId: string | null;
   atendenteNome: string | null;
   encerrada: boolean;
+  pendingTransfer: boolean;
+  filaTipo: 'atendimento' | 'adesao' | null;
+  filaEntradaEm: number | null;
+  transferSetor: string | null;
   ultimaMsg: string | null;
   ultimaTs: number;
   lastActivity: number;
@@ -169,11 +173,29 @@ export function conversasRecentesPainel(janelaMs: number, limite = 200): Array<{
 
   return linhas.map((r) => {
     let clienteNome: string | null = null;
+    // A fila também sai do ctx: conversa que caiu da memória enquanto esperava
+    // atendente PRECISA continuar aparecendo como fila no painel — senão perde
+    // o destaque, o alerta e o botão de assumir justamente no caso mais grave
+    // (ninguém pegou por tanto tempo que a sessão saiu da memória).
+    let fila: {
+      pendingTransfer?: boolean;
+      filaTipo?: 'atendimento' | 'adesao';
+      filaEntradaEm?: number;
+      transferSetor?: string;
+    } = {};
     try {
-      const ctx = JSON.parse(String(r.ctx_json ?? '{}')) as { cliente?: { nome?: string } };
+      const ctx = JSON.parse(String(r.ctx_json ?? '{}')) as {
+        cliente?: { nome?: string };
+        pendingTransfer?: boolean;
+        filaTipo?: 'atendimento' | 'adesao';
+        filaEntradaEm?: number;
+        transferSetor?: string;
+      };
       clienteNome = ctx.cliente?.nome ?? null;
+      fila = ctx;
     } catch { /* ctx corrompido não pode derrubar a lista */ }
 
+    const encerrada = Number(r.encerrada) === 1;
     return {
       key: String(r.chave),
       numero: String(r.numero),
@@ -183,7 +205,11 @@ export function conversasRecentesPainel(janelaMs: number, limite = 200): Array<{
       modo: r.modo === 'humano' ? 'humano' : 'ia',
       atendenteId: r.atendente_id == null ? null : String(r.atendente_id),
       atendenteNome: r.atendente_nome == null ? null : String(r.atendente_nome),
-      encerrada: Number(r.encerrada) === 1,
+      encerrada,
+      pendingTransfer: !encerrada && fila.pendingTransfer === true,
+      filaTipo: fila.filaTipo ?? null,
+      filaEntradaEm: fila.filaEntradaEm ?? null,
+      transferSetor: fila.transferSetor ?? null,
       ultimaMsg: r.ultima_msg == null ? null : String(r.ultima_msg),
       ultimaTs: Number(r.ultima_atividade),
       lastActivity: Number(r.ultima_atividade),
