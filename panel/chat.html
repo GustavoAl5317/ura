@@ -1065,11 +1065,17 @@
     }
 
     if (d.modo==='ia'){
-      el.composer.innerHTML = `<div class="locked">
-        <div class="txt"><b>🔒 A IA está conduzindo este atendimento</b>
-        <span>Para escrever ao cliente, assuma a conversa. A IA pausa até você devolver.</span></div>
-        <button class="btn take" id="btnTake">Interferir</button></div>`;
-      $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa. A IA está pausada.', true);
+      // Atendente não "interfere" por conta própria — só assume quando a IA
+      // já transferiu (fila de Atendimento ou de Adesão).
+      el.composer.innerHTML = d.pendingTransfer
+        ? `<div class="locked busy">
+            <div class="txt"><b>🔔 A IA transferiu este atendimento pra você</b>
+            <span>Cliente na fila${d.filaTipo?' de '+(FILA_LABEL[d.filaTipo]||d.filaTipo):''} — assuma quando puder.</span></div>
+            <button class="btn take" id="btnTake">Assumir</button></div>`
+        : `<div class="locked">
+            <div class="txt"><b>🔒 A IA está conduzindo este atendimento</b>
+            <span>Só dá pra assumir depois que ela transferir — não é possível interferir por conta própria.</span></div></div>`;
+      if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa. A IA está pausada.', true);
       return;
     }
 

@@ -256,12 +256,17 @@ export const config = {
     name: opt('COMPANY_NAME', 'Aquitelecom'),
     agentName: opt('AGENT_NAME', 'Ana'),
     agentNameMale: opt('AGENT_NAME_MALE', 'João'),
-    /** Canais oficiais citados ao encerrar por inatividade — vazio some da mensagem. */
-    phoneDisplay: opt('COMPANY_PHONE_DISPLAY', ''),
+    /** Canais oficiais citados ao encerrar por inatividade — vazio some a linha. */
+    phoneDisplay: opt('COMPANY_PHONE_DISPLAY', '(85) 3221-1777 / (85) 3221-3377'),
     site: opt('COMPANY_SITE', 'https://www.aquitelecom.com'),
-    appLink: opt('COMPANY_APP_LINK', ''),
+    appLink: opt('COMPANY_APP_LINK', 'https://play.google.com/store/apps/details?id=com.lucz.sz.aquimobile&hl=pt'),
     instagram: opt('COMPANY_INSTAGRAM', '@aquitelecom'),
     endereco: opt('COMPANY_ENDERECO', 'Av. A, 919 - Conj. Ceará, Fortaleza - CE, 60532-260'),
+    googleReviewUrl: opt(
+      'COMPANY_GOOGLE_REVIEW_URL',
+      'https://google.com/maps/place//data=!4m3!3m2!1s0x7c74c7bb6ad70fd:0xafe6989ac47d4bc0!12e1?source=g.page.m.ad._',
+    ),
+    centralAssinanteUrl: opt('COMPANY_CENTRAL_ASSINANTE_URL', 'https://sys.aquitelecom.com/accounts/central/login?metodo=cpfcnpj'),
   },
 
   /**

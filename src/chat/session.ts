@@ -54,6 +54,44 @@ export interface PanelEvent {
   arquivo?: { id: string; nome: string; mimetype: string; tamanho: number };
 }
 
+/**
+ * Bloco fixo de canais ao encerrar por inatividade — texto definido pela
+ * empresa (não é gerado pela IA). Cada seção some sozinha se o link
+ * correspondente não estiver configurado.
+ */
+function blocoCanaisEmpresa(): string[] {
+  const linhas: string[] = [];
+  if (config.company.instagram) {
+    linhas.push('👩🏾‍💻 Siga-nos no Instagram:', config.company.instagram, '');
+  }
+  if (config.company.googleReviewUrl) {
+    linhas.push(
+      '💬 Deixe seu feedback!',
+      'Sua opinião é muito importante para nós. Avalie a Aqui Telecom no Google e ajude-nos a '
+      + 'melhorar cada vez mais:',
+      config.company.googleReviewUrl, '',
+    );
+  }
+  if (config.company.appLink) {
+    linhas.push(
+      '📲 Baixe o App da Aqui Telecom!',
+      'Acesse seus boletos, acompanhe seu consumo e tenha muito mais praticidade direto do celular:',
+      config.company.appLink, '',
+    );
+  }
+  if (config.company.centralAssinanteUrl) {
+    linhas.push('🌐 Central do Assinante:', config.company.centralAssinanteUrl, '');
+  }
+  if (config.company.phoneDisplay) {
+    linhas.push('📞 Central de Atendimento:', config.company.phoneDisplay, '');
+  }
+  linhas.push(
+    '🤝 A Aqui Telecom agradece o seu contato!',
+    'Não é necessário responder a esta mensagem — caso responda, um novo atendimento será aberto. 😉',
+  );
+  return linhas;
+}
+
 export class ChatSession {
   readonly ctx: CallContext;
   private readonly registry = new ChatToolRegistry();
@@ -196,11 +234,17 @@ export class ChatSession {
   // ── Controle do painel ───────────────────────────────────────────────────
 
   /** Atendente assume a conversa: IA para de responder até retomar(). */
-  intervir(atendente: { id: string; nome: string }): void {
-    if (this.modo === 'humano' && this.atendenteId === atendente.id) return;
+  intervir(atendente: { id: string; nome: string }): { ok: boolean; erro?: string } {
+    if (this.modo === 'humano' && this.atendenteId === atendente.id) return { ok: true };
+
+    // Atendente não escolhe "entrar" na conversa por conta própria — só assume
+    // quando a IA decidiu transferir (fila de Atendimento ou de Adesão). Isso
+    // impede parar a IA no meio de um atendimento que ela ainda está conduzindo.
+    if (!this.ctx.pendingTransfer) {
+      return { ok: false, erro: 'sem_transferencia_pendente' };
+    }
 
     const anterior = this.modo === 'humano' ? this.atendenteNome : null;
-    const veioDaFila = this.ctx.pendingTransfer === true;
     const horaAssumiu = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     this.modo = 'humano';
     this.atendenteId = atendente.id;
@@ -216,11 +260,10 @@ export class ChatSession {
       tipo: 'sistema',
       texto: anterior
         ? `${atendente.nome} assumiu a conversa de ${anterior}`
-        : veioDaFila
-        ? `${atendente.nome} assumiu às ${horaAssumiu} (estava na fila) — IA pausada`
-        : `${atendente.nome} assumiu a conversa — IA pausada`,
+        : `${atendente.nome} assumiu às ${horaAssumiu} (estava na fila) — IA pausada`,
     });
     logger.info(`[${this.ctx.callId}] painel: ${atendente.nome} assumiu (${this.numero})`);
+    return { ok: true };
   }
 
   /** Devolve para a IA. Se houver mensagem do cliente sem resposta, a IA responde já. */
@@ -346,16 +389,7 @@ export class ChatSession {
       linhas.push('', '📄 Protocolos do atendimento:');
       for (const p of protocolos) linhas.push(`• *${p}*`);
     }
-    linhas.push('', 'Qualquer coisa, é só mandar mensagem que eu te atendo de novo.');
-
-    const canais: string[] = [];
-    if (config.company.phoneDisplay) canais.push(`📞 ${config.company.phoneDisplay}`);
-    if (config.company.site) canais.push(`🌐 ${config.company.site}`);
-    if (config.company.instagram) canais.push(`📸 Instagram: ${config.company.instagram}`);
-    if (config.company.appLink) canais.push(`📱 App: ${config.company.appLink}`);
-    if (canais.length) linhas.push('', 'Outros canais:', ...canais);
-
-    linhas.push('', `${config.company.name} agradece o contato! 🚀`);
+    linhas.push('', ...blocoCanaisEmpresa());
 
     await this.enviarTextoOuAudio(linhas.join('\n'));
     this.record({

@@ -348,7 +348,13 @@ export async function tratarPainel(
       json(res, 409, { erro: `${session.atendenteNome} já está atendendo esta conversa.` });
       return true;
     }
-    session.intervir({ id: eu.id, nome: eu.nome });
+    const r = session.intervir({ id: eu.id, nome: eu.nome });
+    if (!r.ok) {
+      json(res, 409, {
+        erro: 'A IA ainda está conduzindo este atendimento — só dá pra assumir depois que ela transferir.',
+      });
+      return true;
+    }
     json(res, 200, { ok: true, modo: session.modo });
     return true;
   }
