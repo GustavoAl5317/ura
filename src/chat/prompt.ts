@@ -236,11 +236,18 @@ ${dadosCliente}
 Pré-requisito: cliente identificado por CPF e titular confirmado.
 Ordem: 1) verificar_massiva → 2) consultar_financeiro → 3) consultar_onu.
 
-1. MASSIVA (verificar_massiva): consulte primeiro (manutenções SGP + alertas Zabbix).
+1. MASSIVA (verificar_massiva): consulte primeiro. A fonte oficial é o SGP (manutenção/rompimento
+   cadastrado pela equipe); o Zabbix é apoio secundário.
    • Só informe queda de CTO/POP/fibra se afeta_cliente=true.
    • Se manutencao_regional_nao_confirmada ou sem_mapeamento_infra: NÃO diga que a CTO caiu;
      siga para financeiro e ONU.
-   • Se afeta_cliente=true: informe, peça desculpas e NÃO reinicie ONU nem abra chamado individual.
+   • Se afeta_cliente=true (ROMPIMENTO/MASSIVA CONFIRMADA):
+     - NÃO abra chamado, NÃO agende visita e NÃO reinicie a ONU. O sistema bloqueia essas ações
+       nesse cenário — insistir só devolve erro. O reparo já está em campo.
+     - Informe a ocorrência, peça desculpas pelo transtorno e passe a previsão de normalização
+       (data_previsao_fim), se houver. Se não houver previsão, diga isso com honestidade.
+     - Se o cliente insistir em chamado/visita, explique que abrir um chamado individual não
+       adianta e atrasa o reparo coletivo — a equipe já está atuando na causa.
 
 2. FINANCEIRO (consultar_financeiro) — OBRIGATÓRIO, nunca pule:
    • Se contrato_suspenso=true por motivo financeiro: comece pela fala_obrigatoria retornada.

@@ -685,6 +685,27 @@ function bloqueioConsultas(ctx: CallContext): Record<string, unknown> | null {
   return bloqueioSemCliente(ctx) ?? bloqueioSemConfirmacao(ctx) ?? bloqueioSemContrato(ctx);
 }
 
+/**
+ * Rompimento/massiva confirmada para ESTE cliente: chamado individual não pode
+ * ser aberto. Numa queda de CTO/OLT o time técnico recebe dezenas de chamados
+ * do mesmo evento, o que atrasa justamente o reparo que resolveria todos.
+ *
+ * Trava no código, não só no prompt: a regra já existia em texto e mesmo assim
+ * a IA abriu chamado em produção. Quando a instrução é "nunca faça X", uma
+ * checagem antes do efeito colateral vale mais que uma frase no prompt.
+ */
+function bloqueioPorMassiva(ctx: CallContext): Record<string, unknown> | null {
+  if (!ctx.massivaAtiva) return null;
+  return {
+    sucesso: false,
+    erro: 'massiva_ativa',
+    mensagem:
+      'Há uma falha massiva/rompimento confirmado afetando este cliente — NÃO abra chamado '
+      + 'individual. O reparo já está em andamento pela equipe de campo. Informe o cliente sobre '
+      + 'a ocorrência, peça desculpas pelo transtorno e passe a previsão de normalização, se houver.',
+  };
+}
+
 /** cliente_id nas tools = contrato_id do SGP (retornado por buscar_cliente_por_cpf). */
 function resolverContratoId(
   ctx: CallContext,
@@ -966,11 +987,33 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       syncContratoSelecionado(ctx);
       if (ctx.cliente.contratoId) prefetchConsultas(ctx.cliente.contratoId);
       ctx.precisaConsultarFinanceiro = true;
+
+      // Cliente que abriu dizendo "sem internet" não deveria esperar mais uma
+      // rodada de ferramenta só pra saber se a rede dele caiu. O prefetch já
+      // disparou massiva/ONU acima; damos um instante para responderem e, se
+      // vier a tempo, o diagnóstico sai junto da confirmação.
+      let redeAgora: Record<string, unknown> | undefined;
+      if (ctx.relatouProblemaTecnico) {
+        await Promise.race([
+          Promise.all([
+            sgp.manutencoesAtivas().then((m) => { ctx.manutencoesAtivas = m; }).catch(() => undefined),
+            ctx.cliente.contratoId
+              ? sgp.onuDoContrato(ctx.cliente.contratoId, { fullFttx: true })
+                  .then((o) => { if (o) ctx.onu = o; }).catch(() => undefined)
+              : Promise.resolve(),
+          ]),
+          new Promise((r) => setTimeout(r, 2500)),
+        ]);
+        const statusOnu = ctx.onu?.conexao?.status;
+        if (statusOnu) redeAgora = { status_onu: statusOnu, sinal_rx: ctx.onu?.rx ?? null };
+      }
+
       return {
         sucesso: true,
         confirmado: true,
         contrato_id: ctx.cliente.contratoId,
         endereco: formatarEndereco(ctx.cliente.endereco),
+        ...(redeAgora ? { rede: redeAgora } : {}),
         mensagem: 'Identidade confirmada. Pode prosseguir com consultas e atendimento.',
         orientacao: 'Identidade confirmada. O sistema acionará a ferramenta consultar_financeiro automaticamente a seguir, aguarde o resultado.',
       };
@@ -1910,7 +1953,9 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   });
 
   client.registerTool('reiniciar_onu', async (args) => {
-    const bloqueio = bloqueioConsultas(ctx);
+    // Reiniciar ONU durante rompimento não resolve nada (a fibra está cortada)
+    // e só faz o cliente perder tempo achando que uma ação útil foi tomada.
+    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     const contrato = resolverContratoId(ctx, args.cliente_id, 'reiniciar_onu');
@@ -1943,7 +1988,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   // ── Chamado / OS ───────────────────────────────────────────────────────────
 
   client.registerTool('abrir_chamado', async (args) => {
-    const bloqueio = bloqueioConsultas(ctx);
+    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     if (!config.features.chamado) {
@@ -2056,7 +2101,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   });
 
   client.registerTool('agendar_visita_tecnica', async (args) => {
-    const bloqueio = bloqueioConsultas(ctx);
+    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     // Agendamento de visita técnica é feito abrindo chamado com conteúdo específico
