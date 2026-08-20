@@ -794,7 +794,22 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
  * a IA abriu chamado em produção. Quando a instrução é "nunca faça X", uma
  * checagem antes do efeito colateral vale mais que uma frase no prompt.
  */
-function bloqueioPorMassiva(ctx: CallContext): Record<string, unknown> | null {
+async function bloqueioPorMassiva(ctx: CallContext): Promise<Record<string, unknown> | null> {
+  // Rede em queda coletiva mas verificar_massiva nunca rodou nesta conversa:
+  // sem esta checagem, bastava a IA pular a etapa de diagnóstico para o chamado
+  // passar batido justamente durante um rompimento. Mede aqui, antes de gravar.
+  if (!ctx.massivaAtiva && !ctx.consultaMassivaFeita) {
+    const coletiva = await quedaColetivaNaCto(ctx);
+    if (coletiva && coletiva.percentual >= PCT_OFFLINE_QUEDA_CTO) {
+      ctx.massivaAtiva = true;
+      ctx.log.push(
+        `Queda coletiva detectada na CTO ${coletiva.cto} ao tentar abrir chamado: `
+        + `${coletiva.offline}/${coletiva.total} vizinhos offline (${coletiva.percentual}%)`,
+      );
+      logger.warn('Chamado bloqueado: queda coletiva de CTO detectada na hora', coletiva);
+    }
+  }
+
   if (!ctx.massivaAtiva) return null;
   return {
     sucesso: false,
@@ -2081,7 +2096,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   client.registerTool('reiniciar_onu', async (args) => {
     // Reiniciar ONU durante rompimento não resolve nada (a fibra está cortada)
     // e só faz o cliente perder tempo achando que uma ação útil foi tomada.
-    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
+    const bloqueio = bloqueioConsultas(ctx) ?? await bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     const contrato = resolverContratoId(ctx, args.cliente_id, 'reiniciar_onu');
@@ -2114,7 +2129,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   // ── Chamado / OS ───────────────────────────────────────────────────────────
 
   client.registerTool('abrir_chamado', async (args) => {
-    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
+    const bloqueio = bloqueioConsultas(ctx) ?? await bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     if (!config.features.chamado) {
@@ -2227,7 +2242,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   });
 
   client.registerTool('agendar_visita_tecnica', async (args) => {
-    const bloqueio = bloqueioConsultas(ctx) ?? bloqueioPorMassiva(ctx);
+    const bloqueio = bloqueioConsultas(ctx) ?? await bloqueioPorMassiva(ctx);
     if (bloqueio) return bloqueio;
 
     // Agendamento de visita técnica é feito abrindo chamado com conteúdo específico
