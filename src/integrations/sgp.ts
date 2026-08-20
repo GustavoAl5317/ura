@@ -15,6 +15,28 @@ const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 12 });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** CTO (splitter) no cadastro de planta do SGP. */
+export interface SgpCto {
+  id: number;
+  ident: string;
+  pon?: number;
+  pon_id?: number;
+  ports?: number;
+  onu_count?: number;
+  map_ll?: string;
+}
+
+/** ONU vinculada a uma CTO. `login` é a chave para consultar a sessão no RADIUS. */
+export interface SgpOnuDaCto {
+  id: number;
+  login?: string | null;
+  onu_login?: string | null;
+  phy_addr?: string;
+  service_cliente?: string;
+  slot?: number;
+  pon?: number;
+}
+
 export interface SgpOnu {
   id: number;
   serial: string;
@@ -673,6 +695,31 @@ export class SgpClient {
       12_000,
     );
     return this.lista<SgpRadacct>(r, 'result')[0] ?? null;
+  }
+
+  // ─── Planta FTTX: vizinhos de CTO (para detectar queda coletiva) ────────────
+
+  /**
+   * Catálogo de CTOs (id + nome). O SGP identifica a CTO do cliente pelo NOME,
+   * mas o endpoint que lista as ONUs vizinhas exige o ID — daí o mapeamento.
+   * Cadastro de planta muda raramente, então fica em cache por 1h.
+   */
+  private ctosCache: { em: number; lista: SgpCto[] } | null = null;
+
+  async listarCtos(): Promise<SgpCto[]> {
+    if (this.ctosCache && Date.now() - this.ctosCache.em < 3_600_000) {
+      return this.ctosCache.lista;
+    }
+    const r = await this.getParams<SgpCto[]>('/api/fttx/splitter/all/');
+    const lista = this.lista<SgpCto>(r);
+    if (lista.length) this.ctosCache = { em: Date.now(), lista };
+    return lista;
+  }
+
+  /** ONUs ligadas a uma CTO — cada uma com o login PPPoE, que o RADIUS entende. */
+  async onusDaCto(ctoId: number): Promise<SgpOnuDaCto[]> {
+    const r = await this.getParams<SgpOnuDaCto[]>(`/api/fttx/splitter/${ctoId}/onu/all/`);
+    return this.lista<SgpOnuDaCto>(r);
   }
 
   /** Ordens de serviço agendadas num intervalo — a agenda dos técnicos. */

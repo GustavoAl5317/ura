@@ -13,6 +13,14 @@ import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
 
+// ── Detecção de queda coletiva de CTO (sem cadastro manual de massiva) ───────
+/** Abaixo disso a amostra não sustenta a conclusão de "a CTO caiu". */
+const MIN_VIZINHOS_CTO = 3;
+/** Teto de consultas ao RADIUS por diagnóstico — cada uma é uma chamada de rede. */
+const MAX_VIZINHOS_CONSULTADOS = 12;
+/** A partir de quantos % de vizinhos offline a queda é tratada como coletiva. */
+const PCT_OFFLINE_QUEDA_CTO = 60;
+
 function limparNomePlano(nome: string | null | undefined): string | null {
   if (!nome) return null;
   return nome
@@ -719,6 +727,65 @@ export async function statusConexaoAgora(
 }
 
 /**
+ * Queda coletiva na CTO do cliente, medida na hora — sem depender de alguém do
+ * NOC ter cadastrado a manutenção no SGP.
+ *
+ * O SGP não tem endpoint que diga "esta CTO caiu": o cadastro FTTX é inventário,
+ * não estado. Mas ele lista as ONUs vinculadas à CTO com o login PPPoE de cada
+ * uma, e o RADIUS sabe quem está conectado — então dá pra medir: se os vizinhos
+ * do mesmo ponto caíram junto, é queda de CTO, não problema individual.
+ *
+ * Retorna null quando não deu pra medir (sem CTO no cadastro, poucos vizinhos,
+ * RADIUS mudo). Null NÃO bloqueia chamado: na dúvida é melhor abrir um chamado
+ * a mais do que negar atendimento a quem tem defeito individual de verdade.
+ */
+export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
+  cto: string; total: number; offline: number; percentual: number;
+} | null> {
+  const nomeCto = ctx.onu?.cto_nome ?? ctx.onu?.caixa;
+  if (!nomeCto) return null;
+
+  try {
+    const ctos = await sgp.listarCtos();
+    const alvo = nomeCto.trim().toLowerCase();
+    const cto = ctos.find((c) => {
+      const ident = (c.ident ?? '').trim().toLowerCase();
+      return ident === alvo || ident.includes(alvo) || alvo.includes(ident);
+    });
+    if (!cto) return null;
+
+    const onus = await sgp.onusDaCto(cto.id);
+    const logins = [...new Set(
+      onus.map((o) => (o.login ?? o.onu_login ?? '').trim()).filter((l) => l.length > 2),
+    )];
+    // Com 1 ou 2 vizinhos a amostra não sustenta a conclusão: dois clientes
+    // offline por acaso viraria "queda de CTO" e travaria o chamado de ambos.
+    if (logins.length < MIN_VIZINHOS_CTO) return null;
+
+    const amostra = logins.slice(0, MAX_VIZINHOS_CONSULTADOS);
+    const sessoes = await Promise.all(
+      amostra.map((login) => sgp.statusPppoe(login).catch(() => undefined)),
+    );
+
+    // Login sem resposta do RADIUS é DESCARTADO, não contado como offline:
+    // senão uma instabilidade do RADIUS viraria "queda de CTO" fantasma.
+    const conhecidos = sessoes.filter((s) => s !== undefined && s !== null);
+    if (conhecidos.length < MIN_VIZINHOS_CTO) return null;
+
+    const offline = conhecidos.filter((s) => {
+      const on = (s as { online?: unknown }).online;
+      return !(on === true || on === 1 || on === '1');
+    }).length;
+    const percentual = Math.round((offline / conhecidos.length) * 100);
+
+    return { cto: nomeCto, total: conhecidos.length, offline, percentual };
+  } catch (err) {
+    logger.warn('Falha ao medir queda coletiva na CTO', { cto: nomeCto, err: String(err) });
+    return null;
+  }
+}
+
+/**
  * Rompimento/massiva confirmada para ESTE cliente: chamado individual não pode
  * ser aberto. Numa queda de CTO/OLT o time técnico recebe dezenas de chamados
  * do mesmo evento, o que atrasa justamente o reparo que resolveria todos.
@@ -1387,9 +1454,37 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const manutencaoRegional = !sgpMassiva && manutencoes.length > 0;
     const zabbixIncidente = zbx?.afetaCliente ?? false;
 
+    // Nem SGP nem Zabbix acusaram nada. Antes de concluir "problema individual",
+    // mede a CTO: se os vizinhos caíram junto, houve rompimento que ainda não
+    // foi cadastrado — foi exatamente o caso que fez a IA abrir chamado
+    // individual durante uma queda real em produção.
     if (!sgpMassiva && !zabbixIncidente && !manutencaoRegional) {
+      const coletiva = await quedaColetivaNaCto(ctx);
+      if (coletiva && coletiva.percentual >= PCT_OFFLINE_QUEDA_CTO) {
+        ctx.massivaAtiva = true;
+        ctx.log.push(
+          `Queda coletiva detectada na CTO ${coletiva.cto}: `
+          + `${coletiva.offline}/${coletiva.total} vizinhos offline (${coletiva.percentual}%)`,
+        );
+        logger.warn('Queda coletiva de CTO detectada pelo RADIUS', coletiva);
+        return {
+          tem_massiva: true,
+          afeta_cliente: true,
+          fonte: 'radius_cto',
+          descricao: `Queda coletiva na CTO ${coletiva.cto}`,
+          vizinhos_offline: `${coletiva.offline} de ${coletiva.total}`,
+          orientacao:
+            'Detectamos que os vizinhos da mesma caixa também estão sem conexão — é uma queda '
+            + 'que afeta a região, NÃO um defeito só deste cliente. NÃO abra chamado individual '
+            + 'nem agende visita (o sistema bloqueia). Informe que já identificamos a falha na '
+            + 'região, peça desculpas e diga que a equipe técnica já está ciente. NÃO cite CTO, '
+            + 'caixa, porta ou qualquer termo de planta — fale "sua região".',
+          ...(zbx ? { zabbix: mapZabbixParaTool(zbx) } : {}),
+        };
+      }
       return {
         tem_massiva: false,
+        ...(coletiva ? { vizinhos_cto: `${coletiva.offline}/${coletiva.total} offline` } : {}),
         ...(zbx ? { zabbix: mapZabbixParaTool(zbx) } : {}),
       };
     }
