@@ -36,6 +36,18 @@ export interface CallContext {
   // Para transferência
   transferSummary?: string;
   transferMotivo?: string;
+  /** Setor identificado pela IA (financeiro/suporte/vendas/outro) — só chat. */
+  transferSetor?: string;
+
+  /**
+   * Fila de atendimento humano (só chat). Quando entrou (filaEntradaEm) e o
+   * escalonamento sonoro/mensagens já disparado (filaNivelEnviado) vivem
+   * juntos: sem isso o sweep não sabe se já mandou o aviso de 3/5/8 minutos.
+   */
+  filaTipo?: 'atendimento' | 'adesao';
+  filaEntradaEm?: number;
+  /** 1 = entrou na fila (nível imediato) … 4 = crítico (8min sem atendimento). */
+  filaNivelEnviado?: number;
 
   // Último endereço consultado na viabilidade (usado no registrar_interesse)
   enderecoConsultado?: string;

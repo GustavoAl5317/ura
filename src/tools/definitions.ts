@@ -560,6 +560,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description:
             'Resumo completo do atendimento para o atendente: motivo do contato, diagnóstico, ações realizadas, situação financeira, próxima ação recomendada',
         },
+        setor: {
+          type: 'string',
+          enum: ['financeiro', 'suporte', 'vendas', 'outro'],
+          description: 'Setor responsável pelo assunto tratado — direciona a fila para o time certo (só usado no chat).',
+        },
       },
       required: ['motivo', 'resumo'],
     },

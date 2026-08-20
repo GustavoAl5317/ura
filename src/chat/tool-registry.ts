@@ -17,6 +17,11 @@ export class ChatToolRegistry implements ToolRegistrar {
     this.tools.set(name, handler);
   }
 
+  /** Handler atual — usado por overrides que precisam ENVOLVER o original (chamar e complementar), não substituir. */
+  get(name: string): ToolHandler | undefined {
+    return this.tools.get(name);
+  }
+
   has(name: string): boolean {
     return this.tools.has(name);
   }

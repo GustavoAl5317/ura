@@ -147,6 +147,10 @@
   .tag.human{background:var(--take-soft);color:var(--take)}
   .tag.off{background:#eceff1;color:var(--muted)}
   .tag.alert{background:var(--danger-soft);color:var(--danger)}
+  .tag.alert.critico{background:var(--danger);color:#fff;animation:pulse 1s infinite}
+  .conv.critico{background:var(--danger-soft)}
+  .conv.critico:hover{background:var(--danger-soft);filter:brightness(.97)}
+  .conv.critico::after{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--danger)}
   .empty{padding:44px 24px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.6}
 
   .thread-top{height:60px;flex:0 0 60px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 16px}
@@ -558,12 +562,19 @@
   const abertos = new Set();
   let sigLista='', sigThread='', sigComposer='', sigDossie='';
 
-  // ── Som de notificação (transferência p/ atendente) ─────
+  // ── Fila de atendimento humano: som escalonado ───────────
   // Áudio da empresa, embutido em base64 (elemento #somTransferencia no body) — sem
   // depender de rota estática nova nem de arquivo externo servido à parte.
-  const transferenciasAvisadas = new Set();
-  let primeiraCargaConversas = true;
+  //
+  // Níveis (tempo desde que ENTROU na fila, ctx.filaEntradaEm):
+  //   1  imediato        → 1 beep
+  //   2  3 minutos       → 5 beeps, 15s entre cada
+  //   3  5 minutos       → 3 beeps, 5s entre cada
+  //   4  8min — CRÍTICO  → beep contínuo até alguém assumir
   const somTransferencia = document.getElementById('somTransferencia');
+  const NIVEL_MS = { 2: 3*60000, 3: 5*60000, 4: 8*60000 };
+  const filaEstado = new Map();           // key -> { nivel, intervaloCritico }
+  let primeiraCargaConversas = true;
 
   function tocarNotificacao(){
     try{
@@ -571,22 +582,65 @@
       void somTransferencia.play();
     }catch{ /* navegador sem suporte ou sem interação prévia — silencioso, não trava a tela */ }
   }
+  function dispararBeeps(vezes, intervaloMs){
+    for (let i=0; i<vezes; i++) setTimeout(tocarNotificacao, i*intervaloMs);
+  }
+  function nivelPeloTempo(decorridoMs){
+    if (decorridoMs >= NIVEL_MS[4]) return 4;
+    if (decorridoMs >= NIVEL_MS[3]) return 3;
+    if (decorridoMs >= NIVEL_MS[2]) return 2;
+    return 1;
+  }
+  function pararAlarmeCritico(estado){
+    if (estado.intervaloCritico){ clearInterval(estado.intervaloCritico); estado.intervaloCritico = null; }
+  }
 
-  /** Toca ao ver, pela primeira vez, um pedido de transferência ainda sem dono. */
-  function avisarNovasTransferencias(lista){
-    const pendentesAgora = new Set(
-      lista.filter((c)=>c.pendingTransfer && !c.encerrada).map((c)=>c.key),
+  /** Roda a cada tick(): avisa nível novo alcançado por cada conversa ainda na fila. */
+  function processarFilaDeAtendimento(lista){
+    const agora = Date.now();
+    const pendentesAgora = new Map(
+      lista.filter((c)=>c.pendingTransfer && !c.encerrada && c.filaEntradaEm)
+        .map((c)=>[c.key, c]),
     );
-    if (primeiraCargaConversas){
-      // Não dispara som pelo que já estava esperando antes de abrir o painel.
-      primeiraCargaConversas = false;
-    } else {
-      for (const key of pendentesAgora){
-        if (!transferenciasAvisadas.has(key)) tocarNotificacao();
+
+    // Alguém assumiu (ou a conversa saiu da lista) — encerra qualquer alarme.
+    for (const [key, estado] of filaEstado){
+      if (!pendentesAgora.has(key)){ pararAlarmeCritico(estado); filaEstado.delete(key); }
+    }
+
+    for (const [key, c] of pendentesAgora){
+      const decorridoMs = agora - c.filaEntradaEm;
+      const nivelAlvo = nivelPeloTempo(decorridoMs);
+      let estado = filaEstado.get(key);
+
+      if (!estado){
+        estado = { nivel: 0, intervaloCritico: null };
+        filaEstado.set(key, estado);
+        if (primeiraCargaConversas){
+          // Não repete a burst de transições passadas por ter acabado de abrir o
+          // painel — mas se JÁ está crítica, o alarme contínuo começa na hora.
+          estado.nivel = nivelAlvo;
+          if (nivelAlvo === 4) estado.intervaloCritico = setInterval(tocarNotificacao, 4000);
+          continue;
+        }
+        tocarNotificacao();               // nível 1: entrada nova na fila
+        estado.nivel = 1;
+      }
+
+      if (nivelAlvo > estado.nivel){
+        estado.nivel = nivelAlvo;
+        if (nivelAlvo === 2) dispararBeeps(5, 15000);
+        else if (nivelAlvo === 3) dispararBeeps(3, 5000);
+        else if (nivelAlvo === 4) estado.intervaloCritico = setInterval(tocarNotificacao, 4000);
       }
     }
-    transferenciasAvisadas.clear();
-    for (const key of pendentesAgora) transferenciasAvisadas.add(key);
+    primeiraCargaConversas = false;
+  }
+
+  /** Nível atual (1-4) de uma conversa na fila — para o destaque visual na lista. */
+  function nivelDaFila(c){
+    if (!c.pendingTransfer || !c.filaEntradaEm) return 0;
+    return nivelPeloTempo(Date.now() - c.filaEntradaEm);
   }
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -837,12 +891,23 @@
   // ── Lista de conversas ──────────────────────────────────
   const nomeDe = (c) => c.clienteNome || c.pushName || fone(c.numero);
 
+  const FILA_LABEL = { atendimento: 'Atendimento', adesao: 'Adesão' };
+
   function renderLista(){
     const t = filtro.trim().toLowerCase();
-    const vis = conversas.filter((c)=>!t ||
+    let vis = conversas.filter((c)=>!t ||
       [c.clienteNome,c.pushName,c.numero,c.ultimaMsg].some((v)=>String(v||'').toLowerCase().includes(t)));
 
-    const sig = atual+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
+    // Fila (pendingTransfer) sobe pro topo — mais crítica primeiro, depois quem espera há mais tempo.
+    vis = [...vis].sort((a,b)=>{
+      const na = nivelDaFila(a), nb = nivelDaFila(b);
+      if (na !== nb) return nb - na;
+      if (na > 0 && nb > 0) return (a.filaEntradaEm||0) - (b.filaEntradaEm||0);
+      return (b.ultimaTs||b.lastActivity) - (a.ultimaTs||a.lastActivity);
+    });
+
+    const sig = atual+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,
+      c.filaTipo,nivelDaFila(c),c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
     if (sig===sigLista) return;
     sigLista = sig;
 
@@ -856,11 +921,14 @@
     el.list.innerHTML = vis.map((c)=>{
       const nome=nomeDe(c), human=c.modo==='humano';
       const meu = c.atendenteId===eu.id;
+      const nivel = nivelDaFila(c);
+      const critico = nivel === 4;
+      const filaLabel = c.filaTipo ? (FILA_LABEL[c.filaTipo]||c.filaTipo) : 'transferir';
       const tag = c.encerrada ? '<span class="tag off">encerrada</span>'
-        : c.pendingTransfer ? '<span class="tag alert">transferir</span>'
+        : c.pendingTransfer ? `<span class="tag alert${critico?' critico':''}">${critico?'🚨 ':''}${esc(filaLabel)}${nivel>1?' · '+nivel:''}</span>`
         : human ? `<span class="tag human">${meu?'você':esc((c.atendenteNome||'').split(' ')[0])}</span>`
         : '<span class="tag ia">IA</span>';
-      return `<div class="conv ${human?'human':''}" role="option" tabindex="0"
+      return `<div class="conv ${human?'human':''}${critico?' critico':''}" role="option" tabindex="0"
                 aria-selected="${c.key===atual}" data-key="${esc(c.key)}">
         <div class="ava">${esc(iniciais(nome))}</div>
         <div class="conv-body">
@@ -1207,7 +1275,7 @@
     try{
       const data = await api('/api/conversas');
       conversas = data.conversas;
-      avisarNovasTransferencias(conversas);
+      processarFilaDeAtendimento(conversas);
       $('brandName').textContent = data.empresa||'Atendimento';
       $('brandSub').textContent = `${conversas.length} conversa(s) · IA ${data.agente}`;
       $('menuMk').textContent = $('loginMk').textContent = iniciais(data.empresa||'AQ');

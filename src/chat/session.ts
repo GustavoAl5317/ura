@@ -25,6 +25,7 @@ import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaR
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
+import { estaNoHorarioComercial } from '../utils/horario-comercial';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -199,13 +200,24 @@ export class ChatSession {
     if (this.modo === 'humano' && this.atendenteId === atendente.id) return;
 
     const anterior = this.modo === 'humano' ? this.atendenteNome : null;
+    const veioDaFila = this.ctx.pendingTransfer === true;
+    const horaAssumiu = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     this.modo = 'humano';
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
+    // Sai da fila (e do escalonamento de alertas) assim que alguém assume —
+    // sem isso o "transferir" ficava preso pra sempre (nada limpava esse
+    // estado) e o sweep continuaria mandando aviso de fila parada.
+    this.ctx.pendingTransfer = false;
+    this.ctx.filaTipo = undefined;
+    this.ctx.filaEntradaEm = undefined;
+    this.ctx.filaNivelEnviado = undefined;
     this.record({
       tipo: 'sistema',
       texto: anterior
         ? `${atendente.nome} assumiu a conversa de ${anterior}`
+        : veioDaFila
+        ? `${atendente.nome} assumiu às ${horaAssumiu} (estava na fila) — IA pausada`
         : `${atendente.nome} assumiu a conversa — IA pausada`,
     });
     logger.info(`[${this.ctx.callId}] painel: ${atendente.nome} assumiu (${this.numero})`);
@@ -355,6 +367,70 @@ export class ChatSession {
     this.persistir();
     logger.info(`[chat] encerrado por inatividade: ${this.numero}`, { protocolos });
     return true;
+  }
+
+  /**
+   * Escalonamento da fila de atendimento humano (Atendimento ou Adesão):
+   * aos 3/5/8 minutos sem ninguém assumir, reforça o aviso pro cliente e, no
+   * nível crítico (8min), avisa o grupo de alertas. Chamado pela varredura
+   * do store — independe de qualquer turno de IA rolando, por isso os
+   * avisos são mandados direto por aqui, não pelo texto que a IA escreveria.
+   *
+   * Sem `verificarInatividade`: aqui a pausa é do ATENDENTE, não do cliente —
+   * então não olha `ultimoContatoCliente`, só o relógio desde a entrada na fila.
+   */
+  async verificarFilaAtendimento(agora: number): Promise<void> {
+    if (!this.ctx.pendingTransfer || !this.ctx.filaEntradaEm) return;
+    if (this.modo === 'humano') return;                 // já foi assumido
+    if (this.encerrada) return;
+    if (!estaNoHorarioComercial()) return;               // fora do expediente não escala sozinho
+
+    const decorridoMin = (agora - this.ctx.filaEntradaEm) / 60_000;
+    const nivel = this.ctx.filaNivelEnviado ?? 1;
+
+    if (nivel < 2 && decorridoMin >= 3) {
+      await this.enviar(
+        this.numero,
+        'Seu atendimento já está na fila da nossa equipe. Em breve um atendente continuará com você.',
+      );
+      this.ctx.filaNivelEnviado = 2;
+      this.record({ tipo: 'sistema', texto: 'Fila: 3min sem atendente — cliente avisado de novo (nível 2).' });
+      this.persistir();
+      return;
+    }
+
+    if (nivel < 3 && decorridoMin >= 5) {
+      await this.enviar(
+        this.numero,
+        'Ainda estamos direcionando um atendente para você. Seu atendimento continua em nossa fila '
+        + 'e será iniciado o mais breve possível.',
+      );
+      this.ctx.filaNivelEnviado = 3;
+      this.record({ tipo: 'sistema', texto: 'Fila: 5min sem atendente — cliente avisado de novo (nível 3).' });
+      this.persistir();
+      return;
+    }
+
+    if (nivel < 4 && decorridoMin >= 8) {
+      this.ctx.filaNivelEnviado = 4;
+      this.record({ tipo: 'sistema', texto: '🚨 Fila: 8min sem atendente — PRIORIDADE CRÍTICA.' });
+      logger.warn(`[chat] fila crítica (8min sem atendente): ${this.numero}`, {
+        tipo: this.ctx.filaTipo, setor: this.ctx.transferSetor,
+      });
+      if (config.chat.handoffGroupId) {
+        const nome = this.ctx.cliente?.nome ?? this.pushName ?? 'Cliente não identificado';
+        const texto = [
+          '🚨 *ATENDIMENTO CRÍTICO*',
+          `Cliente: ${nome}`,
+          `Setor: ${this.ctx.transferSetor ?? 'não identificado'}`,
+          'Tempo de espera: 8 minutos',
+          'Status: Aguardando atendente',
+          'Motivo: Atendimento humano ainda não assumido.',
+        ].join('\n');
+        await whatsapp.enviarGrupo(config.chat.handoffGroupId, texto, this.ctx.whatsappInstance);
+      }
+      this.persistir();
+    }
   }
 
   // ── Fluxo de mensagens ───────────────────────────────────────────────────
@@ -559,6 +635,10 @@ export class ChatSession {
       atendenteNome: this.atendenteNome ?? null,
       encerrada: this.encerrada,
       pendingTransfer: this.ctx.pendingTransfer,
+      filaTipo: this.ctx.filaTipo ?? null,
+      filaEntradaEm: this.ctx.filaEntradaEm ?? null,
+      filaNivel: this.ctx.filaNivelEnviado ?? null,
+      transferSetor: this.ctx.transferSetor ?? null,
       ultimaMsg: ultimo?.texto ?? null,
       ultimaTs: ultimo?.ts ?? this.lastActivity,
       lastActivity: this.lastActivity,
@@ -604,6 +684,12 @@ export class ChatSessionStore {
         void s.verificarInatividade(agora)
           .then((encerrou) => { if (encerrou) this.sessions.delete(key); })
           .catch((err) => logger.error('[chat] falha na varredura de inatividade', {
+            key, err: err instanceof Error ? err.message : String(err),
+          }));
+        // Fila de atendimento humano parada: reforça aviso ao cliente e, no
+        // nível crítico, avisa o grupo de alertas.
+        void s.verificarFilaAtendimento(agora)
+          .catch((err) => logger.error('[chat] falha na varredura da fila de atendimento', {
             key, err: err instanceof Error ? err.message : String(err),
           }));
       }
