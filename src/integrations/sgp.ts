@@ -745,7 +745,13 @@ export class SgpClient {
 
   /** ONUs ligadas a uma CTO — cada uma com o login PPPoE, que o RADIUS entende. */
   async onusDaCto(ctoId: number): Promise<SgpOnuDaCto[]> {
-    const r = await this.getParams<SgpOnuDaCto[]>(`/api/fttx/splitter/${ctoId}/onu/all/`);
+    const r = await this.getParams<SgpOnuDaCto[]>(`/api/fttx/splitter/${ctoId}/onu/all/`, {}, 20_000);
+    return this.lista<SgpOnuDaCto>(r);
+  }
+
+  /** Todas as ONUs de uma OLT — usado para medir a PON inteira do cliente. */
+  async onusDaOlt(oltId: number): Promise<SgpOnuDaCto[]> {
+    const r = await this.getParams<SgpOnuDaCto[]>(`/api/fttx/olt/${oltId}/onu/list/`, {}, 30_000);
     return this.lista<SgpOnuDaCto>(r);
   }
 

@@ -84,11 +84,42 @@ if (!arg) {
       onus.map((o) => (o.login || o.onu_login || '').trim()).filter((l) => l.length > 2),
     )];
     console.log(`✅ ONUs na CTO: ${onus.length} | com login PPPoE: ${logins.length}`);
+
+    if (process.env.DEBUG_ONU === '1') {
+      console.log('\n--- ONUs cruas da CTO (DEBUG_ONU=1) ---');
+      for (const o of onus) console.log(JSON.stringify(o));
+      console.log('--- fim ---\n');
+    }
+
     if (logins.length < 3) {
-      return console.error(
-        '\n⚠️  PARA AQUI: menos de 3 vizinhos com login — amostra pequena demais.\n'
+      console.error(
+        '\n⚠️  Menos de 3 vizinhos com login PPPoE nesta CTO.\n'
         + '   Por segurança o sistema NÃO conclui queda de CTO (chamado segue liberado).',
       );
+      if (!logins.length && onus.length) {
+        console.error(
+          '   ↳ As ONUs existem mas vieram SEM login. Rode de novo com DEBUG_ONU=1\n'
+          + '     para ver os campos disponíveis e achar por onde ligar no RADIUS.',
+        );
+      }
+
+      // A CTO é uma amostra pequena. A PON do cliente costuma ter dezenas de
+      // ONUs e um rompimento na fibra derruba a PON inteira — vale medir.
+      console.log('\n--- Tentando pela PON (amostra maior que a CTO) ---');
+      try {
+        const daOlt = await sgp.onusDaOlt(onu.olt_id);
+        const mesmaPon = daOlt.filter((o) => o.pon === onu.pon && o.slot === onu.slot);
+        const loginsPon = [...new Set(
+          mesmaPon.map((o) => (o.login || o.onu_login || '').trim()).filter((l) => l.length > 2),
+        )];
+        console.log(`   ONUs na OLT: ${daOlt.length} | na PON ${onu.slot}/${onu.pon}: ${mesmaPon.length} | com login: ${loginsPon.length}`);
+        if (process.env.DEBUG_ONU === '1' && mesmaPon.length) {
+          console.log('   exemplo:', JSON.stringify(mesmaPon[0]));
+        }
+      } catch (e) {
+        console.log(`   ⚠️  Falhou: ${e.message}`);
+      }
+      return;
     }
 
     // 5. RADIUS --------------------------------------------------------------
