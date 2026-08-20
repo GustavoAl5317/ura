@@ -685,6 +685,39 @@ function bloqueioConsultas(ctx: CallContext): Record<string, unknown> | null {
   return bloqueioSemCliente(ctx) ?? bloqueioSemConfirmacao(ctx) ?? bloqueioSemContrato(ctx);
 }
 
+/** Serviço (login PPPoE) do contrato — usado para consultar a sessão no RADIUS. */
+async function servicoDoContrato(contratoId: number): Promise<{ id?: number; login?: string } | null> {
+  const dados = await sgp.dadosDoContrato(contratoId);
+  const ct = dados?.contratos.find((c) => c.contrato === contratoId) ?? dados?.contratos[0];
+  const s = ct?.servicos?.[0];
+  return s ? { id: s.id, login: s.login } : null;
+}
+
+/**
+ * O cliente está conectado AGORA? Este SGP não devolve `conexao` junto da ONU
+ * (sai sempre "desconhecido"), então quem sabe é o RADIUS — é ele que responde
+ * "com internet ou não".
+ *
+ * Retorna null quando nenhuma fonte respondeu: nesse caso não dá para afirmar
+ * nem online nem offline, e chutar "está tudo bem" para quem escreveu dizendo
+ * "estou sem internet" já custou caro neste projeto.
+ */
+export async function statusConexaoAgora(
+  ctx: CallContext,
+  contratoId: number,
+): Promise<{ status: 'online' | 'offline'; fonte: 'onu' | 'radius' } | null> {
+  const doOnu = ctx.onu?.conexao?.status;
+  if (doOnu === 'online' || doOnu === 'offline') return { status: doOnu, fonte: 'onu' };
+
+  const servico = await servicoDoContrato(contratoId).catch(() => null);
+  if (!servico?.login) return null;
+  const sessao = await sgp.statusPppoe(servico.login).catch(() => null);
+  if (!sessao) return null;
+
+  const online = sessao.online === true || sessao.online === 1 || sessao.online === '1';
+  return { status: online ? 'online' : 'offline', fonte: 'radius' };
+}
+
 /**
  * Rompimento/massiva confirmada para ESTE cliente: chamado individual não pode
  * ser aberto. Numa queda de CTO/OLT o time técnico recebe dezenas de chamados
@@ -989,23 +1022,32 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       ctx.precisaConsultarFinanceiro = true;
 
       // Cliente que abriu dizendo "sem internet" não deveria esperar mais uma
-      // rodada de ferramenta só pra saber se a rede dele caiu. O prefetch já
-      // disparou massiva/ONU acima; damos um instante para responderem e, se
-      // vier a tempo, o diagnóstico sai junto da confirmação.
+      // rodada de ferramenta só pra saber se a conexão dele caiu. Responde já
+      // aqui "com internet ou não", com teto de tempo pra não travar a conversa.
       let redeAgora: Record<string, unknown> | undefined;
-      if (ctx.relatouProblemaTecnico) {
-        await Promise.race([
-          Promise.all([
-            sgp.manutencoesAtivas().then((m) => { ctx.manutencoesAtivas = m; }).catch(() => undefined),
-            ctx.cliente.contratoId
-              ? sgp.onuDoContrato(ctx.cliente.contratoId, { fullFttx: true })
-                  .then((o) => { if (o) ctx.onu = o; }).catch(() => undefined)
-              : Promise.resolve(),
-          ]),
-          new Promise((r) => setTimeout(r, 2500)),
+      const contratoId = ctx.cliente.contratoId;
+      if (ctx.relatouProblemaTecnico && contratoId) {
+        const conexao = await Promise.race([
+          (async () => {
+            const onu = ctx.onu ?? await sgp.onuDoContrato(contratoId, { fullFttx: true }).catch(() => null);
+            if (onu) ctx.onu = onu;
+            return statusConexaoAgora(ctx, contratoId);
+          })().catch(() => null),
+          new Promise<null>((r) => setTimeout(() => r(null), 4000)),
         ]);
-        const statusOnu = ctx.onu?.conexao?.status;
-        if (statusOnu) redeAgora = { status_onu: statusOnu, sinal_rx: ctx.onu?.rx ?? null };
+        if (conexao) {
+          redeAgora = {
+            conectado: conexao.status === 'online',
+            status: conexao.status,
+            fonte: conexao.fonte,
+            sinal_rx_dbm: ctx.onu?.rx ?? null,
+            orientacao: conexao.status === 'offline'
+              ? 'O cliente está REALMENTE sem conexão — confirmado na rede, não é impressão dele. '
+                + 'Reconheça isso já na sua próxima mensagem antes de pedir qualquer coisa a ele.'
+              : 'A conexão está ativa na rede. NÃO diga que "está tudo bem": pode ser lentidão, '
+                + 'Wi-Fi ou um aparelho específico. Pergunte o que exatamente não funciona.',
+          };
+        }
       }
 
       return {
@@ -1443,14 +1485,10 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     // depender de a IA lembrar de fazer a segunda chamada.
     let fonteStatus = 'onu';
     if (status === 'desconhecido') {
-      const servico = await servicoDoContrato(contratoId);
-      if (servico?.login) {
-        const sessao = await sgp.statusPppoe(servico.login).catch(() => null);
-        if (sessao) {
-          const online = sessao.online === true || sessao.online === 1 || sessao.online === '1';
-          status = online ? 'online' : 'offline';
-          fonteStatus = 'radius';
-        }
+      const conexao = await statusConexaoAgora(ctx, contratoId);
+      if (conexao) {
+        status = conexao.status;
+        fonteStatus = conexao.fonte;
       }
     }
 
@@ -1499,13 +1537,6 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
   });
 
   /** Primeiro serviço de internet do contrato — id e login PPPoE. */
-  async function servicoDoContrato(contratoId: number): Promise<{ id?: number; login?: string } | null> {
-    const dados = await sgp.dadosDoContrato(contratoId);
-    const ct = dados?.contratos.find((c) => c.contrato === contratoId) ?? dados?.contratos[0];
-    const s = ct?.servicos?.[0];
-    return s ? { id: s.id, login: s.login } : null;
-  }
-
   // Sessão RADIUS: prova se o cliente está autenticado na rede agora.
   client.registerTool('consultar_pppoe', async (args) => {
     const bloqueio = bloqueioConsultas(ctx);
