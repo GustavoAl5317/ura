@@ -746,12 +746,18 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
   if (!nomeCto) return null;
 
   try {
-    const ctos = await sgp.listarCtos();
     const alvo = nomeCto.trim().toLowerCase();
-    const cto = ctos.find((c) => {
+    const casa = (lista: { id: number; ident?: string }[]) => lista.find((c) => {
       const ident = (c.ident ?? '').trim().toLowerCase();
-      return ident === alvo || ident.includes(alvo) || alvo.includes(ident);
+      return !!ident && (ident === alvo || ident.includes(alvo) || alvo.includes(ident));
     });
+
+    // Busca primeiro só nas CTOs da OLT do cliente: listar a planta inteira
+    // (/api/fttx/splitter/all/) estourou o timeout em produção.
+    let cto = ctx.onu?.olt_id
+      ? casa(await sgp.listarCtosDaOlt(ctx.onu.olt_id).catch(() => []))
+      : undefined;
+    if (!cto) cto = casa(await sgp.listarCtos().catch(() => []));
     if (!cto) return null;
 
     const onus = await sgp.onusDaCto(cto.id);

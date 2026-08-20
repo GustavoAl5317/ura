@@ -435,9 +435,16 @@ export class SgpClient {
     }
   }
 
-  private async getParams<T>(path: string, params: Record<string, unknown> = {}): Promise<T | null> {
+  private async getParams<T>(
+    path: string,
+    params: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): Promise<T | null> {
     try {
-      const res = await this.http.get<T>(path, { params: { ...this.auth(), ...params } });
+      const res = await this.http.get<T>(path, {
+        params: { ...this.auth(), ...params },
+        ...(timeoutMs ? { timeout: timeoutMs } : {}),
+      });
       return res.data;
     } catch (err) {
       throw err;
@@ -704,15 +711,35 @@ export class SgpClient {
    * mas o endpoint que lista as ONUs vizinhas exige o ID — daí o mapeamento.
    * Cadastro de planta muda raramente, então fica em cache por 1h.
    */
-  private ctosCache: { em: number; lista: SgpCto[] } | null = null;
+  private ctosCache = new Map<string, { em: number; lista: SgpCto[] }>();
 
-  async listarCtos(): Promise<SgpCto[]> {
-    if (this.ctosCache && Date.now() - this.ctosCache.em < 3_600_000) {
-      return this.ctosCache.lista;
-    }
-    const r = await this.getParams<SgpCto[]>('/api/fttx/splitter/all/');
+  private doCache(chave: string): SgpCto[] | null {
+    const c = this.ctosCache.get(chave);
+    return c && Date.now() - c.em < 3_600_000 ? c.lista : null;
+  }
+
+  /**
+   * CTOs de UMA OLT. Preferido sobre listarCtos(): `/api/fttx/splitter/all/`
+   * devolve a planta inteira e estourou o timeout em produção — esta rota
+   * traz só as caixas da OLT do cliente, que é tudo o que precisamos.
+   */
+  async listarCtosDaOlt(oltId: number): Promise<SgpCto[]> {
+    const chave = `olt:${oltId}`;
+    const cache = this.doCache(chave);
+    if (cache) return cache;
+    const r = await this.getParams<SgpCto[]>(`/api/fttx/olt/pon/${oltId}/splitter/list/`, {}, 20_000);
     const lista = this.lista<SgpCto>(r);
-    if (lista.length) this.ctosCache = { em: Date.now(), lista };
+    if (lista.length) this.ctosCache.set(chave, { em: Date.now(), lista });
+    return lista;
+  }
+
+  /** Planta inteira — só como último recurso; é a chamada mais pesada do SGP. */
+  async listarCtos(): Promise<SgpCto[]> {
+    const cache = this.doCache('all');
+    if (cache) return cache;
+    const r = await this.getParams<SgpCto[]>('/api/fttx/splitter/all/', {}, 30_000);
+    const lista = this.lista<SgpCto>(r);
+    if (lista.length) this.ctosCache.set('all', { em: Date.now(), lista });
     return lista;
   }
 

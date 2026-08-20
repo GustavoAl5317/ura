@@ -44,18 +44,36 @@ if (!arg) {
     }
 
     // 3. CTO no catálogo de planta -------------------------------------------
-    const ctos = await sgp.listarCtos();
-    console.log(`✅ Catálogo de CTOs carregado: ${ctos.length} caixa(s)`);
     const alvo = nomeCto.trim().toLowerCase();
-    const cto = ctos.find((c) => {
+    const casa = (lista) => lista.find((c) => {
       const id = (c.ident || '').trim().toLowerCase();
-      return id === alvo || id.includes(alvo) || alvo.includes(id);
+      return !!id && (id === alvo || id.includes(alvo) || alvo.includes(id));
     });
+
+    let ctos = [];
+    let cto;
+    if (onu.olt_id) {
+      ctos = await sgp.listarCtosDaOlt(onu.olt_id).catch((e) => {
+        console.log(`   ⚠️  CTOs da OLT falharam: ${e.message}`);
+        return [];
+      });
+      console.log(`✅ CTOs da OLT ${onu.olt_id}: ${ctos.length} caixa(s)`);
+      cto = casa(ctos);
+    }
+    if (!cto) {
+      console.log('   ↳ não achou na OLT, tentando a planta inteira (chamada pesada)…');
+      const todas = await sgp.listarCtos().catch((e) => {
+        console.log(`   ⚠️  Planta inteira falhou: ${e.message}`);
+        return [];
+      });
+      if (todas.length) { ctos = todas; console.log(`✅ Planta inteira: ${todas.length} caixa(s)`); }
+      cto = casa(todas);
+    }
     if (!cto) {
       return console.error(
         `\n❌ PARA AQUI: a CTO "${nomeCto}" não casou com nenhuma do catálogo.\n`
         + '   Exemplos de ident cadastrados: '
-        + ctos.slice(0, 5).map((c) => c.ident).join(' | '),
+        + ctos.slice(0, 8).map((c) => JSON.stringify(c.ident)).join(' | '),
       );
     }
     console.log(`✅ CTO no catálogo: id=${cto.id} ident="${cto.ident}" portas=${cto.ports}`);
