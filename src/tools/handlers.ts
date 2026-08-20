@@ -8,7 +8,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { ToolRegistrar } from './registrar';
-import type { SgpPlano, SgpTitulo } from '../integrations/sgp';
+import { loginDaOnu, type SgpOnuDaCto, type SgpPlano, type SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
@@ -740,41 +740,31 @@ export async function statusConexaoAgora(
  * a mais do que negar atendimento a quem tem defeito individual de verdade.
  */
 export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
-  cto: string; total: number; offline: number; percentual: number;
+  escopo: string; total: number; offline: number; percentual: number;
 } | null> {
-  const nomeCto = ctx.onu?.cto_nome ?? ctx.onu?.caixa;
-  if (!nomeCto) return null;
+  const onuCliente = ctx.onu;
+  if (!onuCliente) return null;
+  const contratoCliente = ctx.cliente?.contratoId;
 
-  try {
-    const alvo = nomeCto.trim().toLowerCase();
-    const casa = (lista: { id: number; ident?: string }[]) => lista.find((c) => {
-      const ident = (c.ident ?? '').trim().toLowerCase();
-      return !!ident && (ident === alvo || ident.includes(alvo) || alvo.includes(ident));
-    });
-
-    // Busca primeiro só nas CTOs da OLT do cliente: listar a planta inteira
-    // (/api/fttx/splitter/all/) estourou o timeout em produção.
-    let cto = ctx.onu?.olt_id
-      ? casa(await sgp.listarCtosDaOlt(ctx.onu.olt_id).catch(() => []))
-      : undefined;
-    if (!cto) cto = casa(await sgp.listarCtos().catch(() => []));
-    if (!cto) return null;
-
-    const onus = await sgp.onusDaCto(cto.id);
+  /** Mede quantos vizinhos estão offline. Exclui o próprio cliente da conta. */
+  const medir = async (onus: SgpOnuDaCto[], escopo: string) => {
     const logins = [...new Set(
-      onus.map((o) => (o.login ?? o.onu_login ?? '').trim()).filter((l) => l.length > 2),
+      onus
+        // O cliente já sabemos que está offline — incluí-lo enviesaria a
+        // amostra para "queda coletiva" justo quando ela é pequena.
+        .filter((o) => !contratoCliente || o.service_contrato !== contratoCliente)
+        .map(loginDaOnu)
+        .filter((l) => l.length > 2),
     )];
-    // Com 1 ou 2 vizinhos a amostra não sustenta a conclusão: dois clientes
-    // offline por acaso viraria "queda de CTO" e travaria o chamado de ambos.
     if (logins.length < MIN_VIZINHOS_CTO) return null;
 
-    const amostra = logins.slice(0, MAX_VIZINHOS_CONSULTADOS);
     const sessoes = await Promise.all(
-      amostra.map((login) => sgp.statusPppoe(login).catch(() => undefined)),
+      logins.slice(0, MAX_VIZINHOS_CONSULTADOS)
+        .map((login) => sgp.statusPppoe(login).catch(() => undefined)),
     );
 
     // Login sem resposta do RADIUS é DESCARTADO, não contado como offline:
-    // senão uma instabilidade do RADIUS viraria "queda de CTO" fantasma.
+    // senão uma instabilidade do RADIUS viraria queda fantasma.
     const conhecidos = sessoes.filter((s) => s !== undefined && s !== null);
     if (conhecidos.length < MIN_VIZINHOS_CTO) return null;
 
@@ -782,11 +772,47 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
       const on = (s as { online?: unknown }).online;
       return !(on === true || on === 1 || on === '1');
     }).length;
-    const percentual = Math.round((offline / conhecidos.length) * 100);
+    return {
+      escopo,
+      total: conhecidos.length,
+      offline,
+      percentual: Math.round((offline / conhecidos.length) * 100),
+    };
+  };
 
-    return { cto: nomeCto, total: conhecidos.length, offline, percentual };
+  try {
+    // 1) CTO — sinal mais específico (rompimento no cabo da caixa).
+    const nomeCto = onuCliente.cto_nome ?? onuCliente.caixa;
+    if (nomeCto) {
+      const alvo = nomeCto.trim().toLowerCase();
+      const casa = (lista: { id: number; ident?: string }[]) => lista.find((c) => {
+        const ident = (c.ident ?? '').trim().toLowerCase();
+        return !!ident && (ident === alvo || ident.includes(alvo) || alvo.includes(ident));
+      });
+      // Só as CTOs da OLT do cliente: listar a planta inteira estourou o timeout.
+      let cto = onuCliente.olt_id
+        ? casa(await sgp.listarCtosDaOlt(onuCliente.olt_id).catch(() => []))
+        : undefined;
+      if (!cto) cto = casa(await sgp.listarCtos().catch(() => []));
+      if (cto) {
+        const r = await medir(await sgp.onusDaCto(cto.id).catch(() => []), `CTO ${nomeCto}`);
+        if (r) return r;
+      }
+    }
+
+    // 2) PON — caixa pequena não rende amostra (a do teste tinha 3 ONUs). A PON
+    //    reúne dezenas e é o que um rompimento de fibra derruba inteiro.
+    if (onuCliente.olt_id != null && onuCliente.pon != null) {
+      const daOlt = await sgp.onusDaOlt(onuCliente.olt_id).catch(() => []);
+      const mesmaPon = daOlt.filter(
+        (o) => o.pon === onuCliente.pon && o.slot === onuCliente.slot,
+      );
+      return await medir(mesmaPon, `PON ${onuCliente.slot}/${onuCliente.pon}`);
+    }
+
+    return null;
   } catch (err) {
-    logger.warn('Falha ao medir queda coletiva na CTO', { cto: nomeCto, err: String(err) });
+    logger.warn('Falha ao medir queda coletiva', { err: String(err) });
     return null;
   }
 }
@@ -809,7 +835,7 @@ async function bloqueioPorMassiva(ctx: CallContext): Promise<Record<string, unkn
     if (coletiva && coletiva.percentual >= PCT_OFFLINE_QUEDA_CTO) {
       ctx.massivaAtiva = true;
       ctx.log.push(
-        `Queda coletiva detectada na CTO ${coletiva.cto} ao tentar abrir chamado: `
+        `Queda coletiva detectada em ${coletiva.escopo} ao tentar abrir chamado: `
         + `${coletiva.offline}/${coletiva.total} vizinhos offline (${coletiva.percentual}%)`,
       );
       logger.warn('Chamado bloqueado: queda coletiva de CTO detectada na hora', coletiva);
@@ -1484,7 +1510,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       if (coletiva && coletiva.percentual >= PCT_OFFLINE_QUEDA_CTO) {
         ctx.massivaAtiva = true;
         ctx.log.push(
-          `Queda coletiva detectada na CTO ${coletiva.cto}: `
+          `Queda coletiva detectada em ${coletiva.escopo}: `
           + `${coletiva.offline}/${coletiva.total} vizinhos offline (${coletiva.percentual}%)`,
         );
         logger.warn('Queda coletiva de CTO detectada pelo RADIUS', coletiva);
@@ -1492,7 +1518,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
           tem_massiva: true,
           afeta_cliente: true,
           fonte: 'radius_cto',
-          descricao: `Queda coletiva na CTO ${coletiva.cto}`,
+          descricao: `Queda coletiva em ${coletiva.escopo}`,
           vizinhos_offline: `${coletiva.offline} de ${coletiva.total}`,
           orientacao:
             'Detectamos que os vizinhos da mesma caixa também estão sem conexão — é uma queda '

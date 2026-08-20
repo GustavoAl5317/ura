@@ -7,7 +7,7 @@
 // Mostra cada etapa da cadeia (ONU → CTO no cadastro → vizinhos → RADIUS), para
 // saber exatamente ONDE quebra quando não detecta.
 
-const { sgp } = require('../dist/integrations/sgp');
+const { sgp, loginDaOnu } = require('../dist/integrations/sgp');
 
 const arg = (process.argv[2] || '').replace(/\D/g, '');
 if (!arg) {
@@ -81,7 +81,7 @@ if (!arg) {
     // 4. Vizinhos ------------------------------------------------------------
     const onus = await sgp.onusDaCto(cto.id);
     const logins = [...new Set(
-      onus.map((o) => (o.login || o.onu_login || '').trim()).filter((l) => l.length > 2),
+      onus.map(loginDaOnu).filter((l) => l.length > 2),
     )];
     console.log(`✅ ONUs na CTO: ${onus.length} | com login PPPoE: ${logins.length}`);
 
@@ -91,63 +91,62 @@ if (!arg) {
       console.log('--- fim ---\n');
     }
 
-    if (logins.length < 3) {
-      console.error(
-        '\n⚠️  Menos de 3 vizinhos com login PPPoE nesta CTO.\n'
-        + '   Por segurança o sistema NÃO conclui queda de CTO (chamado segue liberado).',
+    // 5. Mede no RADIUS (CTO primeiro; PON se a caixa não render amostra) -----
+    // Espelha a lógica de produção, inclusive excluir o próprio cliente: ele já
+    // sabemos que está offline, contá-lo enviesaria a amostra.
+    async function medir(onusEscopo, escopo) {
+      const lista = [...new Set(
+        onusEscopo
+          .filter((o) => o.service_contrato !== contratoId)
+          .map(loginDaOnu)
+          .filter((l) => l.length > 2),
+      )];
+      console.log(`\n--- ${escopo}: ${onusEscopo.length} ONU(s), ${lista.length} vizinho(s) com login (fora o cliente) ---`);
+      if (lista.length < 3) {
+        console.log('   ⚠️  Menos de 3 vizinhos — amostra insuficiente, não conclui.');
+        return null;
+      }
+
+      const amostra = lista.slice(0, 12);
+      const sessoes = await Promise.all(
+        amostra.map((l) => sgp.statusPppoe(l).then((s) => ({ l, s })).catch(() => ({ l, s: undefined }))),
       );
-      if (!logins.length && onus.length) {
-        console.error(
-          '   ↳ As ONUs existem mas vieram SEM login. Rode de novo com DEBUG_ONU=1\n'
-          + '     para ver os campos disponíveis e achar por onde ligar no RADIUS.',
-        );
+      let online = 0, offline = 0, mudo = 0;
+      for (const { l, s } of sessoes) {
+        if (s === undefined || s === null) { mudo++; console.log(`   • ${l}: (RADIUS não respondeu)`); continue; }
+        const on = s.online === true || s.online === 1 || s.online === '1';
+        on ? online++ : offline++;
+        console.log(`   • ${l}: ${on ? 'ONLINE' : 'OFFLINE'}`);
       }
-
-      // A CTO é uma amostra pequena. A PON do cliente costuma ter dezenas de
-      // ONUs e um rompimento na fibra derruba a PON inteira — vale medir.
-      console.log('\n--- Tentando pela PON (amostra maior que a CTO) ---');
-      try {
-        const daOlt = await sgp.onusDaOlt(onu.olt_id);
-        const mesmaPon = daOlt.filter((o) => o.pon === onu.pon && o.slot === onu.slot);
-        const loginsPon = [...new Set(
-          mesmaPon.map((o) => (o.login || o.onu_login || '').trim()).filter((l) => l.length > 2),
-        )];
-        console.log(`   ONUs na OLT: ${daOlt.length} | na PON ${onu.slot}/${onu.pon}: ${mesmaPon.length} | com login: ${loginsPon.length}`);
-        if (process.env.DEBUG_ONU === '1' && mesmaPon.length) {
-          console.log('   exemplo:', JSON.stringify(mesmaPon[0]));
-        }
-      } catch (e) {
-        console.log(`   ⚠️  Falhou: ${e.message}`);
+      const conhecidos = online + offline;
+      console.log(`   📊 online=${online} offline=${offline} sem_resposta=${mudo}`);
+      if (conhecidos < 3) {
+        console.log('   ⚠️  RADIUS respondeu por menos de 3 — não conclui.');
+        return null;
       }
-      return;
+      const pct = Math.round((offline / conhecidos) * 100);
+      console.log(`   📊 ${offline}/${conhecidos} offline = ${pct}% (limiar 60%)`);
+      return { escopo, pct };
     }
 
-    // 5. RADIUS --------------------------------------------------------------
-    const amostra = logins.slice(0, 12);
-    console.log(`\n   Consultando RADIUS para ${amostra.length} vizinho(s)…`);
-    const sessoes = await Promise.all(
-      amostra.map((l) => sgp.statusPppoe(l).then((s) => ({ l, s })).catch(() => ({ l, s: undefined }))),
-    );
-
-    let online = 0, offline = 0, mudo = 0;
-    for (const { l, s } of sessoes) {
-      if (s === undefined || s === null) { mudo++; console.log(`   • ${l}: (RADIUS não respondeu)`); continue; }
-      const on = s.online === true || s.online === 1 || s.online === '1';
-      on ? online++ : offline++;
-      console.log(`   • ${l}: ${on ? 'ONLINE' : 'OFFLINE'}`);
+    let r = await medir(onus, `CTO ${nomeCto}`);
+    if (!r && onu.olt_id != null && onu.pon != null) {
+      const daOlt = await sgp.onusDaOlt(onu.olt_id).catch((e) => {
+        console.log(`   ⚠️  Listar ONUs da OLT falhou: ${e.message}`);
+        return [];
+      });
+      const mesmaPon = daOlt.filter((o) => o.pon === onu.pon && o.slot === onu.slot);
+      console.log(`\n   (OLT tem ${daOlt.length} ONUs no total)`);
+      r = await medir(mesmaPon, `PON ${onu.slot}/${onu.pon}`);
     }
 
-    const conhecidos = online + offline;
-    console.log(`\n📊 online=${online} offline=${offline} sem_resposta=${mudo}`);
-    if (conhecidos < 3) {
-      return console.error('⚠️  RADIUS respondeu por menos de 3 vizinhos — não conclui (chamado liberado).');
+    if (!r) {
+      return console.log('\n✅ Sem amostra suficiente — chamado seria LIBERADO (comportamento seguro).');
     }
-    const pct = Math.round((offline / conhecidos) * 100);
-    console.log(`📊 ${offline}/${conhecidos} offline = ${pct}% (limiar: 60%)`);
     console.log(
-      pct >= 60
-        ? '\n🚨 QUEDA COLETIVA DE CTO — a IA trataria como massiva e NÃO abriria chamado.'
-        : '\n✅ Sem queda coletiva — problema individual, chamado liberado normalmente.',
+      r.pct >= 60
+        ? `\n🚨 QUEDA COLETIVA em ${r.escopo} — a IA trataria como massiva e NÃO abriria chamado.`
+        : `\n✅ Sem queda coletiva em ${r.escopo} — problema individual, chamado liberado.`,
     );
   } catch (err) {
     console.error('❌ Erro:', err && err.message ? err.message : err);

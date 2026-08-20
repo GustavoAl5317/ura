@@ -26,15 +26,29 @@ export interface SgpCto {
   map_ll?: string;
 }
 
-/** ONU vinculada a uma CTO. `login` é a chave para consultar a sessão no RADIUS. */
+/**
+ * ONU vinculada a uma CTO/PON.
+ *
+ * Atenção ao campo certo: `login` e `onu_login` vêm sempre vazios neste SGP —
+ * quem tem o login PPPoE que o RADIUS entende é `service_login`.
+ */
 export interface SgpOnuDaCto {
   id: number;
   login?: string | null;
   onu_login?: string | null;
-  phy_addr?: string;
+  service_login?: string | null;
+  service_id?: number;
+  service_contrato?: number;
   service_cliente?: string;
+  service_status?: number;
+  phy_addr?: string;
   slot?: number;
   pon?: number;
+}
+
+/** Login PPPoE utilizável de uma ONU, na ordem em que este SGP preenche. */
+export function loginDaOnu(o: SgpOnuDaCto): string {
+  return (o.service_login ?? o.login ?? o.onu_login ?? '').trim();
 }
 
 export interface SgpOnu {
