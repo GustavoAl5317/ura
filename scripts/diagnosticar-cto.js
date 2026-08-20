@@ -7,7 +7,7 @@
 // Mostra cada etapa da cadeia (ONU → CTO no cadastro → vizinhos → RADIUS), para
 // saber exatamente ONDE quebra quando não detecta.
 
-const { sgp, loginDaOnu, loginAutogerado } = require('../dist/integrations/sgp');
+const { sgp, loginDaOnu, loginAutogerado, ultimaSessaoEm } = require('../dist/integrations/sgp');
 
 const arg = (process.argv[2] || '').replace(/\D/g, '');
 if (!arg) {
@@ -122,18 +122,30 @@ if (!arg) {
         }
         console.log('   --- fim ---');
       }
-      let online = 0, offline = 0, mudo = 0;
+      const DIA = 24 * 3600 * 1000;
+      let online = 0, offline = 0, mudo = 0, inativo = 0;
       for (const { l, s } of sessoes) {
         if (s === undefined || s === null) { mudo++; console.log(`   • ${l}: (RADIUS não respondeu)`); continue; }
         // Sem o campo `online` não dá para afirmar nada: conta como mudo, não
         // como offline — senão um campo ausente viraria "queda coletiva".
         if (s.online === undefined) { mudo++; console.log(`   • ${l}: (resposta SEM campo "online")`); continue; }
         const on = s.online === true || s.online === 1 || s.online === '1';
-        on ? online++ : offline++;
-        console.log(`   • ${l}: ${on ? 'ONLINE' : 'OFFLINE'}`);
+        if (on) { online++; console.log(`   • ${l}: ONLINE`); continue; }
+
+        // Offline há muito tempo = cancelado/abandonado, não rompimento.
+        const ultima = ultimaSessaoEm(s);
+        const idade = ultima ? Date.now() - ultima : null;
+        if (idade === null || idade > DIA) {
+          inativo++;
+          const quando = ultima ? new Date(ultima).toISOString().slice(0, 10) : 'nunca';
+          console.log(`   • ${l}: OFFLINE mas INATIVO (última sessão: ${quando}) — descartado`);
+          continue;
+        }
+        offline++;
+        console.log(`   • ${l}: OFFLINE há ${Math.round(idade / 3600000)}h — conta como queda`);
       }
       const conhecidos = online + offline;
-      console.log(`   📊 online=${online} offline=${offline} sem_resposta=${mudo}`);
+      console.log(`   📊 online=${online} offline_recente=${offline} inativos=${inativo} sem_resposta=${mudo}`);
       if (conhecidos < 3) {
         console.log('   ⚠️  RADIUS respondeu por menos de 3 — não conclui.');
         return null;

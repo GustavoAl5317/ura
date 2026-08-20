@@ -8,7 +8,7 @@ import { config } from '../config';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { ToolRegistrar } from './registrar';
-import { loginDaOnu, loginAutogerado, type SgpOnuDaCto, type SgpPlano, type SgpTitulo } from '../integrations/sgp';
+import { loginDaOnu, loginAutogerado, ultimaSessaoEm, type SgpOnuDaCto, type SgpRadacct, type SgpPlano, type SgpTitulo } from '../integrations/sgp';
 
 // Remove planos não-comerciais do SGP (revendedores, dedicados, R$0, enterprise)
 const PLANO_LIXO = /dedicad|enterpric|semi[\s_-]?dedicad|provedor|\btelecom\b|brush|gol net|rede br|sigma|tecno link|turbinet|wescley|cybervivo|anali|paulo roberto|supermercado|granja/i;
@@ -20,6 +20,9 @@ const MIN_VIZINHOS_CTO = 3;
 const MAX_VIZINHOS_CONSULTADOS = 12;
 /** A partir de quantos % de vizinhos offline a queda é tratada como coletiva. */
 const PCT_OFFLINE_QUEDA_CTO = 60;
+/** Vizinho sem sessão há mais que isto está offline por conta própria (cancelado,
+ *  mudou-se), não por rompimento — não serve de evidência de queda. */
+const JANELA_QUEDA_RECENTE_MS = 24 * 60 * 60 * 1000;
 
 function limparNomePlano(nome: string | null | undefined): string | null {
   if (!nome) return null;
@@ -766,15 +769,30 @@ export async function quedaColetivaNaCto(ctx: CallContext): Promise<{
     // Só conta quem o RADIUS soube responder COM o campo de status. Sem essa
     // exigência, um SGP que omitisse `online` faria todo mundo parecer offline
     // — viraria queda fantasma bloqueando os chamados de uma PON inteira.
-    const conhecidos = sessoes.filter(
+    const responderam = sessoes.filter(
       (s) => s !== undefined && s !== null && (s as { online?: unknown }).online !== undefined,
-    );
-    if (conhecidos.length < MIN_VIZINHOS_CTO) return null;
+    ) as SgpRadacct[];
 
-    const offline = conhecidos.filter((s) => {
-      const on = (s as { online?: unknown }).online;
-      return !(on === true || on === 1 || on === '1');
-    }).length;
+    const agora = Date.now();
+    const estaOnline = (s: SgpRadacct) => {
+      const on = s.online;
+      return on === true || on === 1 || on === '1';
+    };
+
+    // Vizinho que não conecta há muito tempo (cancelado, mudou-se, abandonou)
+    // está offline por conta própria, não por rompimento. Mantê-lo na conta
+    // faria uma PON com clientes inativos parecer em queda permanente — foi o
+    // que apareceu no teste real: sessões encerradas em 2025 contando como
+    // "queda" em 2026.
+    const relevantes = responderam.filter((s) => {
+      if (estaOnline(s)) return true;
+      const ultima = ultimaSessaoEm(s);
+      return ultima !== null && agora - ultima <= JANELA_QUEDA_RECENTE_MS;
+    });
+    if (relevantes.length < MIN_VIZINHOS_CTO) return null;
+
+    const offline = relevantes.filter((s) => !estaOnline(s)).length;
+    const conhecidos = relevantes;
     return {
       escopo,
       total: conhecidos.length,

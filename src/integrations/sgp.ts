@@ -60,6 +60,31 @@ export function loginDaOnu(o: SgpOnuDaCto): string {
   return (o.service_login ?? o.login ?? o.onu_login ?? '').trim();
 }
 
+/**
+ * Quando esse serviço esteve conectado pela última vez (epoch ms), lido do
+ * histórico `radacct`. Null quando não há registro.
+ *
+ * Serve para separar "caiu agora" de "não conecta há meses": um vizinho cuja
+ * última sessão terminou há mais de um ano está offline por cancelamento ou
+ * abandono, não por rompimento — contá-lo como evidência de queda faria a PON
+ * parecer em falha permanente.
+ */
+export function ultimaSessaoEm(s: SgpRadacct): number | null {
+  const acct = (s as { radacct?: unknown }).radacct;
+  if (!Array.isArray(acct) || !acct.length) return null;
+  let max = 0;
+  for (const r of acct) {
+    if (!r || typeof r !== 'object') continue;
+    for (const campo of ['acctstoptime', 'acctstarttime']) {
+      const v = (r as Record<string, unknown>)[campo];
+      if (typeof v !== 'string' || !v) continue;
+      const t = Date.parse(v);
+      if (Number.isFinite(t) && t > max) max = t;
+    }
+  }
+  return max || null;
+}
+
 export interface SgpOnu {
   id: number;
   serial: string;
