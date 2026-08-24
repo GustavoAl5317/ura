@@ -7,6 +7,8 @@ import ffmpegPath from 'ffmpeg-static';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import crypto from 'crypto';
 import { logger } from '../logger';
 
 function ffmpegBinario(): string {
@@ -30,16 +32,7 @@ function guardarParaDebug(nome: string, dados: Buffer): void {
 }
 
 /**
- * Devolve null se a conversão falhar — quem chama cai no envio como arquivo comum.
- *
- * Sem fixar canal/taxa, o ffmpeg herda o que o navegador gravou e sai ESTÉREO.
- * O WhatsApp aceita subir esse arquivo, mas nota de voz é mono: no iPhone o
- * áudio chegava e não tocava ("Este áudio não está mais disponível"). Daí
- * `-ac 1` (mono) e `-ar 48000` (taxa nativa do Opus — a única que o libopus
- * aceita junto de 24k/16k). `-application voip` otimiza o codec para fala.
- */
-/**
- * Alternativa ao OGG//Opus: AAC em contêiner MP4 (.m4a).
+ * Alternativa ao OGG/Opus: AAC em contêiner MP4 (.m4a).
  *
  * O OGG deveria funcionar (é o formato nativo de nota de voz do WhatsApp) mas,
  * neste ambiente, o áudio toca no WhatsApp Web e o player nativo do iPhone
@@ -50,36 +43,60 @@ function guardarParaDebug(nome: string, dados: Buffer): void {
  */
 export function paraM4aAac(buffer: Buffer): Buffer | null {
   guardarParaDebug('entrada.bin', buffer);
-  const resultado = spawnSync(ffmpegBinario(), [
-    '-hide_banner', '-loglevel', 'error',
-    '-i', 'pipe:0',
-    '-vn',
-    '-map_metadata', '-1',
-    '-ac', '1',
-    '-ar', '44100',                 // taxa que o AAC e o iOS tratam bem
-    '-c:a', 'aac',
-    '-b:a', '64k',
-    // MP4 em pipe exige fragmentação: o contêiner normal precisa voltar ao
-    // início para gravar o índice (moov), o que não dá para fazer em stream.
-    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-    '-f', 'mp4',
-    'pipe:1',
-  ], { input: buffer, maxBuffer: 32 * 1024 * 1024 });
+  // Saída em ARQUIVO, não em pipe. MP4 guarda o índice (moov) que o player usa
+  // para saber onde está cada trecho; escrevendo em stream o ffmpeg não
+  // consegue voltar ao início para gravá-lo e a única alternativa seria MP4
+  // fragmentado — que o WhatsApp não processa (a mensagem nem chegava).
+  const saida = path.join(os.tmpdir(), `ura-audio-${crypto.randomUUID()}.m4a`);
+  try {
+    const resultado = spawnSync(ffmpegBinario(), [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', 'pipe:0',
+      '-vn',
+      '-map_metadata', '-1',
+      '-ac', '1',
+      '-ar', '44100',                 // taxa que o AAC e o iOS tratam bem
+      '-c:a', 'aac',
+      '-b:a', '64k',
+      '-movflags', '+faststart',      // índice no começo do arquivo
+      '-f', 'mp4',
+      '-y', saida,
+    ], { input: buffer, maxBuffer: 32 * 1024 * 1024 });
 
-  if (resultado.status !== 0 || !resultado.stdout?.length) {
-    logger.error('[audio] falha ao converter gravação da atendente para M4A/AAC', {
-      status: resultado.status,
-      err: resultado.stderr?.toString().slice(0, 400) || resultado.error?.message,
+    if (resultado.status !== 0) {
+      logger.error('[audio] falha ao converter gravação da atendente para M4A/AAC', {
+        status: resultado.status,
+        err: resultado.stderr?.toString().slice(0, 400) || resultado.error?.message,
+      });
+      return null;
+    }
+
+    const m4a = fs.readFileSync(saida);
+    if (!m4a.length) {
+      logger.error('[audio] conversão para M4A gerou arquivo vazio');
+      return null;
+    }
+    guardarParaDebug('saida.m4a', m4a);
+    logger.info('[audio] gravação da atendente convertida (m4a)', {
+      entrada: buffer.length, saida: m4a.length,
     });
+    return m4a;
+  } catch (err) {
+    logger.error('[audio] erro ao converter para M4A', { err: String(err) });
     return null;
+  } finally {
+    try { fs.unlinkSync(saida); } catch { /* já removido ou nunca criado */ }
   }
-  guardarParaDebug('saida.m4a', resultado.stdout);
-  logger.info('[audio] gravação da atendente convertida (m4a)', {
-    entrada: buffer.length, saida: resultado.stdout.length,
-  });
-  return resultado.stdout;
 }
 
+/**
+ * Formato nativo de nota de voz do WhatsApp (com forma de onda).
+ *
+ * Devolve null se a conversão falhar — quem chama cai no envio como arquivo comum.
+ * `-ac 1` (mono) e `-ar 48000` (taxa nativa do Opus) porque, sem fixar, o ffmpeg
+ * herda o que o navegador gravou e sai estéreo. `-application voip` otimiza o
+ * codec para fala.
+ */
 export function paraOggOpus(buffer: Buffer): Buffer | null {
   guardarParaDebug('entrada.bin', buffer);
   const resultado = spawnSync(ffmpegBinario(), [
