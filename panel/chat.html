@@ -901,6 +901,13 @@
       if (!$('pEtapa').options.length){
         $('pEtapa').innerHTML = etapasPromo.map(e=>`<option value="${esc(e.valor)}">${esc(e.rotulo)}</option>`).join('');
       }
+      if (!etapasPromo.length){
+        // O HTML é servido direto do disco: um `git pull` sozinho atualiza esta
+        // tela sem atualizar a API. Sem este aviso, o select fica vazio e parece
+        // bug da tela, quando o que falta é `npm run build` + restart.
+        $('pEtapa').innerHTML = '<option value="">— servidor não respondeu as etapas —</option>';
+        toast('O servidor não devolveu as etapas. Falta atualizar o serviço (npm run build + restart).', true);
+      }
       $('pTaxa').textContent = d.taxaVigente === d.taxaPadrao
         ? `Taxa de instalação em vigor: ${d.taxaVigente}`
         : `Taxa PROMOCIONAL em vigor: ${d.taxaVigente} (padrão: ${d.taxaPadrao})`;
@@ -933,7 +940,16 @@
             <button class="mini danger" data-p="${esc(p.id)}" data-a="remover">Remover</button>
           </div></td></tr>`;
       }).join('') : '<tr><td colspan="5" class="hint" style="padding:20px 18px">Nenhuma promoção cadastrada. A IA usa as condições padrão.</td></tr>';
-    }catch(ex){ toast(ex.message,true); }
+    }catch(ex){
+      // Erro fica NA TELA, não só num toast que some: quem abre esta aba e vê
+      // campos vazios precisa saber que o servidor recusou, e por quê.
+      toast(ex.message, true);
+      $('pEtapa').innerHTML = '<option value="">— indisponível —</option>';
+      $('pBody').innerHTML = `<tr><td colspan="5" class="erro" style="margin:14px">
+        Não consegui carregar as promoções: ${esc(ex.message)}<br>
+        Se a aba é nova, o serviço provavelmente ainda não foi atualizado
+        (<code>npm run build</code> e reiniciar).</td></tr>`;
+    }
   }
 
   $('novaP').addEventListener('submit', async (e)=>{
