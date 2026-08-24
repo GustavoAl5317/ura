@@ -19,7 +19,7 @@ import {
   conversasRecentesPainel, detalheConversaPainel,
 } from './repo';
 import { buscarArquivo } from './arquivos';
-import { paraOggOpus } from './audio-transcode';
+import { paraOggOpus, paraM4aAac } from './audio-transcode';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -454,16 +454,20 @@ export async function tratarPainel(
       return true;
     }
 
-    // O navegador grava em webm/opus (ou mp4/aac no Safari) — WhatsApp só
-    // reconhece OGG/Opus como mensagem de voz nativa.
-    const ogg = paraOggOpus(bruto);
-    if (!ogg) {
+    // O navegador grava em webm/opus (ou mp4/aac no Safari) e o WhatsApp não
+    // aceita esses contêineres direto. Converte para o formato configurado:
+    // m4a toca no iPhone, ogg vira nota de voz (ver CHAT_AUDIO_ATENDENTE_FORMATO).
+    const comoOgg = config.chat.audioAtendenteFormato === 'ogg';
+    const convertido = comoOgg ? paraOggOpus(bruto) : paraM4aAac(bruto);
+    if (!convertido) {
       json(res, 500, { ok: false, erro: 'Não consegui converter o áudio. Tente gravar de novo.' });
       return true;
     }
 
     const r = await session.enviarArquivoComoAtendente(
-      { nome: 'audio.ogg', mimetype: 'audio/ogg', buffer: ogg },
+      comoOgg
+        ? { nome: 'audio.ogg', mimetype: 'audio/ogg', buffer: convertido }
+        : { nome: 'audio.m4a', mimetype: 'audio/mp4', buffer: convertido },
       eu.nome,
     );
     if (!r.enviado) {
@@ -471,7 +475,9 @@ export async function tratarPainel(
       json(res, 400, { ok: false, erro: motivoLegivel(r.motivo) });
       return true;
     }
-    logger.info('[painel] áudio enviado', { key, bytes: ogg.length, por: eu.nome });
+    logger.info('[painel] áudio enviado', {
+      key, formato: comoOgg ? 'ogg' : 'm4a', bytes: convertido.length, por: eu.nome,
+    });
     json(res, 200, { ok: true });
     return true;
   }

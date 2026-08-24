@@ -195,6 +195,14 @@ export const config = {
      */
     vozFeminina: opt('CHAT_VOZ_FEMININA', 'coral'),
     vozMasculina: opt('CHAT_VOZ_MASCULINA', 'ash'),
+    /**
+     * Formato do áudio gravado pelo atendente no painel.
+     *   m4a (padrão) → AAC, decodificado nativamente pelo iOS. Aparece como
+     *                  áudio anexado, sem forma de onda de nota de voz.
+     *   ogg          → Opus, formato de nota de voz do WhatsApp. Mais bonito,
+     *                  mas neste ambiente o iPhone recusa reproduzir.
+     */
+    audioAtendenteFormato: opt('CHAT_AUDIO_ATENDENTE_FORMATO', 'm4a') as 'm4a' | 'ogg',
     /** Modelo de transcrição da OpenAI (whisper-1, gpt-4o-mini-transcribe...). */
     transcribeModel: opt('CHAT_TRANSCRIBE_MODEL', 'whisper-1'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),

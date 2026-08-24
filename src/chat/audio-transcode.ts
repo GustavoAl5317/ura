@@ -38,6 +38,48 @@ function guardarParaDebug(nome: string, dados: Buffer): void {
  * `-ac 1` (mono) e `-ar 48000` (taxa nativa do Opus — a única que o libopus
  * aceita junto de 24k/16k). `-application voip` otimiza o codec para fala.
  */
+/**
+ * Alternativa ao OGG//Opus: AAC em contêiner MP4 (.m4a).
+ *
+ * O OGG deveria funcionar (é o formato nativo de nota de voz do WhatsApp) mas,
+ * neste ambiente, o áudio toca no WhatsApp Web e o player nativo do iPhone
+ * recusa com "Este áudio não está mais disponível" — inclusive depois de
+ * corrigir mono/taxa e de declarar `codecs=opus`. AAC é decodificado pelo
+ * próprio iOS, então funciona onde o Opus falha. O custo: aparece como áudio
+ * anexado, sem a forma de onda de mensagem de voz.
+ */
+export function paraM4aAac(buffer: Buffer): Buffer | null {
+  guardarParaDebug('entrada.bin', buffer);
+  const resultado = spawnSync(ffmpegBinario(), [
+    '-hide_banner', '-loglevel', 'error',
+    '-i', 'pipe:0',
+    '-vn',
+    '-map_metadata', '-1',
+    '-ac', '1',
+    '-ar', '44100',                 // taxa que o AAC e o iOS tratam bem
+    '-c:a', 'aac',
+    '-b:a', '64k',
+    // MP4 em pipe exige fragmentação: o contêiner normal precisa voltar ao
+    // início para gravar o índice (moov), o que não dá para fazer em stream.
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+    '-f', 'mp4',
+    'pipe:1',
+  ], { input: buffer, maxBuffer: 32 * 1024 * 1024 });
+
+  if (resultado.status !== 0 || !resultado.stdout?.length) {
+    logger.error('[audio] falha ao converter gravação da atendente para M4A/AAC', {
+      status: resultado.status,
+      err: resultado.stderr?.toString().slice(0, 400) || resultado.error?.message,
+    });
+    return null;
+  }
+  guardarParaDebug('saida.m4a', resultado.stdout);
+  logger.info('[audio] gravação da atendente convertida (m4a)', {
+    entrada: buffer.length, saida: resultado.stdout.length,
+  });
+  return resultado.stdout;
+}
+
 export function paraOggOpus(buffer: Buffer): Buffer | null {
   guardarParaDebug('entrada.bin', buffer);
   const resultado = spawnSync(ffmpegBinario(), [
