@@ -270,6 +270,16 @@ export const config = {
     appLink: opt('COMPANY_APP_LINK', 'https://play.google.com/store/apps/details?id=com.lucz.sz.aquimobile&hl=pt'),
     instagram: opt('COMPANY_INSTAGRAM', '@aquitelecom'),
     endereco: opt('COMPANY_ENDERECO', 'Av. A, 919 - Conj. Ceará, Fortaleza - CE, 60532-260'),
+    /**
+     * Condições comerciais da contratação. Ficam aqui, e não no prompt, porque
+     * preço e prazo mudam e não podem depender de alterar código — e porque a
+     * IA NÃO pode inventá-los: já prometeu "instalação gratuita" a um cliente
+     * quando a taxa é cobrada.
+     */
+    taxaInstalacao: opt('COMPANY_TAXA_INSTALACAO', '60,00'),
+    prazoInstalacao: opt('COMPANY_PRAZO_INSTALACAO', 'até 24 horas úteis'),
+    fidelidade: opt('COMPANY_FIDELIDADE', '12 meses'),
+    formasPagamentoTaxa: opt('COMPANY_PAGAMENTO_TAXA', 'pix ou boleto'),
     googleReviewUrl: opt(
       'COMPANY_GOOGLE_REVIEW_URL',
       'https://google.com/maps/place//data=!4m3!3m2!1s0x7c74c7bb6ad70fd:0xafe6989ac47d4bc0!12e1?source=g.page.m.ad._',
