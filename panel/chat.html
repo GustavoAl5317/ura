@@ -1223,7 +1223,9 @@
           fr.readAsDataURL(blob);
         });
         await api('/api/conversas/'+encodeURIComponent(atual)+'/enviar-audio',{
-          method:'POST', body: JSON.stringify({ base64 }),
+          // Manda o mimeType junto: é o que revela o que o navegador gravou
+          // quando o áudio não toca no aparelho do cliente.
+          method:'POST', body: JSON.stringify({ base64, mimeType: blob.type || '' }),
         });
         toast('Áudio enviado.');
         await carregarDetalhe(true);

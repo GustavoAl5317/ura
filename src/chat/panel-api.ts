@@ -433,6 +433,12 @@ export async function tratarPainel(
     const MAX_AUDIO_BYTES = 8 * 1024 * 1024;                   // mensagem de voz não passa disso
     const body = await lerCorpo(req, Math.ceil(MAX_AUDIO_BYTES * 1.4));
     const base64 = txt(body.base64);
+    // O formato varia com o navegador da atendente (Chrome grava webm/opus,
+    // Safari grava mp4/aac) — saber qual chegou é o que permite reproduzir o
+    // problema quando o áudio não toca no aparelho do cliente.
+    logger.info('[painel] áudio recebido do navegador', {
+      key, mimeType: txt(body.mimeType) || '(não informado)', bytesBase64: base64.length,
+    });
     if (!base64) {
       json(res, 400, { ok: false, erro: 'Gravação vazia. Tente de novo.' });
       return true;

@@ -5,10 +5,28 @@
 
 import ffmpegPath from 'ffmpeg-static';
 import { spawnSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import { logger } from '../logger';
 
 function ffmpegBinario(): string {
   return ffmpegPath || 'ffmpeg';
+}
+
+/**
+ * Com DEBUG_AUDIO=1 guarda a gravação recebida e a convertida em /tmp, para
+ * inspecionar com `ffmpeg -i` quando o áudio não toca no aparelho do cliente.
+ * Sem isso a investigação vira adivinhação — o arquivo some depois do envio.
+ */
+function guardarParaDebug(nome: string, dados: Buffer): void {
+  if (process.env.DEBUG_AUDIO !== '1') return;
+  try {
+    const arquivo = path.join('/tmp', `ura-audio-${Date.now()}-${nome}`);
+    fs.writeFileSync(arquivo, dados);
+    logger.info('[audio] amostra salva para diagnóstico', { arquivo, bytes: dados.length });
+  } catch (err) {
+    logger.warn('[audio] não consegui salvar amostra de debug', { err: String(err) });
+  }
 }
 
 /**
@@ -21,6 +39,7 @@ function ffmpegBinario(): string {
  * aceita junto de 24k/16k). `-application voip` otimiza o codec para fala.
  */
 export function paraOggOpus(buffer: Buffer): Buffer | null {
+  guardarParaDebug('entrada.bin', buffer);
   const resultado = spawnSync(ffmpegBinario(), [
     '-hide_banner', '-loglevel', 'error',
     '-i', 'pipe:0',
@@ -42,6 +61,7 @@ export function paraOggOpus(buffer: Buffer): Buffer | null {
     });
     return null;
   }
+  guardarParaDebug('saida.ogg', resultado.stdout);
   logger.info('[audio] gravação da atendente convertida', {
     entrada: buffer.length, saida: resultado.stdout.length,
   });
