@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
+import { mimetypeParaEnvio } from './whatsapp-cloud';
 
 export type WhatsappMotivo =
   | 'nao_configurado'
@@ -217,7 +218,8 @@ export class WhatsAppClient {
       const res = await this.client.post(`/message/sendMedia/${this.instancePath(instance)}`, {
         number: numero,
         mediatype,
-        mimetype: arq.mimetype,
+        // OGG sem o codec declarado não toca no iPhone — mesma causa da Cloud API.
+        mimetype: mimetypeParaEnvio(arq.mimetype),
         media: arq.buffer.toString('base64'),
         fileName: arq.nome,
         caption: arq.legenda ?? '',
