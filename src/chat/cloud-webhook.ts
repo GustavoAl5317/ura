@@ -85,6 +85,34 @@ interface CloudValue {
   statuses?: unknown[];
 }
 
+/** Status de entrega vindo da Meta (sent/delivered/read/failed). */
+interface CloudStatus {
+  id?: string;
+  status?: string;
+  recipient_id?: string;
+  errors?: Array<{ code?: number; title?: string; message?: string; error_data?: unknown }>;
+}
+
+/**
+ * Registra o que aconteceu com cada mensagem depois de aceita. Só `failed`
+ * vira erro no log: sent/delivered/read são o caminho normal e encheriam o
+ * journal sem acrescentar nada.
+ */
+function registrarStatus(statuses: unknown[]): void {
+  for (const s of statuses as CloudStatus[]) {
+    if (!s || typeof s !== 'object') continue;
+    if (s.status !== 'failed') {
+      logger.debug('[cloud] status de mensagem', { id: s.id, status: s.status });
+      continue;
+    }
+    logger.error('[cloud] MENSAGEM FALHOU na entrega', {
+      messageId: s.id,
+      para: s.recipient_id,
+      erros: JSON.stringify(s.errors ?? []).slice(0, 600),
+    });
+  }
+}
+
 function textoDaMensagem(m: CloudMessage): string {
   return (
     m.text?.body ||
@@ -117,7 +145,12 @@ export async function processarCloudPayload(
       const phoneNumberId = value.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
 
-      // Ignora eventos de status (entregue/lido) — só tratamos mensagens.
+      // Status de entrega: a Meta avisa aqui quando uma mensagem que ela
+      // ACEITOU (devolveu messageId) falhou depois, no processamento ou na
+      // entrega. Sem registrar isto, "o áudio não chega" fica sem explicação —
+      // do nosso lado o envio parece ter dado certo.
+      if (value.statuses?.length) registrarStatus(value.statuses);
+
       if (!value.messages?.length) continue;
 
       // Allowlist de números atendidos.
