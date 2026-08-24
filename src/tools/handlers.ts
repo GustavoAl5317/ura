@@ -922,9 +922,14 @@ function nomeParaConfirmacao(nome: string): { nomeContrato: string; nomeFalado: 
   return { nomeContrato, nomeFalado };
 }
 
-/** Extrai só dígitos do CPF informado (com ou sem pontuação). */
+/** Extrai só dígitos do documento informado (com ou sem pontuação). */
 function cpfDigitos(raw: string): string {
   return raw.replace(/\D/g, '');
+}
+
+/** CPF tem 11 dígitos, CNPJ tem 14 — a base tem cliente pessoa jurídica nos dois formatos. */
+function documentoValido(digitos: string): boolean {
+  return digitos.length === 11 || digitos.length === 14;
 }
 
 function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
@@ -974,7 +979,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const cpfAtual = ctx.cliente ? cpfDigitos(ctx.cliente.cpfcnpj) : '';
     if (
       cpfAtual
-      && digitos.length === 11
+      && documentoValido(digitos)
       && digitos !== cpfAtual
       && args.confirmar_troca !== true
     ) {
@@ -984,21 +989,25 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
         cliente_atual: ctx.cliente?.nome ?? null,
         mensagem:
           `Você já está atendendo ${ctx.cliente?.nome ?? 'este cliente'} nesta conversa e agora `
-          + 'veio um CPF diferente. PERGUNTE ao cliente se ele quer falar sobre OUTRO cadastro '
-          + '(outra casa, outro titular) ou se apenas digitou errado. Só depois do "sim" dele, '
-          + 'chame de novo com confirmar_troca=true. NÃO troque de cadastro por conta própria.',
+          + 'veio um documento diferente. PERGUNTE ao cliente se ele quer falar sobre OUTRO cadastro '
+          + '(outra casa, outro titular, outra empresa) ou se apenas digitou errado. Só depois do '
+          + '"sim" dele, chame de novo com confirmar_troca=true. NÃO troque de cadastro por conta própria.',
       };
     }
 
-    if (digitos.length !== 11) {
+    if (!documentoValido(digitos)) {
       return {
         encontrado: false,
-        erro: 'cpf_invalido',
+        erro: 'documento_invalido',
         digitos_recebidos: digitos.length,
         mensagem:
           digitos.length < 11
-            ? `CPF incompleto: ${digitos.length} dígitos (precisa 11). Confira se expandiu todos os grupos — ex.: "800-669-690-00" = 800 + 669 + 690 + 00 = onze dígitos.`
-            : `CPF com dígitos a mais (${digitos.length}). Confirme com o cliente e tente de novo.`,
+            ? `Documento incompleto: ${digitos.length} dígitos. CPF tem 11 e CNPJ tem 14. `
+              + 'Confira se expandiu todos os grupos — ex.: "800-669-690-00" = 800 + 669 + 690 + 00 = onze dígitos.'
+            : digitos.length < 14
+            ? `Recebi ${digitos.length} dígitos, que não fecha CPF (11) nem CNPJ (14). `
+              + 'Confirme o documento com o cliente e tente de novo.'
+            : `Documento com dígitos a mais (${digitos.length}). Confirme com o cliente e tente de novo.`,
       };
     }
 

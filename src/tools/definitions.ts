@@ -11,7 +11,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        cpf: { type: 'string', description: 'CPF do cliente com exatamente 11 dígitos numéricos, sem pontuação (ex.: "80066969000")' },
+        cpf: { type: 'string', description: 'CPF (11 dígitos) ou CNPJ (14 dígitos) do cliente, só números, sem pontuação (ex.: "80066969000" ou "13783789000146")' },
         confirmar_troca: {
           type: 'boolean',
           description: 'true somente depois de o cliente confirmar que quer falar de OUTRO cadastro.',

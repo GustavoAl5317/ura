@@ -572,6 +572,10 @@ export function resolveCpfInformado(
   const digitosInformado = informado.replace(/\D/g, '');
   const daFala = ultimaFala ? parseCpfFromSpeech(ultimaFala) : null;
 
+  // CNPJ (14 dígitos) é aceito como veio: o parser de fala só sabe montar CPF
+  // (11), então "corrigir" um CNPJ pela fala truncaria o documento.
+  if (digitosInformado.length === 14) return { cpf: digitosInformado, fonte: 'informado' };
+
   if (
     digitosInformado.length === 11 &&
     daFala &&

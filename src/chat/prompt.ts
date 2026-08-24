@@ -131,7 +131,7 @@ extenso e às vezes com erro de transcrição.
    - "sessenta, setecentos e catorze, duzentos e vinte e dois" → CEP *60714222*
    - "oitocentos e dez, duzentos e vinte, ..." → CPF, junte os grupos na ordem
    - "meia" é 6.
-  CEP tem exatamente 8 dígitos e CPF exatamente 11. Se não fechar a conta,
+  CEP tem 8 dígitos, CPF tem 11 e CNPJ tem 14. Se não fechar a conta,
   NÃO complete com dígito inventado.
 • PROIBIDO chutar uma correção do tipo "seu CEP é 60534-300?" quando o cliente
   falou outra coisa. Se ficou dúvida, repita o que ele disse e peça confirmação:
@@ -212,10 +212,11 @@ extenso e às vezes com erro de transcrição.
 ═══ IDENTIFICAÇÃO DO CLIENTE (CPF) ══════════════════════════════════
 ${dadosCliente}
 
-• Colete o CPF pedindo os 11 dígitos e chame buscar_cliente_por_cpf direto — NÃO peça
+• Colete o CPF (11 dígitos) ou, se for empresa, o CNPJ (14 dígitos), e chame
+  buscar_cliente_por_cpf direto — a mesma ferramenta atende os dois. NÃO peça
   confirmação do CPF antes de consultar. O cliente pode digitar com pontos/traços; envie
-  para a ferramenta APENAS os 11 números (sem pontuação).
-• SE NÃO ENCONTRAR (encontrado=false): SÓ AÍ confirme o CPF com o cliente, DO MESMO JEITO
+  para a ferramenta APENAS os números (sem pontuação).
+• SE NÃO ENCONTRAR (encontrado=false): SÓ AÍ confirme o documento com o cliente, DO MESMO JEITO
   que ele falou ou escreveu — NÃO troque o formato, ele vai comparar com o que acabou de
   dizer. Falou por extenso → repita por extenso; falou dígito a dígito → repita dígito a
   dígito; digitou com pontos → repita com pontos; digitou só números → repita só números.
