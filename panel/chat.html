@@ -374,6 +374,7 @@
     <button class="mitem" data-sec="atendimento" aria-current="true">💬<span class="tip">Atendimento</span></button>
     <button class="mitem hidden" data-sec="usuarios" id="mUsuarios">👥<span class="tip">Usuários</span></button>
     <button class="mitem hidden" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
+    <button class="mitem hidden" data-sec="promocoes" id="mPromocoes">🏷️<span class="tip">Promoções</span></button>
     <button class="mitem" data-sec="sgp">🔎<i class="wip"></i><span class="tip">Consulta SGP · em desenvolvimento</span></button>
     <button class="mitem" data-sec="contrato">📄<i class="wip"></i><span class="tip">Contrato · em desenvolvimento</span></button>
     <div class="sep"></div>
@@ -504,6 +505,52 @@
         <div class="modal-body" id="aModalBody"></div>
       </div>
     </div>
+
+    <!-- ── Promoções ── -->
+    <section class="sec" data-sec="promocoes">
+      <div class="page">
+        <header class="page-top">
+          <h2>Promoções</h2>
+          <span class="sub">Mensagens e condições que a IA usa em cada etapa</span>
+          <span class="sub" id="pTaxa" style="margin-left:auto"></span>
+        </header>
+        <div class="page-body">
+          <div class="sheet">
+            <h3>Nova promoção</h3>
+            <form id="novaP">
+              <div class="form-row">
+                <div class="field"><label for="pNome">Nome (interno)</label>
+                  <input id="pNome" placeholder="Ex.: Natal 2026" required></div>
+                <div class="field"><label for="pEtapa">Quando usar</label>
+                  <select id="pEtapa"></select></div>
+                <div class="field"><label for="pInicio">Início (opcional)</label>
+                  <input id="pInicio" type="date"></div>
+                <div class="field"><label for="pFim">Fim (opcional)</label>
+                  <input id="pFim" type="date"></div>
+              </div>
+              <div class="form-row" style="grid-template-columns:2fr 1fr">
+                <div class="field"><label for="pMsg">Mensagem que a IA deve usar</label>
+                  <textarea id="pMsg" rows="3" required
+                    style="width:100%;border:1px solid var(--line-2);border-radius:7px;padding:10px 13px;font-size:14.5px;resize:vertical"
+                    placeholder="Ex.: Nesta semana a taxa de instalação está isenta! 🎉"></textarea></div>
+                <div class="field"><label for="pTaxaNova">Taxa de instalação (opcional)</label>
+                  <input id="pTaxaNova" placeholder="Ex.: isenta, ou 0,00">
+                  <span class="hint" style="display:block;margin-top:6px">Preencha só se esta promoção MUDA o valor da taxa. Em branco = mantém o padrão.</span></div>
+              </div>
+              <div class="form-foot">
+                <button class="primary" type="submit">Adicionar</button>
+                <span class="hint">Sem datas, vale até você desativar.</span>
+              </div>
+            </form>
+          </div>
+          <div class="sheet">
+            <h3>Cadastradas <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="pResumo"></span></h3>
+            <table><thead><tr><th>Promoção</th><th>Quando</th><th>Período</th><th>Situação</th><th></th></tr></thead>
+              <tbody id="pBody"><tr><td colspan="5" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section class="sec" data-sec="sgp">
       <div class="page">
@@ -739,6 +786,7 @@
     document.querySelectorAll('.sec').forEach((s)=>s.dataset.on = String(s.dataset.sec===sec));
     if (sec === 'usuarios') carregarUsuarios();
     if (sec === 'auditoria') carregarAuditoria();
+    if (sec === 'promocoes') carregarPromocoes();
   }
 
   // ── Boot ────────────────────────────────────────────────
@@ -747,7 +795,8 @@
     $('meTip').textContent = `${eu.nome} · sair`;
     $('mUsuarios').classList.toggle('hidden', eu.papel !== 'admin');
     $('mAuditoria').classList.toggle('hidden', eu.papel !== 'admin');
-    if ((secao === 'usuarios' || secao === 'auditoria') && eu.papel !== 'admin') irPara('atendimento');
+    $('mPromocoes').classList.toggle('hidden', eu.papel !== 'admin');
+    if (['usuarios','auditoria','promocoes'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
     tick();
     clearInterval(timer);
     timer = setInterval(tick, 3000);
@@ -840,6 +889,80 @@
       setTimeout(mostrarLogin, 900);
     }catch(ex){ toast(ex.message,true); }
   };
+
+
+  // ── Promoções ───────────────────────────────────────────
+  let etapasPromo = [];
+
+  async function carregarPromocoes(){
+    try{
+      const d = await api('/api/promocoes');
+      etapasPromo = d.etapas || [];
+      if (!$('pEtapa').options.length){
+        $('pEtapa').innerHTML = etapasPromo.map(e=>`<option value="${esc(e.valor)}">${esc(e.rotulo)}</option>`).join('');
+      }
+      $('pTaxa').textContent = d.taxaVigente === d.taxaPadrao
+        ? `Taxa de instalação em vigor: ${d.taxaVigente}`
+        : `Taxa PROMOCIONAL em vigor: ${d.taxaVigente} (padrão: ${d.taxaPadrao})`;
+
+      const rotulo = (v)=> (etapasPromo.find(e=>e.valor===v)||{}).rotulo || v;
+      const dia = (ts)=> ts ? new Date(ts).toLocaleDateString('pt-BR') : null;
+      const agora = Date.now();
+
+      $('pResumo').textContent = `· ${d.promocoes.length} cadastrada(s)`;
+      $('pBody').innerHTML = d.promocoes.length ? d.promocoes.map((p)=>{
+        const venceu = p.fim && agora > p.fim;
+        const naoComecou = p.inicio && agora < p.inicio;
+        const valendo = p.ativa && !venceu && !naoComecou;
+        const situacao = !p.ativa ? '<span class="pill">Desativada</span>'
+          : venceu ? '<span class="pill warn">Período encerrado</span>'
+          : naoComecou ? '<span class="pill">Agendada</span>'
+          : '<span class="pill ok">● Valendo agora</span>';
+        const periodo = (p.inicio || p.fim)
+          ? `${dia(p.inicio)||'—'} até ${dia(p.fim)||'—'}`
+          : '<span class="hint">sem prazo</span>';
+        return `<tr>
+          <td class="urow"><b>${esc(p.nome)}</b>
+            <div class="hint" style="margin-top:4px;max-width:420px">${esc(p.mensagem)}</div>
+            ${p.taxaInstalacao?`<div style="margin-top:5px"><span class="pill warn">taxa: ${esc(p.taxaInstalacao)}</span></div>`:''}</td>
+          <td class="hint">${esc(rotulo(p.etapa))}</td>
+          <td class="hint">${periodo}</td>
+          <td>${situacao}</td>
+          <td><div class="acts">
+            <button class="mini" data-p="${esc(p.id)}" data-a="toggle" data-v="${p.ativa?'0':'1'}">${p.ativa?'Desativar':'Ativar'}</button>
+            <button class="mini danger" data-p="${esc(p.id)}" data-a="remover">Remover</button>
+          </div></td></tr>`;
+      }).join('') : '<tr><td colspan="5" class="hint" style="padding:20px 18px">Nenhuma promoção cadastrada. A IA usa as condições padrão.</td></tr>';
+    }catch(ex){ toast(ex.message,true); }
+  }
+
+  $('novaP').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/promocoes',{method:'POST',body:JSON.stringify({
+        nome:$('pNome').value, etapa:$('pEtapa').value, mensagem:$('pMsg').value,
+        taxaInstalacao:$('pTaxaNova').value, inicio:$('pInicio').value, fim:$('pFim').value })});
+      $('pNome').value=$('pMsg').value=$('pTaxaNova').value=$('pInicio').value=$('pFim').value='';
+      toast('Promoção adicionada. A IA já passa a usar.');
+      carregarPromocoes();
+    }catch(ex){ toast(ex.message,true); }
+  });
+
+  $('pBody').addEventListener('click', async (e)=>{
+    const b = e.target.closest('button[data-p]'); if(!b) return;
+    const id=b.dataset.p, a=b.dataset.a;
+    try{
+      if (a==='toggle'){
+        await api('/api/promocoes/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({ativa:b.dataset.v==='1'})});
+        toast(b.dataset.v==='1'?'Promoção ativada.':'Promoção desativada.');
+      } else {
+        if (!confirm('Remover esta promoção? A IA para de usá-la imediatamente.')) return;
+        await api('/api/promocoes/'+encodeURIComponent(id),{method:'DELETE'});
+        toast('Promoção removida.');
+      }
+      carregarPromocoes();
+    }catch(ex){ toast(ex.message,true); }
+  });
 
   // ── Auditoria ───────────────────────────────────────────
   async function carregarAuditoria(){

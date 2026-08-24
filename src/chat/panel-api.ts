@@ -20,6 +20,10 @@ import {
 } from './repo';
 import { buscarArquivo } from './arquivos';
 import { paraOggOpus, paraM4aAac } from './audio-transcode';
+import {
+  listarPromocoes, criarPromocao, atualizarPromocao, removerPromocao,
+  taxaInstalacaoVigente, ETAPAS, type EtapaPromocao,
+} from './promocoes';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -241,6 +245,75 @@ export async function tratarPainel(
       const n = derrubarSessoes(id);
       json(res, 200, { ok: true, sessoesEncerradas: n });
       return true;
+    }
+
+    json(res, 405, { erro: 'metodo_nao_suportado' });
+    return true;
+  }
+
+  // ── Promoções e campanhas ────────────────────────────────────────────────
+  if (p === '/api/promocoes' || p.startsWith('/api/promocoes/')) {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores cadastram promoções.' });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/promocoes') {
+      json(res, 200, {
+        promocoes: listarPromocoes(),
+        etapas: ETAPAS,
+        taxaPadrao: config.company.taxaInstalacao,
+        taxaVigente: taxaInstalacaoVigente() ?? config.company.taxaInstalacao,
+      });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/promocoes') {
+      const b = await lerCorpo(req);
+      // Datas vêm do <input type="date"> como "AAAA-MM-DD"; o fim inclui o dia
+      // inteiro, senão uma campanha "até dia 25" morreria à meia-noite do dia 25.
+      const dia = (v: unknown, fimDoDia = false): number | null => {
+        const s = txt(v).trim();
+        if (!s) return null;
+        const t = Date.parse(fimDoDia ? `${s}T23:59:59` : `${s}T00:00:00`);
+        return Number.isFinite(t) ? t : null;
+      };
+      const r = criarPromocao({
+        nome: txt(b.nome),
+        etapa: txt(b.etapa) as EtapaPromocao,
+        mensagem: txt(b.mensagem),
+        taxaInstalacao: txt(b.taxaInstalacao) || null,
+        inicio: dia(b.inicio),
+        fim: dia(b.fim, true),
+        criadoPor: eu.nome,
+      });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      logger.info('[painel] promoção criada', { nome: r.promocao.nome, etapa: r.promocao.etapa, por: eu.nome });
+      json(res, 201, { promocao: r.promocao });
+      return true;
+    }
+
+    const mP = /^\/api\/promocoes\/([^/]+)$/.exec(p);
+    if (mP) {
+      const id = decodeURIComponent(mP[1]);
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const r = atualizarPromocao(id, {
+          ativa: typeof b.ativa === 'boolean' ? b.ativa : undefined,
+          mensagem: b.mensagem !== undefined ? txt(b.mensagem) : undefined,
+          taxaInstalacao: b.taxaInstalacao !== undefined ? txt(b.taxaInstalacao) : undefined,
+        });
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        const r = removerPromocao(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        logger.info('[painel] promoção removida', { id, por: eu.nome });
+        json(res, 200, { ok: true });
+        return true;
+      }
     }
 
     json(res, 405, { erro: 'metodo_nao_suportado' });

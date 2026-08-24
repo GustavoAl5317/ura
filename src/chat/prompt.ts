@@ -3,6 +3,7 @@ import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
 import { descricaoHorarioComercial } from '../utils/horario-comercial';
+import { promocoesAtivas, taxaInstalacaoVigente, type Promocao, type EtapaPromocao } from './promocoes';
 
 /**
  * Prompt de sistema do atendente de CHAT (WhatsApp texto). Reaproveita toda a
@@ -23,6 +24,30 @@ export function buildChatSystemPrompt(ctx: CallContext): string {
     ? `\n═══ AVISOS / EVENTOS ATIVOS ══════════════════════════════════
 Informe estes avisos de forma natural nas primeiras mensagens e responda dúvidas sobre eles:
 ${activeEvents.map((e) => `• AVISO: "${e.message}"`).join('\n')}\n`
+    : '';
+
+  // Promoções cadastradas no painel. Falham em silêncio de propósito: sem banco
+  // (URA de voz) o atendimento tem de continuar, só sem campanha.
+  let promocoes: Promocao[] = [];
+  let taxaPromocional: string | null = null;
+  try {
+    promocoes = promocoesAtivas();
+    taxaPromocional = taxaInstalacaoVigente();
+  } catch { /* banco indisponível — segue sem promoções */ }
+
+  const taxaVigente = taxaPromocional ?? config.company.taxaInstalacao;
+  const porEtapa = (etapa: EtapaPromocao) => promocoes.filter((p) => p.etapa === etapa);
+  const blocoEtapa = (etapa: EtapaPromocao, titulo: string) => {
+    const lista = porEtapa(etapa);
+    if (!lista.length) return '';
+    return `\n${titulo}\n${lista.map((p) => `• "${p.mensagem}"`).join('\n')}\n`;
+  };
+
+  const promoSempre = porEtapa('sempre');
+  const promocaoTexto = promoSempre.length
+    ? `\n═══ CAMPANHA ATIVA ══════════════════════════════════════════
+Mencione com naturalidade quando fizer sentido — não force em atendimento técnico urgente:
+${promoSempre.map((p) => `• "${p.mensagem}"`).join('\n')}\n`
     : '';
 
   const dadosCliente = ctx.cliente
@@ -56,7 +81,7 @@ QUANDO pedir o CPF — só depois de entender o motivo do contato:
   return `
 IDIOMA OBRIGATÓRIO: responda SEMPRE em português do Brasil, mesmo que o cliente escreva em outro idioma.
 
-Você é atendente da ${empresa}, provedora de internet fibra óptica, e atende clientes por CHAT no WhatsApp. Seu nome depende da área do atendimento — veja a seção "QUEM ATENDE CADA ASSUNTO".${eventoTexto}
+Você é atendente da ${empresa}, provedora de internet fibra óptica, e atende clientes por CHAT no WhatsApp. Seu nome depende da área do atendimento — veja a seção "QUEM ATENDE CADA ASSUNTO".${eventoTexto}${promocaoTexto}
 
 ═══ IDENTIDADE E TOM ═════════════════════════════════════════════════
 • NUNCA diga que é uma IA, robô, bot ou assistente virtual.
@@ -68,6 +93,7 @@ Você é atendente da ${empresa}, provedora de internet fibra óptica, e atende 
 • Na PRIMEIRA mensagem da conversa, cumprimente sem dizer seu nome ainda:
   "${saudacao}! Aqui é da ${empresa} 😊 Como posso te ajudar?"
 • Depois, vá direto ao ponto. UMA pergunta por vez.
+${blocoEtapa('saudacao', 'PROMOÇÃO PARA A SAUDAÇÃO — inclua na primeira mensagem:')}
 
 ═══ DADOS DA ${empresa.toUpperCase()} (responda direto, sem precisar transferir) ═════
 • Horário de atendimento humano: ${descricaoHorarioComercial()}.
@@ -333,17 +359,20 @@ piora a situação e é o caminho mais curto para perder o cliente de vez.
 • Após viabilidade COM cobertura → informe a disponibilidade JÁ COM AS CONDIÇÕES abaixo, no
   primeiro retorno, e só depois siga para consultar_planos:
   "Tenho disponibilidade em sua região 🥳
-  Para darmos continuidade preciso informar que nosso *prazo para instalação é de ${config.company.prazoInstalacao} após assinatura do contrato e pagamento da taxa de instalação no valor de ${config.company.taxaInstalacao}*, que pode ser pago via ${config.company.formasPagamentoTaxa}, e nossos planos são contrato fidelidade de ${config.company.fidelidade}."
+  Para darmos continuidade preciso informar que nosso *prazo para instalação é de ${config.company.prazoInstalacao} após assinatura do contrato e pagamento da taxa de instalação no valor de ${taxaVigente}*, que pode ser pago via ${config.company.formasPagamentoTaxa}, e nossos planos são contrato fidelidade de ${config.company.fidelidade}."
+${blocoEtapa('viabilidade', 'PROMOÇÃO PARA QUANDO HÁ COBERTURA — inclua junto desta mensagem:')}
 • Depois disso → consultar_planos e apresente os planos retornados (nome e preço
   exatos; não invente). Todos incluem Looke e Looke Kids grátis — mencione.
-
+${blocoEtapa('planos', 'PROMOÇÃO PARA A APRESENTAÇÃO DOS PLANOS — inclua junto:')}
 ⚠ CONDIÇÕES COMERCIAIS — NUNCA INVENTE ⚠
 São só estas, e valem sempre:
-• Taxa de instalação: *${config.company.taxaInstalacao}* (${config.company.formasPagamentoTaxa}).
+• Taxa de instalação: *${taxaVigente}* (${config.company.formasPagamentoTaxa}).${
+  taxaPromocional ? ' ⚠ Valor PROMOCIONAL em vigor — use este, não outro.' : ''}
 • Prazo de instalação: ${config.company.prazoInstalacao} após assinatura do contrato E pagamento da taxa.
 • Fidelidade: contrato de ${config.company.fidelidade}.
-É PROIBIDO dizer que a instalação é grátis, isenta, promocional, "cortesia", que o cliente
-"só paga a partir do segundo mês", ou qualquer prazo/valor/desconto diferente dos acima.
+É PROIBIDO anunciar isenção, gratuidade, desconto, "cortesia", "só paga a partir do segundo mês"
+ou qualquer prazo/valor diferente dos acima — a não ser que esteja escrito nesta seção ou numa
+promoção listada. O que não está aqui, NÃO existe: não deduza nem improvise.
 Se o cliente pedir isenção, desconto, parcelamento da taxa ou prazo menor, você NÃO tem
 autonomia: use transferir_para_atendente com setor="vendas". Prometer condição que a empresa
 não vai cumprir gera cliente irritado na instalação e cancelamento.
@@ -355,6 +384,7 @@ não vai cumprir gera cliente irritado na instalação e cancelamento.
   prosseguir), chame registrar_interesse (nova_assinatura) NA HORA — não adie nem tente "fechar"
   mais detalhes primeiro. O sistema já encaminha automaticamente para a FILA DE ADESÃO e avisa o
   cliente; você não precisa (nem deve) mandar outra mensagem sobre isso depois.
+${blocoEtapa('apos_interesse', 'PROMOÇÃO PARA DEPOIS DE REGISTRAR O INTERESSE — pode mencionar aqui:')}
 
 ═══ TRANSFERÊNCIA PARA HUMANO — FILA DE ATENDIMENTO ═════════════════
 Transfira (transferir_para_atendente) quando pelo menos um destes critérios aparecer com clareza —

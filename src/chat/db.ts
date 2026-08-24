@@ -91,6 +91,22 @@ CREATE TABLE IF NOT EXISTS arquivos (
   criado_em  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_arquivos_conversa ON arquivos(conversa);
+
+-- Promoções e campanhas que a equipe cadastra pelo painel. Entram no prompt da
+-- IA conforme a etapa do atendimento; algumas trocam a taxa de instalação.
+CREATE TABLE IF NOT EXISTS promocoes (
+  id              TEXT PRIMARY KEY,
+  nome            TEXT NOT NULL,
+  etapa           TEXT NOT NULL,
+  mensagem        TEXT NOT NULL,
+  taxa_instalacao TEXT,
+  inicio          INTEGER,
+  fim             INTEGER,
+  ativa           INTEGER NOT NULL DEFAULT 1,
+  criado_em       INTEGER NOT NULL,
+  criado_por      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_promocoes_ativa ON promocoes(ativa, etapa);
 `;
 
 export function db(): SqlDatabase {
