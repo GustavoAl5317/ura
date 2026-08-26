@@ -1223,9 +1223,14 @@
   el.wall.addEventListener('click', async (e)=>{
     const del = e.target.closest('button[data-del]');
     if (del){
-      if (!confirm('Ocultar esta mensagem da conversa?
-
-Ela sai desta tela mas CONTINUA na auditoria. Não é apagada do WhatsApp do cliente — o WhatsApp não permite isso pela API.')) return;
+      // Template literal em vez de aspas simples: a quebra de linha da
+      // confirmação já quebrou o script inteiro uma vez, e script quebrado
+      // aqui derruba até o login (o form volta a submeter nativo).
+      if (!confirm(
+        'Ocultar esta mensagem da conversa?\n\n'
+        + 'Ela sai desta tela mas CONTINUA na auditoria. '
+        + 'Não é apagada do WhatsApp do cliente — o WhatsApp não permite isso pela API.'
+      )) return;
       try{
         await api('/api/conversas/'+encodeURIComponent(atual)+'/eventos/'+del.dataset.del,{method:'DELETE'});
         toast('Mensagem ocultada. Continua na auditoria.');
