@@ -423,6 +423,17 @@ function resolverFaturaIdPriorizandoVencida(
     const maisAtrasada = [...vencidas].sort((a, b) => diasAtrasoEfetivo(b) - diasAtrasoEfetivo(a))[0];
     return maisAtrasada.id ?? maisAtrasada.numeroDocumento;
   }
+
+  // Sem vencida, manda a MAIS PRÓXIMA do vencimento. Antes devolvia a lista
+  // inteira para o cliente escolher — quem pede "meu boleto" quer o próximo a
+  // pagar, não uma lista de todos os meses em aberto para decidir.
+  const aVencer = titulos.filter((t) => !tituloVencido(t));
+  if (aVencer.length > 0) {
+    const maisProxima = [...aVencer].sort(
+      (a, b) => (Date.parse(a.dataVencimento) || Infinity) - (Date.parse(b.dataVencimento) || Infinity),
+    )[0];
+    return maisProxima.id ?? maisProxima.numeroDocumento;
+  }
   return undefined;
 }
 

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
 import { logger } from '../logger';
-import type { ChatSessionStore } from './session';
+import { ocultarMensagem, type ChatSessionStore } from './session';
 import {
   autenticar, login as fazerLogin, logout as encerrarSessao,
   cookieSessao, cookieLimpo, usuarioPublico,
@@ -128,6 +128,20 @@ export async function tratarPainel(
       empresa: config.company.name,
       agente: config.company.agentName,
     });
+    return true;
+  }
+
+  // ── Ocultar uma mensagem da tela de atendimento ──────────────────────────
+  // Some da conversa mas CONTINUA no banco e na auditoria: a trilha não pode
+  // ser destruída. Não apaga do WhatsApp do cliente — a Cloud API não permite.
+  const mOcultar = /^\/api\/conversas\/(.+)\/eventos\/(\d+)$/.exec(p);
+  if (req.method === 'DELETE' && mOcultar) {
+    const chave = decodeURIComponent(mOcultar[1]);
+    const eventoId = Number(mOcultar[2]);
+    const ok = ocultarMensagem(store.find(chave), chave, eventoId);
+    if (!ok) { json(res, 404, { erro: 'Mensagem não encontrada.' }); return true; }
+    logger.info('[painel] mensagem ocultada da conversa', { chave, eventoId, por: eu.nome });
+    json(res, 200, { ok: true });
     return true;
   }
 
@@ -321,11 +335,10 @@ export async function tratarPainel(
   }
 
   // ── Auditoria ────────────────────────────────────────────────────────────
+  // Aberta a TODA a equipe, não só a admin: quem atende precisa ver o histórico
+  // do cliente que acabou de escrever — sem isso, pede de novo tudo o que já foi
+  // dito na conversa anterior. Continua sendo leitura; ninguém apaga nada aqui.
   if (p.startsWith('/api/auditoria')) {
-    if (eu.papel !== 'admin') {
-      json(res, 403, { erro: 'Só administradores acessam a auditoria.' });
-      return true;
-    }
 
     const num = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
     const filtro = {

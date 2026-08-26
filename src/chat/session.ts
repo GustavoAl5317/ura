@@ -21,7 +21,7 @@ import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
@@ -52,6 +52,20 @@ export interface PanelEvent {
   tool?: { name: string; args: Record<string, unknown>; resultado: string };
   /** Documento/imagem trocado nesta mensagem — link de download no painel. */
   arquivo?: { id: string; nome: string; mimetype: string; tamanho: number };
+  /** Ocultado da tela de atendimento. Só a auditoria enxerga. */
+  oculto?: boolean;
+}
+
+/** Some com a mensagem na tela, mantendo o registro para auditoria. */
+export function ocultarMensagem(sessao: ChatSession | undefined, chave: string, eventoId: number): boolean {
+  const ok = ocultarEvento(chave, eventoId);
+  // A sessão viva tem os eventos em memória: sem tirar de lá, a mensagem
+  // voltaria a aparecer no próximo refresh do painel.
+  if (ok && sessao) {
+    const i = sessao.eventos.findIndex((e) => e.id === eventoId);
+    if (i >= 0) sessao.eventos.splice(i, 1);
+  }
+  return ok;
 }
 
 /**

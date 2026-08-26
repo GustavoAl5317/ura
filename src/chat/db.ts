@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS eventos (
   tool_name      TEXT,
   tool_args      TEXT,
   tool_resultado TEXT,
-  arquivo_json   TEXT
+  arquivo_json   TEXT,
+  oculto         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_eventos_conversa ON eventos(conversa, id);
 CREATE INDEX IF NOT EXISTS ix_eventos_ts ON eventos(ts DESC);
@@ -147,6 +148,10 @@ function migrarColunasNovas(): void {
     bd!.exec('ALTER TABLE eventos ADD COLUMN arquivo_json TEXT');
     logger.info('Banco: coluna arquivo_json adicionada em eventos');
   } catch { /* coluna já existe — instalação nova já nasce com ela */ }
+  try {
+    bd!.exec('ALTER TABLE eventos ADD COLUMN oculto INTEGER NOT NULL DEFAULT 0');
+    logger.info('Banco: coluna oculto adicionada em eventos');
+  } catch { /* coluna já existe */ }
 }
 
 /** Traz os usuários do arquivo JSON antigo (versão anterior do painel). */

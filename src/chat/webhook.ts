@@ -95,14 +95,32 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
   let deAudio = false;
 
   // Mensagem de voz: baixa o áudio da Evolution e transcreve para texto.
+  let audioCliente: PanelEvent['arquivo'];
   if (!texto && config.chat.transcribeEnabled && msg.message?.audioMessage) {
     const midia = await whatsapp.obterBase64Midia(msg.key ?? {}, instance);
     if (midia?.base64) {
+      // Guarda o áudio ORIGINAL: a transcrição erra, e a atendente precisa poder
+      // ouvir o que o cliente realmente disse — principalmente em reclamação.
+      try {
+        const buffer = Buffer.from(midia.base64, 'base64');
+        const mimetype = midia.mimetype || msg.message.audioMessage.mimetype || 'audio/ogg';
+        audioCliente = salvarArquivo(
+          `${instance}:${remoteJid}`, 'entrada',
+          `audio-cliente.${extensaoPeloMime(mimetype)}`, mimetype, buffer,
+        );
+      } catch (err) {
+        logger.warn('[chat] não consegui guardar o áudio do cliente', { err: String(err) });
+      }
       texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.message.audioMessage.mimetype)) ?? '';
     }
     if (texto) {
       deAudio = true;
       logger.info(`[chat] 🎙️  [${instance}] ${numero} (áudio): ${texto}`);
+    } else if (audioCliente) {
+      // Transcrição falhou mas o áudio existe: a atendente ainda pode ouvir no
+      // painel, então registra em vez de descartar a mensagem.
+      logger.warn(`[chat] áudio de ${numero} sem transcrição — guardado para ouvir no painel`);
+      deAudio = true;
     } else {
       logger.warn(`[chat] não consegui transcrever o áudio de ${numero}`);
       await whatsapp.enviarTexto(
@@ -132,7 +150,8 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
     }
   }
 
-  if (!texto && !arquivo) return;                              // reação, status etc. — nada útil aqui
+  // Áudio sem transcrição ainda é mensagem: o arquivo existe e a atendente ouve.
+  if (!texto && !arquivo && !audioCliente) return;             // reação, status etc. — nada útil aqui
 
   if (!msg.message?.audioMessage) {
     logger.info(`[chat] ⬇️  [${instance}] ${numero}: ${texto || '(sem texto)'}`);
@@ -142,7 +161,7 @@ async function processarMensagem(msg: EvolutionMessage, instance: string): Promi
   // assumiu a conversa pelo painel.
   const session = store.get(remoteJid, numero, instance);
   try {
-    await session.handle(texto, msg.pushName, { deAudio, arquivo });
+    await session.handle(texto, msg.pushName, { deAudio, arquivo: arquivo ?? audioCliente });
   } catch (err: unknown) {
     logger.error('[chat] erro ao processar mensagem', {
       remoteJid,

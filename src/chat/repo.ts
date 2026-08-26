@@ -131,8 +131,33 @@ function linhaParaEvento(r: Record<string, unknown>): PanelEvent {
 
 export function eventosDaConversa(chave: string, limite = 300): PanelEvent[] {
   return db().prepare(
-    'SELECT * FROM eventos WHERE conversa = ? ORDER BY id DESC LIMIT ?',
+    'SELECT * FROM eventos WHERE conversa = ? AND oculto = 0 ORDER BY id DESC LIMIT ?',
   ).all(chave, limite).map(linhaParaEvento).reverse();
+}
+
+/**
+ * Some com uma mensagem da tela de atendimento SEM apagar o registro: a linha
+ * continua no banco e na auditoria, só deixa de aparecer na conversa. Apagar de
+ * verdade destruiria a trilha de auditoria, que o cliente exigiu preservar.
+ *
+ * Não remove a mensagem do WhatsApp do cliente — a Cloud API da Meta não expõe
+ * endpoint para isso.
+ */
+export function ocultarEvento(chave: string, eventoId: number): boolean {
+  const r = db().prepare('UPDATE eventos SET oculto = 1 WHERE conversa = ? AND id = ?')
+    .run(chave, eventoId);
+  return r.changes > 0;
+}
+
+/** Eventos INCLUINDO os ocultos — a auditoria mostra tudo, marcando o que foi ocultado. */
+export function eventosDaConversaAuditoria(chave: string, limite = 1000): PanelEvent[] {
+  return db().prepare(
+    'SELECT * FROM eventos WHERE conversa = ? ORDER BY id DESC LIMIT ?',
+  ).all(chave, limite).map((r) => {
+    const ev = linhaParaEvento(r);
+    if (Number(r.oculto) === 1) ev.oculto = true;
+    return ev;
+  }).reverse();
 }
 
 /**
@@ -392,7 +417,7 @@ export function conversaDetalheAuditoria(chave: string) {
     encerrada: Number(r.encerrada) === 1,
     iniciadaEm: Number(r.iniciada_em),
     ultimaAtividade: Number(r.ultima_atividade),
-    eventos: eventosDaConversa(chave, 1000),
+    eventos: eventosDaConversaAuditoria(chave, 1000),
   };
 }
 

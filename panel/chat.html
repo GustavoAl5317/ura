@@ -156,6 +156,13 @@
   .fchip i{font-style:normal;font-size:11px;font-variant-numeric:tabular-nums;opacity:.75}
   .fchip[data-fila="atendimento"][aria-pressed="true"],
   .fchip[data-fila="adesao"][aria-pressed="true"]{background:var(--take-soft);color:var(--take);border-color:var(--take-line)}
+  .msg .del{
+    position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;
+    background:#fff;border:1px solid var(--line-2);color:var(--muted);font-size:13px;
+    display:none;place-items:center;box-shadow:0 1px 3px rgba(11,20,26,.18);z-index:2;
+  }
+  .msg:hover .del{display:grid}
+  .msg .del:hover{background:var(--danger-soft);color:var(--danger);border-color:#f3c9c4}
   .tag.alert{background:var(--danger-soft);color:var(--danger)}
   .tag.alert.critico{background:var(--danger);color:#fff;animation:pulse 1s infinite}
   .conv.critico{background:var(--danger-soft)}
@@ -373,7 +380,7 @@
     <div class="mk" id="menuMk">AQ</div>
     <button class="mitem" data-sec="atendimento" aria-current="true">💬<span class="tip">Atendimento</span></button>
     <button class="mitem hidden" data-sec="usuarios" id="mUsuarios">👥<span class="tip">Usuários</span></button>
-    <button class="mitem hidden" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
+    <button class="mitem" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
     <button class="mitem hidden" data-sec="promocoes" id="mPromocoes">🏷️<span class="tip">Promoções</span></button>
     <button class="mitem" data-sec="sgp">🔎<i class="wip"></i><span class="tip">Consulta SGP · em desenvolvimento</span></button>
     <button class="mitem" data-sec="contrato">📄<i class="wip"></i><span class="tip">Contrato · em desenvolvimento</span></button>
@@ -794,9 +801,8 @@
     $('meIni').textContent = iniciais(eu.nome);
     $('meTip').textContent = `${eu.nome} · sair`;
     $('mUsuarios').classList.toggle('hidden', eu.papel !== 'admin');
-    $('mAuditoria').classList.toggle('hidden', eu.papel !== 'admin');
     $('mPromocoes').classList.toggle('hidden', eu.papel !== 'admin');
-    if (['usuarios','auditoria','promocoes'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
+    if (['usuarios','promocoes'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
     tick();
     clearInterval(timer);
     timer = setInterval(tick, 3000);
@@ -1205,15 +1211,28 @@
         ${ab?`<pre><b>enviado</b>\n${esc(args)}\n\n<b>retorno</b>\n${esc(ev.tool.resultado)}</pre>`:''}
       </div>`;
     }
+    const btnDel = `<button class="del" data-del="${ev.id}" title="Ocultar da conversa">×</button>`;
     if (ev.tipo==='cliente')
-      return `<div class="msg left"><div class="bub">${anexo(ev.arquivo)}${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
+      return `<div class="msg left">${btnDel}<div class="bub">${anexo(ev.arquivo)}${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
     const humano = ev.tipo==='atendente';
-    return `<div class="msg right ${humano?'by-human':''}"><div class="bub">
+    return `<div class="msg right ${humano?'by-human':''}">${btnDel}<div class="bub">
       <b class="who">${humano?esc(ev.autor||'Atendente'):'IA'}</b>${anexo(ev.arquivo)}${esc(ev.texto)}
       <span class="time">${hora(ev.ts)}</span></div></div>`;
   }
 
-  el.wall.addEventListener('click',(e)=>{
+  el.wall.addEventListener('click', async (e)=>{
+    const del = e.target.closest('button[data-del]');
+    if (del){
+      if (!confirm('Ocultar esta mensagem da conversa?
+
+Ela sai desta tela mas CONTINUA na auditoria. Não é apagada do WhatsApp do cliente — o WhatsApp não permite isso pela API.')) return;
+      try{
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/eventos/'+del.dataset.del,{method:'DELETE'});
+        toast('Mensagem ocultada. Continua na auditoria.');
+        sigThread=''; await carregarDetalhe(false);
+      }catch(ex){ toast(ex.message,true); }
+      return;
+    }
     const t=e.target.closest('.tool'); if(!t) return;
     const id=Number(t.dataset.id);
     abertos.has(id)?abertos.delete(id):abertos.add(id);

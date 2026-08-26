@@ -183,14 +183,32 @@ async function tratarMensagemCloud(
   let deAudio = false;
 
   // Mensagem de voz: baixa o áudio pela Cloud API e transcreve.
+  let audioCliente: PanelEvent['arquivo'];
   if (!texto && config.chat.transcribeEnabled && msg.type === 'audio' && msg.audio?.id) {
     const midia = await whatsappCloud.baixarMidia(msg.audio.id);
     if (midia?.base64) {
+      // Guarda o áudio ORIGINAL: a transcrição erra, e a atendente precisa poder
+      // ouvir o que o cliente realmente disse — principalmente em reclamação.
+      try {
+        const buffer = Buffer.from(midia.base64, 'base64');
+        const mimetype = midia.mimetype || msg.audio.mime_type || 'audio/ogg';
+        audioCliente = salvarArquivo(
+          `${phoneNumberId}:${remoteJid}`, 'entrada',
+          `audio-cliente.${extensaoPeloMime(mimetype)}`, mimetype, buffer,
+        );
+      } catch (err) {
+        logger.warn('[cloud] não consegui guardar o áudio do cliente', { err: String(err) });
+      }
       texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.audio.mime_type)) ?? '';
     }
     if (texto) {
       deAudio = true;
       logger.info(`[cloud] 🎙️  [${phoneNumberId}] ${numero} (áudio): ${texto}`);
+    } else if (audioCliente) {
+      // Transcrição falhou mas o áudio existe: a atendente ainda pode ouvir no
+      // painel, então registra em vez de descartar a mensagem.
+      logger.warn(`[cloud] áudio de ${numero} sem transcrição — guardado para ouvir no painel`);
+      deAudio = true;
     } else {
       await enviar(numero, 'Recebi seu áudio, mas não consegui entender por aqui 😕 Pode me mandar por escrito, por favor?');
       return;
@@ -215,7 +233,8 @@ async function tratarMensagemCloud(
     }
   }
 
-  if (!texto && !arquivo) return;                        // reação, status etc. — nada útil aqui
+  // Áudio sem transcrição ainda é mensagem: o arquivo existe e a atendente ouve.
+  if (!texto && !arquivo && !audioCliente) return;       // reação, status etc. — nada útil aqui
 
   if (msg.type !== 'audio') {
     logger.info(`[cloud] ⬇️  [${phoneNumberId}] ${numero}: ${texto || '(sem texto)'}`);
@@ -229,7 +248,7 @@ async function tratarMensagemCloud(
   session.enviarAudio = senderAudioCloud(phoneNumberId);
 
   try {
-    await session.handle(texto, pushName, { deAudio, arquivo });
+    await session.handle(texto, pushName, { deAudio, arquivo: arquivo ?? audioCliente });
   } catch (err: unknown) {
     logger.error('[cloud] erro ao processar mensagem', {
       phoneNumberId,
