@@ -389,18 +389,21 @@ function orientacaoFinanceiro(params: {
   if (vencidas.length > 0 && (contratoSuspenso || bloqueioFinanceiro)) {
     orientacao = prefixoSuspensao +
       `Há ${vencidas.length} fatura(s) VENCIDA(s). Informe valor e vencimento da vencida e ` +
-      'ofereça segunda via/PIX (faturas_vencidas[].id). NÃO envie faturas a vencer sem o cliente pedir.';
+      'ofereça segunda via/PIX chamando gerar_segunda_via SEM fatura_id (o sistema pega a mais atrasada). ' +
+      'Envie UMA fatura, não várias. NÃO envie faturas a vencer sem o cliente pedir.';
   } else if (vencidas.length > 0) {
-    orientacao = `Há ${vencidas.length} fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ` +
-      'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.';
+    orientacao = `Há ${vencidas.length} fatura(s) vencida(s). Só ofereça segunda via se o assunto for pagamento, ` +
+      'corte ou suspensão — e nesse caso chame gerar_segunda_via SEM fatura_id, que envia UMA só. ' +
+      'Não liste nem envie faturas a vencer automaticamente.';
   } else if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
     orientacao = prefixoSuspensao +
       'Há fatura(s) em aberto sem data vencida. Explique a suspensão; se o cliente pedir boleto, ' +
-      'liste faturas_a_vencer e use gerar_segunda_via com fatura_id.';
+      'chame gerar_segunda_via SEM fatura_id — o sistema já escolhe a certa. NÃO liste as faturas.';
   } else if (aVencer.length > 0) {
     orientacao = 'Há fatura(s) a vencer, mas NENHUMA vencida. NÃO ofereça boleto automaticamente. ' +
-      'Se o cliente pedir fatura: informe que não há vencida, pergunte qual deseja, ' +
-      'liste faturas_a_vencer (valor e vencimento) e use gerar_segunda_via com fatura_id escolhida.';
+      'Se o cliente PEDIR a fatura: chame gerar_segunda_via SEM fatura_id — o sistema envia a MAIS ' +
+      'PRÓXIMA do vencimento. NÃO liste as faturas nem pergunte qual ele quer: quem pede "meu boleto" ' +
+      'quer o próximo a pagar, não um menu. Só use fatura_id se ele pedir explicitamente outro mês.';
   } else if (contratoSuspenso) {
     orientacao = prefixoSuspensao +
       'Sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
