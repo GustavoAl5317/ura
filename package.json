@@ -12,7 +12,8 @@
     "test:veredito": "ts-node --transpile-only test-veredito.ts",
     "test:espelho": "ts-node --transpile-only test-sgp-index.ts",
     "sync:espelho": "ts-node --transpile-only sync-espelho.ts",
-    "test:voz": "ts-node --transpile-only test-voz.ts"
+    "test:voz": "ts-node --transpile-only test-voz.ts",
+    "test:zabbix": "ts-node --transpile-only test-zabbix-falha.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

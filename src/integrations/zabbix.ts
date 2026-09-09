@@ -199,6 +199,8 @@ export class ZabbixClient {
 
     const vistos = new Set<string>();
     const todos: ZabbixProblem[] = [];
+    let sucessos = 0;
+    let ultimoErro: Error | null = null;
 
     for (const padrao of padroes) {
       const params: Record<string, unknown> = {
@@ -219,6 +221,7 @@ export class ZabbixClient {
 
       try {
         const batch = await this.call<ZabbixProblem[]>('problem.get', params);
+        sucessos++;
         for (const p of batch ?? []) {
           if (!vistos.has(p.eventid)) {
             vistos.add(p.eventid);
@@ -226,8 +229,17 @@ export class ZabbixClient {
           }
         }
       } catch (err: any) {
+        ultimoErro = err instanceof Error ? err : new Error(String(err));
         logger.warn('Zabbix problem.get falhou', { padrao, err: err.message });
       }
+    }
+
+    // Se NENHUM padrão passou, o Zabbix está fora — e devolver lista vazia aqui
+    // faria "não consegui olhar" virar "não há incidente". Foi assim que uma
+    // queda do Zabbix já apareceu como rede saudável: falso negativo silencioso,
+    // tanto para o técnico quanto para o cliente na URA. Falha tem que doer.
+    if (!sucessos && ultimoErro) {
+      throw new Error(`Zabbix inacessível (${padroes.length} consulta(s) falharam): ${ultimoErro.message}`);
     }
 
     return todos.sort((a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10));
@@ -302,6 +314,9 @@ export class ZabbixClient {
 
   private async hostIdsPorNomes(nomes: string[]): Promise<string[]> {
     const ids = new Set<string>();
+    let sucessos = 0;
+    let ultimoErro: Error | null = null;
+
     for (const termo of nomes) {
       if (!termo.trim()) continue;
       try {
@@ -311,11 +326,21 @@ export class ZabbixClient {
           searchWildcardsEnabled: true,
           limit: 20,
         });
+        sucessos++;
         for (const h of hosts ?? []) ids.add(h.hostid);
-      } catch {
-        // ignora host não encontrado
+      } catch (err: unknown) {
+        // Host inexistente NÃO cai aqui: host.get devolve lista vazia sem lançar.
+        // Chegar no catch significa transporte ou autenticação — coisa diferente.
+        ultimoErro = err instanceof Error ? err : new Error(String(err));
       }
     }
+
+    // Mesma armadilha de problemasPorPadroes: devolver [] com o Zabbix fora faz
+    // "não consegui consultar" virar "esse host não tem histórico de queda".
+    if (!sucessos && ultimoErro) {
+      throw new Error(`Zabbix inacessível ao resolver host: ${ultimoErro.message}`);
+    }
+
     return [...ids];
   }
 
