@@ -104,6 +104,75 @@ export interface SgpCliente {
   clienteId?: number;            // preenchido via consultacliente se disponível
 }
 
+// ─── Formato CRU de /api/ura/clientes/ (usado pelo espelho local) ────────────
+// Difere de SgpCliente: aqui é `id` e não `contrato`, e vem muito campo que a
+// URA não usa. Os campos de senha (senha, wifi_password, voip_sip_password,
+// contratoCentralSenha) existem na resposta e são deliberadamente ignorados.
+
+export interface SgpOnuBruta {
+  id?: number;
+  serial?: string;
+  rx?: string | null;
+  tx?: string | null;
+  slot?: number;
+  pon?: number;
+  vlan?: number;
+  olt_id?: number;
+  olt_nome?: string;
+  splitter?: { id?: number; nome?: string; porta?: number } | null;
+  conexao?: {
+    status?: string;
+    ip?: string;
+    data_conexao?: string;
+    data_desconexao?: string;
+  } | null;
+}
+
+export interface SgpServicoBruto {
+  id: number;
+  tipo?: string;
+  status?: string;
+  grupo?: string;
+  login?: string;
+  mac?: string;
+  plano?: { id?: number; descricao?: string };
+  onu?: SgpOnuBruta | null;
+}
+
+export interface SgpContratoBruto {
+  id: number;
+  status?: string;
+  motivo_status?: string;
+  pop_id?: number;
+  vencimento?: number;
+  formaCobranca?: string;
+  dataCadastro?: string;
+  servicos?: SgpServicoBruto[];
+  endereco?: SgpEnderecoBruto;
+}
+
+export interface SgpEnderecoBruto {
+  logradouro?: string;
+  numero?: number | string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  cep?: string;
+  complemento?: string;
+  latitude?: string;
+  longitude?: string;
+}
+
+export interface SgpClienteBruto {
+  id: number;
+  nome: string;
+  cpfcnpj?: string;
+  tipo?: string;
+  dataCadastro?: string;
+  endereco?: SgpEnderecoBruto;
+  contratos?: SgpContratoBruto[];
+}
+
 export interface SgpFatura2via {
   status: number;
   razaoSocial: string;
@@ -263,9 +332,15 @@ export class SgpClient {
     return p;
   }
 
-  private async postForm<T>(path: string, data: Record<string, unknown> = {}): Promise<T | null> {
+  private async postForm<T>(
+    path: string,
+    data: Record<string, unknown> = {},
+    opts?: { timeoutMs?: number },
+  ): Promise<T | null> {
     try {
-      const res = await this.http.post<T>(path, this.formBody(data));
+      const res = await this.http.post<T>(path, this.formBody(data), {
+        ...(opts?.timeoutMs ? { timeout: opts.timeoutMs } : {}),
+      });
       return res.data;
     } catch (err) {
       throw err;
@@ -368,6 +443,34 @@ export class SgpClient {
     };
 
     return cliente;
+  }
+
+  /**
+   * Página crua de /api/ura/clientes/ sem filtro — usada só pelo espelho local
+   * do assistente. Devolve o JSON como o SGP manda (cliente.id / contrato.id),
+   * diferente de SgpCliente, que é o formato já normalizado da URA.
+   *
+   * Atenção ao custo: 35–55 s e ~4,5 MB por página de 100. Não chame em caminho
+   * de atendimento — só no sync noturno. Usa timeout próprio porque
+   * SGP_TIMEOUT_MS (8 s por padrão) é dimensionado para consulta de URA e
+   * derrubaria toda página desta listagem.
+   */
+  async listarPaginaBruta(
+    offset: number,
+    limit: number,
+    timeoutMs = 120_000,
+  ): Promise<{ total: number; clientes: SgpClienteBruto[] } | null> {
+    const r = await this.postForm<{
+      paginacao?: { total?: number };
+      clientes?: SgpClienteBruto[];
+    }>('/api/ura/clientes/', {
+      offset,
+      limit,
+      exibir_conexao: 1,   // traz o bloco conexao (status RADIUS, IP, últimas datas)
+      servicos_dados: 1,
+    }, { timeoutMs });
+    if (!r) return null;
+    return { total: r.paginacao?.total ?? 0, clientes: r.clientes ?? [] };
   }
 
   // ─── Financeiro ────────────────────────────────────────────────────────────

@@ -208,6 +208,74 @@ export const config = {
     chamadoTipoClassificacoes: optInt('CHAMADO_TIPO_CLASSIFICACOES', 5),
   },
 
+  // ── Assistente de observabilidade (Projetos 1 e 2) ──────────────────────────
+  // Roda em processo separado (npm run assistant), compartilhando integrações.
+  assistant: {
+    enabled: optBool('ASSISTANT_ENABLED', false),
+    port: optInt('ASSISTANT_PORT', 9022),
+    /** Modelo de texto com tool calling. Não é o Realtime da URA. */
+    model: opt('ASSISTANT_MODEL', 'gpt-4.1-mini'),
+    temperature: optFloat('ASSISTANT_TEMPERATURE', 0.2),
+    maxTokens: optInt('ASSISTANT_MAX_TOKENS', 1200),
+    /** Máximo de rodadas de ferramenta por pergunta — trava contra loop infinito. */
+    maxToolRounds: optInt('ASSISTANT_MAX_TOOL_ROUNDS', 6),
+    /**
+     * Transcrição do áudio recebido no WhatsApp.
+     * NÃO use whisper-1: o projeto OpenAI da casa não tem acesso a ele (403).
+     * gpt-4o-mini-transcribe é o que está liberado — e é melhor em português.
+     */
+    sttModel: opt('ASSISTANT_STT_MODEL', 'gpt-4o-mini-transcribe-2025-12-15'),
+    /** Voz das respostas em áudio (TTS da OpenAI; reusa ElevenLabs se configurado). */
+    ttsVoice: opt('ASSISTANT_TTS_VOICE', 'nova'),
+    /** Segredo que o Evolution envia no webhook; vazio = sem validação. */
+    webhookSecret: opt('ASSISTANT_WEBHOOK_SECRET', '').trim(),
+    /** Janela de contexto conversacional por técnico (mensagens). */
+    historicoMax: optInt('ASSISTANT_HISTORICO_MAX', 12),
+  },
+
+  // ── Instância Evolution dos TÉCNICOS (separada da instância do cliente) ─────
+  evolutionTecnicos: {
+    apiUrl: opt('EVO_TEC_API_URL', ''),
+    instance: opt('EVO_TEC_INSTANCE', ''),
+    apiKey: opt('EVO_TEC_API_KEY', ''),
+    /** JIDs autorizados (55859xxxx@s.whatsapp.net ou 5585xxxx). Vazio = ninguém. */
+    autorizados: opt('EVO_TEC_AUTORIZADOS', '')
+      .split(',').map((s) => s.trim()).filter(Boolean),
+    /** Grupo que recebe os alertas proativos (nova chamada, SLA, massiva). */
+    grupoAlertas: opt('EVO_TEC_GRUPO_ALERTAS', ''),
+  },
+
+  questdb: {
+    enabled: optBool('QUESTDB_ENABLED', false),
+    /** Endpoint HTTP /exec do QuestDB — ex.: http://10.169.0.30:9000 */
+    baseUrl: opt('QUESTDB_URL', ''),
+    user: opt('QUESTDB_USER', ''),
+    password: opt('QUESTDB_PASSWORD', ''),
+    timeoutMs: optInt('QUESTDB_TIMEOUT_MS', 15_000),
+    /** Tabela de sinais das CTOs. */
+    tabelaSinais: opt('QUESTDB_TABELA_SINAIS', 'cto_sinais'),
+  },
+
+  netflow: {
+    enabled: optBool('NETFLOW_ENABLED', false),
+    /** Sistema próprio em VM separada — adapter HTTP genérico. */
+    baseUrl: opt('NETFLOW_URL', ''),
+    apiKey: opt('NETFLOW_API_KEY', ''),
+    timeoutMs: optInt('NETFLOW_TIMEOUT_MS', 15_000),
+  },
+
+  /** Espelho local da base do SGP — habilita busca por nome, SN, login, CTO. */
+  sgpIndex: {
+    enabled: optBool('SGP_INDEX_ENABLED', true),
+    /** Sync completo leva ~25 min para 3.6k clientes. Padrão: 03:30. */
+    syncHora: optInt('SGP_INDEX_SYNC_HORA', 3),
+    syncMinuto: optInt('SGP_INDEX_SYNC_MINUTO', 30),
+    pageSize: optInt('SGP_INDEX_PAGE_SIZE', 100),
+    /** Pausa entre páginas para não pressionar o SGP. */
+    pausaEntrePaginasMs: optInt('SGP_INDEX_PAUSA_MS', 1_500),
+    syncAoIniciar: optBool('SGP_INDEX_SYNC_BOOT', false),
+  },
+
   debug: {
     tx: optBool('DEBUG_TX'),
     asr: optBool('DEBUG_ASR'),

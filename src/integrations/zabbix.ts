@@ -17,6 +17,20 @@ export interface ZabbixIncidente {
   desde: string;
 }
 
+/** Uma queda no histórico: já resolvida (tem duração) ou ainda em curso. */
+export interface ZabbixQueda {
+  eventid: string;
+  nome: string;
+  severidade: number;
+  host: string;
+  hostVisivel: string;
+  tipo: ZabbixEventoTipo;
+  iniciadoEm: string;
+  resolvidoEm: string | null;
+  duracaoSeg: number | null;
+  emCurso: boolean;
+}
+
 export interface ZabbixDiagnostico {
   temIncidente: boolean;
   /** Incidente confirmado na infraestrutura deste cliente (CTO/OLT/POP dele) */
@@ -217,6 +231,73 @@ export class ZabbixClient {
     }
 
     return todos.sort((a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10));
+  }
+
+  /**
+   * Histórico de eventos de problema numa janela, com duração de cada queda.
+   *
+   * problem.get só enxerga o que está aberto AGORA; para "quantas vezes caiu
+   * hoje e por quanto tempo" é preciso event.get e casar cada problema com seu
+   * evento de recuperação (r_eventid). Evento ainda sem recuperação é queda em
+   * curso — devolvido com resolvidoEm null, e não com duração inventada.
+   */
+  async historicoEventos(
+    termosHost: string[],
+    desdeHoras = 24,
+    limite = 200,
+  ): Promise<ZabbixQueda[]> {
+    const hostids = await this.hostIdsPorNomes(termosHost);
+    if (!hostids.length) return [];
+
+    const desde = Math.floor(Date.now() / 1000) - desdeHoras * 3600;
+
+    const eventos = await this.call<Array<{
+      eventid: string; name: string; severity: string; clock: string;
+      r_eventid?: string;
+      hosts?: Array<{ hostid: string; host: string; name: string }>;
+    }>>('event.get', {
+      output: ['eventid', 'name', 'severity', 'clock', 'r_eventid'],
+      selectHosts: ['hostid', 'host', 'name'],
+      source: 0,          // trigger
+      object: 0,
+      value: 1,           // só PROBLEM (o recovery vem pelo r_eventid)
+      hostids,
+      time_from: desde,
+      sortfield: ['clock'],
+      sortorder: 'DESC',
+      limit: limite,
+    }) ?? [];
+
+    if (!eventos.length) return [];
+
+    // Busca os eventos de recuperação em lote para calcular a duração.
+    const recIds = eventos.map((e) => e.r_eventid).filter((id): id is string => !!id && id !== '0');
+    const recClock = new Map<string, number>();
+    if (recIds.length) {
+      const recs = await this.call<Array<{ eventid: string; clock: string }>>('event.get', {
+        output: ['eventid', 'clock'],
+        eventids: recIds,
+      }) ?? [];
+      for (const r of recs) recClock.set(r.eventid, parseInt(r.clock, 10));
+    }
+
+    return eventos.map((e) => {
+      const inicio = parseInt(e.clock, 10);
+      const fim = e.r_eventid && e.r_eventid !== '0' ? recClock.get(e.r_eventid) ?? null : null;
+      const host = e.hosts?.[0];
+      return {
+        eventid: e.eventid,
+        nome: e.name,
+        severidade: parseInt(e.severity, 10) || 0,
+        host: host?.host ?? '',
+        hostVisivel: host?.name ?? '',
+        tipo: ZabbixClient.classificar(e.name, host?.name ?? ''),
+        iniciadoEm: new Date(inicio * 1000).toISOString(),
+        resolvidoEm: fim ? new Date(fim * 1000).toISOString() : null,
+        duracaoSeg: fim ? fim - inicio : null,
+        emCurso: !fim,
+      };
+    });
   }
 
   private async hostIdsPorNomes(nomes: string[]): Promise<string[]> {

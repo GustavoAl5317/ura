@@ -6,16 +6,24 @@
   "scripts": {
     "dev": "ts-node --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "assistant": "ts-node --transpile-only src/assistant/index.ts",
+    "assistant:start": "node dist/assistant/index.js",
+    "test:veredito": "ts-node --transpile-only test-veredito.ts",
+    "test:espelho": "ts-node --transpile-only test-sgp-index.ts",
+    "sync:espelho": "ts-node --transpile-only sync-espelho.ts",
+    "test:voz": "ts-node --transpile-only test-voz.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^16.4.0",
     "ffmpeg-static": "^5.3.0",
     "winston": "^3.13.0",
     "ws": "^8.17.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
     "ts-node": "^10.9.0",
