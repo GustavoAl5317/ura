@@ -195,12 +195,15 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (statusIndice().sincronizando) return json(res, 409, { error: 'sync_em_andamento' });
     // ?paginas=N limita a carga no SGP (validação / retomada). Sem isso, base toda.
     const maxPaginas = parseInt(url.searchParams.get('paginas') ?? '', 10) || undefined;
-    void sincronizar({ maxPaginas });   // ~25 min completo: não segura o request
+    const retomar = url.searchParams.get('retomar') === '1';
+    void sincronizar({ maxPaginas, retomar });   // ~20 min completo: não segura o request
     return json(res, 202, {
       ok: true,
       aviso: maxPaginas
         ? `sync PARCIAL iniciado (${maxPaginas} página(s)) — o espelho ficará incompleto`
-        : 'sync completo iniciado em segundo plano (~25 min)',
+        : retomar
+          ? 'sync retomado do ponto onde o último falhou'
+          : 'sync completo iniciado em segundo plano (~20 min)',
     });
   }
 

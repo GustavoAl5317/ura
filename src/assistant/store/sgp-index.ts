@@ -255,6 +255,12 @@ export interface OpcoesSync {
    */
   maxPaginas?: number;
   offsetInicial?: number;
+  /**
+   * Continua de onde o último sync parou, em vez de refazer a base inteira.
+   * Só faz sentido depois de uma falha: o sync gasta ~20 min, e recomeçar do
+   * zero por causa de uma página lenta joga fora o que já foi gravado.
+   */
+  retomar?: boolean;
 }
 
 /** Sync completo. ~25 min para 3,6k clientes — rode fora do horário de pico. */
@@ -267,7 +273,16 @@ export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
   const inicio = Date.now();
   const iniciadoEm = new Date().toISOString();
   const limit = config.sgpIndex.pageSize;
+
   let offset = opts.offsetInicial ?? 0;
+  if (opts.retomar && opts.offsetInicial === undefined) {
+    const ultimo = db().prepare(`SELECT offset_atual, ok FROM sgp_sync WHERE id = 1`)
+      .get() as { offset_atual: number | null; ok: number } | undefined;
+    if (ultimo && !ultimo.ok && ultimo.offset_atual) {
+      offset = ultimo.offset_atual;
+      logger.info(`SGP índice: retomando do offset ${offset} (último sync falhou aí)`);
+    }
+  }
   let paginas = 0;
   let totClientes = 0;
   let totServicos = 0;
@@ -284,9 +299,35 @@ export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
 
   logger.info('SGP índice: sync iniciado');
 
+  /**
+   * Busca uma página com retentativa. Uma página lenta não pode custar o sync
+   * inteiro: em produção a página 9 estourou o timeout e derrubou 7 minutos de
+   * trabalho já feito. O SGP é uma consulta pesada e ocasionalmente demora mais.
+   */
+  const buscarPagina = async (off: number) => {
+    let ultimoErro: Error | null = null;
+    for (let tentativa = 1; tentativa <= config.sgpIndex.tentativas; tentativa++) {
+      try {
+        return await sgp.listarPaginaBruta(off, limit, config.sgpIndex.timeoutMs);
+      } catch (err) {
+        ultimoErro = err instanceof Error ? err : new Error(String(err));
+        const espera = tentativa * 10_000;
+        logger.warn(
+          `SGP índice: página offset ${off} falhou (tentativa ${tentativa}/${config.sgpIndex.tentativas})` +
+          `${tentativa < config.sgpIndex.tentativas ? `, nova tentativa em ${espera / 1000}s` : ''}`,
+          { err: ultimoErro.message },
+        );
+        if (tentativa < config.sgpIndex.tentativas) {
+          await new Promise((r) => setTimeout(r, espera));
+        }
+      }
+    }
+    throw ultimoErro ?? new Error('falha desconhecida ao buscar página');
+  };
+
   try {
     for (;;) {
-      const pagina = await sgp.listarPaginaBruta(offset, limit);
+      const pagina = await buscarPagina(offset);
       if (!pagina) throw new Error('SGP devolveu resposta vazia');
 
       total = pagina.total || total;
@@ -298,6 +339,8 @@ export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
       totServicos += r.servicos;
       paginas++;
       offset += limit;
+
+      db().prepare(`UPDATE sgp_sync SET offset_atual = ? WHERE id = 1`).run(offset);
 
       logger.info(
         `SGP índice: ${totClientes}/${total || '?'} clientes (${paginas} pág, ${Math.round((Date.now() - inicio) / 1000)}s)`,

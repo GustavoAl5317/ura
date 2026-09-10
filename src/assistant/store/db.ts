@@ -186,6 +186,23 @@ function migrar(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS ix_auditoria_at ON auditoria(at DESC);
   `);
+
+  // Colunas acrescentadas depois da primeira versão do schema. SQLite não tem
+  // "ADD COLUMN IF NOT EXISTS", então checa antes — bancos já em produção
+  // precisam ganhar a coluna sem perder dado.
+  adicionarColunaSeFaltar(d, 'sgp_sync', 'offset_atual', 'INTEGER');
+}
+
+function adicionarColunaSeFaltar(
+  d: Database.Database,
+  tabela: string,
+  coluna: string,
+  tipo: string,
+): void {
+  const cols = d.prepare(`PRAGMA table_info(${tabela})`).all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === coluna)) return;
+  d.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
+  logger.info(`Assistente: coluna ${tabela}.${coluna} adicionada`);
 }
 
 export function registrarAuditoria(

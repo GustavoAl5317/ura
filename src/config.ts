@@ -271,6 +271,14 @@ export const config = {
     syncHora: optInt('SGP_INDEX_SYNC_HORA', 3),
     syncMinuto: optInt('SGP_INDEX_SYNC_MINUTO', 30),
     pageSize: optInt('SGP_INDEX_PAGE_SIZE', 100),
+    /**
+     * Timeout POR PÁGINA. Alto de propósito: a listagem do SGP é uma consulta
+     * pesada e já estourou 120 s em produção, derrubando o sync inteiro na
+     * página 9 depois de 7 min de trabalho.
+     */
+    timeoutMs: optInt('SGP_INDEX_TIMEOUT_MS', 300_000),
+    /** Tentativas por página antes de desistir do sync. */
+    tentativas: optInt('SGP_INDEX_TENTATIVAS', 3),
     /** Pausa entre páginas para não pressionar o SGP. */
     pausaEntrePaginasMs: optInt('SGP_INDEX_PAUSA_MS', 1_500),
     syncAoIniciar: optBool('SGP_INDEX_SYNC_BOOT', false),
