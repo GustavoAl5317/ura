@@ -48,6 +48,8 @@ interface ZabbixProblem {
   name: string;
   severity: string;
   clock: string;
+  /** ID do trigger que originou o problema — é por ele que se chega ao host. */
+  objectid?: string;
   hosts?: Array<{ hostid: string; host: string; name: string }>;
 }
 
@@ -58,7 +60,13 @@ export class ZabbixClient {
   private requestId = 0;
 
   constructor() {
-    const base = (config.zabbix.baseUrl || '').replace(/\/$/, '').replace(/\/zabbix\.php$/i, '');
+    // Aceita o que a pessoa copiou da barra do navegador: com /index.php,
+    // /zabbix.php, /api_jsonrpc.php ou barra no fim. Errar isso custa uma hora
+    // de "por que não conecta" para ganhar nada.
+    const base = (config.zabbix.baseUrl || '')
+      .trim()
+      .replace(/\/(index|zabbix|api_jsonrpc)\.php\/?$/i, '')
+      .replace(/\/+$/, '');
     const apiUrl = base ? `${base}/api_jsonrpc.php` : '';
     this.http = axios.create({
       baseURL: apiUrl,
@@ -204,10 +212,13 @@ export class ZabbixClient {
 
     for (const padrao of padroes) {
       const params: Record<string, unknown> = {
-        output: ['eventid', 'name', 'severity', 'clock'],
-        selectHosts: ['hostid', 'host', 'name'],
+        // `selectHosts` NÃO existe em problem.get (o Zabbix 7.0 recusa a chamada
+        // inteira). O host vem depois, via trigger.get em cima do objectid.
+        output: ['eventid', 'name', 'severity', 'clock', 'objectid'],
+        // Sem `searchWildcardsEnabled`: com ele ligado o texto precisa casar o
+        // campo INTEIRO, e os padrões da operação são trechos ("CTO", "- OFFLINE").
+        // Por padrão, `search` já faz busca por trecho, que é o que se quer aqui.
         search: { name: padrao },
-        searchWildcardsEnabled: true,
         suppressed: false,
         sortfield: 'eventid',
         sortorder: 'DESC',
@@ -242,6 +253,7 @@ export class ZabbixClient {
       throw new Error(`Zabbix inacessível (${padroes.length} consulta(s) falharam): ${ultimoErro.message}`);
     }
 
+    await this.anexarHosts(todos);
     return todos.sort((a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10));
   }
 
@@ -258,28 +270,58 @@ export class ZabbixClient {
     desdeHoras = 24,
     limite = 200,
   ): Promise<ZabbixQueda[]> {
-    const hostids = await this.hostIdsPorNomes(termosHost);
-    if (!hostids.length) return [];
-
     const desde = Math.floor(Date.now() / 1000) - desdeHoras * 3600;
+    const termos = termosHost.map((t) => t.trim()).filter(Boolean);
+    if (!termos.length) return [];
 
-    const eventos = await this.call<Array<{
+    type EventoBruto = {
       eventid: string; name: string; severity: string; clock: string;
       r_eventid?: string;
       hosts?: Array<{ hostid: string; host: string; name: string }>;
-    }>>('event.get', {
+    };
+
+    const comum = {
       output: ['eventid', 'name', 'severity', 'clock', 'r_eventid'],
-      selectHosts: ['hostid', 'host', 'name'],
+      selectHosts: ['hostid', 'host', 'name'],   // event.get ACEITA (problem.get não)
       source: 0,          // trigger
       object: 0,
       value: 1,           // só PROBLEM (o recovery vem pelo r_eventid)
-      hostids,
       time_from: desde,
       sortfield: ['clock'],
       sortorder: 'DESC',
       limit: limite,
-    }) ?? [];
+    };
 
+    const vistos = new Map<string, EventoBruto>();
+
+    // Caminho 1: o termo é um HOST (OLT, roteador, POP).
+    const hostids = await this.hostIdsPorNomes(termos);
+    if (hostids.length) {
+      const porHost = await this.call<EventoBruto[]>('event.get', { ...comum, hostids }) ?? [];
+      for (const e of porHost) vistos.set(e.eventid, e);
+    }
+
+    // Caminho 2: o termo aparece no NOME DO TRIGGER. É o caso das CTOs, que não
+    // são host nenhum — o alerta é "CTO 3 - Rua Araçá, 194- OFFLINE" no host da
+    // OLT. Sem isto, histórico de queda de CTO volta sempre vazio.
+    for (const termo of termos) {
+      try {
+        const porNome = await this.call<EventoBruto[]>('event.get', {
+          ...comum,
+          search: { name: termo },
+        }) ?? [];
+        for (const e of porNome) vistos.set(e.eventid, e);
+      } catch (err: unknown) {
+        logger.warn('Zabbix event.get por nome falhou', {
+          termo,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const eventos = [...vistos.values()].sort(
+      (a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10),
+    );
     if (!eventos.length) return [];
 
     // Busca os eventos de recuperação em lote para calcular a duração.
@@ -312,6 +354,38 @@ export class ZabbixClient {
     });
   }
 
+  /**
+   * Preenche `hosts` de cada problema resolvendo o trigger que o originou.
+   *
+   * Falha aqui degrada, não derruba: o nome do trigger costuma carregar a CTO
+   * ("CTO 3 - Rua Araçá, 194- OFFLINE"), então a correlação por termo continua
+   * funcionando sem o host. Perder o host é pior resposta; abortar seria pior ainda.
+   */
+  private async anexarHosts(problemas: ZabbixProblem[]): Promise<void> {
+    const triggerIds = [...new Set(problemas.map((p) => p.objectid).filter((id): id is string => !!id))];
+    if (!triggerIds.length) return;
+
+    try {
+      const trigs = await this.call<Array<{
+        triggerid: string;
+        hosts?: Array<{ hostid: string; host: string; name: string }>;
+      }>>('trigger.get', {
+        output: ['triggerid'],
+        triggerids: triggerIds,
+        selectHosts: ['hostid', 'host', 'name'],
+      }) ?? [];
+
+      const porTrigger = new Map(trigs.map((t) => [t.triggerid, t.hosts?.[0]]));
+      for (const p of problemas) {
+        const h = p.objectid ? porTrigger.get(p.objectid) : undefined;
+        if (h) p.hosts = [h];
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn('Zabbix: não consegui resolver o host dos problemas', { err: msg });
+    }
+  }
+
   private async hostIdsPorNomes(nomes: string[]): Promise<string[]> {
     const ids = new Set<string>();
     let sucessos = 0;
@@ -322,8 +396,9 @@ export class ZabbixClient {
       try {
         const hosts = await this.call<Array<{ hostid: string }>>('host.get', {
           output: ['hostid'],
+          // Mesma armadilha de problem.get: com searchWildcardsEnabled ligado e
+          // sem '*', o termo teria que ser o nome inteiro do host.
           search: { name: termo },
-          searchWildcardsEnabled: true,
           limit: 20,
         });
         sucessos++;
