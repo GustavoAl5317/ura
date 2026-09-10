@@ -1,0 +1,43 @@
+# Assistente de Observabilidade — unit do systemd
+#
+# Instalação:
+#   cp docs/ura-assistente.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now ura-assistente
+#
+# ATENÇÃO ao Node: o better-sqlite3 é módulo nativo e o binário instalado é da
+# ABI do Node que rodou o `npm install` (Node 20 nesta VM). Subir com o
+# /opt/node22/bin/node quebraria com "invalid ELF header" ou erro de ABI.
+# Se trocar a versão do Node, refaça o `npm install` antes.
+
+[Unit]
+Description=Assistente de Observabilidade (Aquitelecom)
+Documentation=https://github.com/GustavoAl5317/ura
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ura-assistente
+
+# dotenv lê o .env a partir do WorkingDirectory — não precisa de EnvironmentFile.
+ExecStart=/usr/bin/node dist/assistant/index.js
+
+Restart=always
+RestartSec=10
+# Se cair 5 vezes em 5 min, para de tentar: crash-loop com reinício infinito
+# esconde o problema e ainda martela SGP e Zabbix a cada volta.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ura-assistente
+
+# O sync do espelho é I/O de rede por ~20 min; não deve ser morto por timeout.
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
