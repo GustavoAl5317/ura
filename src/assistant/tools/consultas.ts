@@ -5,7 +5,7 @@
 // preencher a lacuna de cabeça.
 
 import { config } from '../../config';
-import { sgp } from '../../integrations/sgp';
+import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { zabbix, ZabbixClient } from '../../integrations/zabbix';
 import { db } from '../store/db';
 import { buscar, statusIndice, servicosPorCto, idadeEspelho } from '../store/sgp-index';
@@ -64,7 +64,8 @@ const revisaoCliente: Ferramenta = {
   descricao:
     'Revisão completa de UM contrato, cruzando SGP e Zabbix AO VIVO: ONU (SN, RX/TX atuais), ' +
     'status de conexão e última autenticação, CTO/OLT/PON, incidentes que afetam a infraestrutura ' +
-    'dele, histórico de quedas com quantidade e duração, e manutenções programadas. ' +
+    'dele, histórico de quedas com quantidade e duração, ordens de serviço abertas e encerradas, ' +
+    'e manutenções programadas. ' +
     'Exige contrato_id — obtenha antes com localizar_cliente. Cada fonte responde separadamente: ' +
     'se uma falhar, as outras ainda valem, e a que falhou aparece como indisponível.',
   parametros: {
@@ -154,7 +155,37 @@ const revisaoCliente: Ferramenta = {
       );
     }
 
-    // 5. Manutenção programada que possa explicar o problema.
+    // 5. O.S. do cliente — o spec pede abertas E encerradas na revisão, e é o
+    // que responde "já mandaram técnico nisso antes?".
+    envelopes.push(
+      await medir(ctx, 'sgp', 'sgp.os_do_cliente', { contrato_id: contratoId }, async () => {
+        const ocorrencias = await sgp.ocorrenciasDoContrato(contratoId, 50);
+        const ordens = ocorrencias.flatMap((o) => o.ordens_servicos ?? []);
+        const abertas = ordens.filter(osEstaAberta);
+        return {
+          dados: {
+            total_ocorrencias: ocorrencias.length,
+            os_abertas: abertas.length,
+            os_encerradas: ordens.length - abertas.length,
+            abertas: abertas.map((s) => ({
+              id: s.id, status: s.status, motivo: s.motivo,
+              aberta_em: s.data_cadastro, agendada_para: s.data_agendamento || null,
+              responsavel: s.responsavel,
+            })),
+            ultimas_encerradas: ordens
+              .filter((s) => !osEstaAberta(s))
+              .slice(0, 5)
+              .map((s) => ({
+                id: s.id, motivo: s.motivo,
+                aberta_em: s.data_cadastro, finalizada_em: s.data_finalizacao || null,
+              })),
+          },
+          vazio: ocorrencias.length === 0,
+        };
+      }),
+    );
+
+    // 6. Manutenção programada que possa explicar o problema.
     envelopes.push(
       await medir(ctx, 'sgp', 'sgp.manutencoes_ativas', {}, async () => {
         const ms = await sgp.manutencoesAtivas();
@@ -393,6 +424,135 @@ const clientesDaCto: Ferramenta = {
   },
 };
 
+// ─── Ordens de Serviço ───────────────────────────────────────────────────────
+
+const osDoCliente: Ferramenta = {
+  nome: 'os_do_cliente',
+  fonte: 'sgp',
+  descricao:
+    'Ocorrências (chamados) e Ordens de Serviço de UM contrato, abertas e encerradas, com ' +
+    'protocolo, tipo, motivo, datas de abertura/agendamento/finalização, responsável e técnicos. ' +
+    'Exige contrato_id — obtenha antes com localizar_cliente. ' +
+    'O.S. sem data_finalizacao está EM ABERTO. Status possíveis: Aberta, Em execução, Pendente ' +
+    '(as três são abertas) e Encerrada. Use para "tem O.S. aberta?" e para o histórico de ' +
+    'atendimento do cliente.',
+  parametros: {
+    type: 'object',
+    properties: {
+      contrato_id: { type: 'number', description: 'ID do contrato no SGP' },
+      limite: { type: 'number', description: 'Máximo de registros (padrão 100)' },
+    },
+    required: ['contrato_id'],
+  },
+  async executar(args, ctx) {
+    const contratoId = Number(args.contrato_id);
+    const limite = Math.min(300, Number(args.limite) || 100);
+
+    return [
+      await medir(ctx, 'sgp', 'sgp.os_do_cliente', { contrato_id: contratoId }, async () => {
+        const ocorrencias = await sgp.ocorrenciasDoContrato(contratoId, limite);
+        const ordens = ocorrencias.flatMap((o) => o.ordens_servicos ?? []);
+        const abertas = ordens.filter(osEstaAberta);
+
+        return {
+          dados: {
+            contrato_id: contratoId,
+            total_ocorrencias: ocorrencias.length,
+            total_os: ordens.length,
+            os_abertas: abertas.length,
+            os_encerradas: ordens.length - abertas.length,
+            ocorrencias: ocorrencias.map((o) => ({
+              protocolo: o.numero,
+              status: o.status,
+              tipo: o.tipo,
+              metodo: o.metodo,
+              aberta_em: o.data_cadastro,
+              agendada_para: o.data_agendamento || null,
+              finalizada_em: o.data_finalizacao || null,
+              responsavel: o.responsavel,
+              conteudo: o.conteudo,
+              ordens_servico: (o.ordens_servicos ?? []).map((s) => ({
+                id: s.id,
+                status: s.status,
+                em_aberto: osEstaAberta(s),
+                tipo: s.tipo,
+                motivo: s.motivo,
+                aberta_em: s.data_cadastro,
+                agendada_para: s.data_agendamento || null,
+                finalizada_em: s.data_finalizacao || null,
+                responsavel: s.responsavel,
+                tecnicos: s.tecnicos_auxiliares ?? [],
+              })),
+            })),
+          },
+          vazio: ocorrencias.length === 0,
+        };
+      }),
+    ];
+  },
+};
+
+const osAbertasRede: Ferramenta = {
+  nome: 'os_abertas_na_rede',
+  fonte: 'sgp',
+  descricao:
+    'Ordens de Serviço EM ABERTO em toda a operação numa janela recente (padrão 90 dias), ' +
+    'agrupáveis por motivo, POP e responsável. Use para "quantas O.S. estão abertas", ' +
+    '"o que está pendente hoje", carga por técnico. ' +
+    'ATENÇÃO: o SGP não filtra por status, então isto varre a janela por data de cadastro e ' +
+    'separa aqui. Se janela_completa vier false, a lista foi cortada por limite de páginas — ' +
+    'diga que a contagem é parcial em vez de apresentá-la como total.',
+  parametros: {
+    type: 'object',
+    properties: {
+      dias: { type: 'number', description: 'Janela em dias a partir de hoje (padrão 90, máx 365)' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    const dias = Math.min(365, Number(args.dias) || 90);
+
+    return [
+      await medir(ctx, 'sgp', 'sgp.os_abertas_na_rede', { dias }, async () => {
+        const r = await sgp.ordensServicoAbertas(dias);
+        const conta = (campo: (o: SgpOrdemServico) => string | undefined) => {
+          const m: Record<string, number> = {};
+          for (const o of r.abertas) {
+            const k = campo(o) || '(sem informação)';
+            m[k] = (m[k] ?? 0) + 1;
+          }
+          return Object.fromEntries(Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 15));
+        };
+
+        return {
+          dados: {
+            janela_dias: dias,
+            total_abertas: r.abertas.length,
+            os_examinadas: r.examinadas,
+            janela_completa: r.janelaCompleta,
+            por_status: conta((o) => o.status),
+            por_motivo: conta((o) => o.motivo),
+            por_pop: conta((o) => o.pop),
+            por_responsavel: conta((o) => o.responsavel),
+            amostra: r.abertas.slice(0, 20).map((o) => ({
+              id: o.id,
+              cliente: o.cliente,
+              contrato: o.contrato,
+              status: o.status,
+              motivo: o.motivo,
+              aberta_em: o.data_cadastro,
+              agendada_para: o.data_agendamento || null,
+              responsavel: o.responsavel,
+              pop: o.pop,
+            })),
+          },
+          vazio: r.abertas.length === 0,
+        };
+      }),
+    ];
+  },
+};
+
 const manutencoes: Ferramenta = {
   nome: 'manutencoes_programadas',
   fonte: 'sgp',
@@ -420,5 +580,7 @@ export function registrarFerramentas(): void {
     ctosSinalRuim,
     clientesDaCto,
     manutencoes,
+    osDoCliente,
+    osAbertasRede,
   );
 }

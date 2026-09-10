@@ -197,6 +197,75 @@ export interface SgpChamado {
   contratoId: number;
 }
 
+// ─── Ocorrências e Ordens de Serviço ────────────────────────────────────────
+// Endpoints: /api/ura/ocorrencia/list/ e /api/ura/ordemservico/list/
+//
+// Filtros ACEITOS: contrato, data_cadastro_inicio, data_cadastro_fim, limit, offset.
+// Filtros IGNORADOS (a API aceita e devolve tudo mesmo assim): status, status_id,
+// tipo, data_inicio. Filtrar por status tem que ser do nosso lado — não confie
+// em passar `status` e receber só os abertos.
+
+/** Status de O.S. no SGP. `status_id`: 0 aberta, 1 encerrada, 2 em execução, 3 pendente. */
+export type SgpOsStatus = 'Aberta' | 'Encerrada' | 'Em execução' | 'Pendente' | string;
+
+export interface SgpOrdemServico {
+  id: number;
+  cliente: string;
+  contrato: number;
+  contrato_status?: string;
+  /** Número/protocolo da ocorrência que originou a O.S. */
+  ocorrencia?: string;
+  status: SgpOsStatus;
+  status_id: number;
+  data_cadastro: string;
+  hora_cadastro?: string;
+  data_agendamento?: string;
+  hora_agendamento?: string;
+  /** Vazio enquanto a O.S. não fecha. */
+  data_finalizacao?: string;
+  hora_finalizacao?: string;
+  tipo?: string;
+  tipo_id?: number;
+  motivo?: string;
+  pop?: string;
+  conteudo?: string;
+  responsavel?: string;
+  tecnicos_auxiliares?: string[];
+  usuario?: string;
+  usuario_finalizacao?: string;
+  classificacoes?: unknown[];
+}
+
+export interface SgpOcorrencia {
+  id: number;
+  cliente: string;
+  contrato: number;
+  contrato_status?: string;
+  pop?: string;
+  /** Protocolo mostrado ao cliente. */
+  numero: string;
+  status: SgpOsStatus;
+  status_id: number;
+  data_cadastro: string;
+  data_agendamento?: string;
+  data_finalizacao?: string;
+  tipo?: string;
+  metodo?: string;
+  conteudo?: string;
+  responsavel?: string;
+  usuario?: string;
+  usuario_finalizacao?: string;
+  servico?: Array<{ plano?: string; tipo_servico?: string; id?: number }>;
+  comentarios?: unknown[];
+  /** A O.S. vem aninhada: uma chamada traz ocorrência e ordens de uma vez. */
+  ordens_servicos?: SgpOrdemServico[];
+}
+
+/** Uma O.S. está aberta enquanto não foi encerrada. */
+export function osEstaAberta(os: Pick<SgpOrdemServico, 'status' | 'status_id'>): boolean {
+  return os.status_id !== 1;
+}
+
 export interface SgpLiberacao {
   status: number;
   liberado: boolean;
@@ -536,6 +605,80 @@ export class SgpClient {
     );
     // SGP retorna status 1 ou success true em caso de sucesso
     return r?.success === true || r?.status === 1;
+  }
+
+  // ─── Ocorrências e Ordens de Serviço ───────────────────────────────────────
+
+  /**
+   * Ocorrências (chamados) de um contrato, com as ordens de serviço aninhadas.
+   * Uma chamada só resolve "O.S. abertas e encerradas" da revisão de cliente.
+   */
+  async ocorrenciasDoContrato(contratoId: number, limite = 100): Promise<SgpOcorrencia[]> {
+    const r = await this.postForm<{ ocorrencias?: SgpOcorrencia[] }>(
+      '/api/ura/ocorrencia/list/',
+      { contrato: contratoId, limit: limite },
+    );
+    return r?.ocorrencias ?? [];
+  }
+
+  /** Ordens de serviço de um contrato, na forma plana. */
+  async ordensServicoDoContrato(contratoId: number, limite = 100): Promise<SgpOrdemServico[]> {
+    const r = await this.postForm<{ ordens_servicos?: SgpOrdemServico[] }>(
+      '/api/ura/ordemservico/list/',
+      { contrato: contratoId, limit: limite },
+    );
+    return r?.ordens_servicos ?? [];
+  }
+
+  /**
+   * O.S. em aberto numa janela recente.
+   *
+   * A API NÃO filtra por status (aceita o parâmetro e ignora), então a única
+   * forma honesta é recortar por data de cadastro e separar aqui. A janela
+   * existe porque a base tem ~29 mil O.S.: sem recorte, seriam centenas de
+   * páginas para achar algumas dezenas de abertas.
+   */
+  async ordensServicoAbertas(
+    diasJanela = 90,
+    limitePorPagina = 500,
+    maxPaginas = 6,
+  ): Promise<{ abertas: SgpOrdemServico[]; examinadas: number; janelaCompleta: boolean }> {
+    const hoje = new Date();
+    const inicio = new Date(hoje.getTime() - diasJanela * 86_400_000);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+    const abertas: SgpOrdemServico[] = [];
+    let examinadas = 0;
+    let offset = 0;
+    let janelaCompleta = true;
+
+    for (let pagina = 0; pagina < maxPaginas; pagina++) {
+      const r = await this.postForm<{
+        paginacao?: { total?: number };
+        ordens_servicos?: SgpOrdemServico[];
+      }>('/api/ura/ordemservico/list/', {
+        data_cadastro_inicio: iso(inicio),
+        data_cadastro_fim: iso(hoje),
+        limit: limitePorPagina,
+        offset,
+      });
+
+      const lote = r?.ordens_servicos ?? [];
+      if (!lote.length) break;
+
+      examinadas += lote.length;
+      abertas.push(...lote.filter(osEstaAberta));
+      offset += limitePorPagina;
+
+      const total = r?.paginacao?.total ?? 0;
+      if (offset >= total) break;
+      // Estourou o teto de páginas com dados restando: quem chama precisa saber
+      // que a lista está incompleta, senão vira contagem errada apresentada
+      // como definitiva.
+      if (pagina === maxPaginas - 1) janelaCompleta = false;
+    }
+
+    return { abertas, examinadas, janelaCompleta };
   }
 
   // ─── Chamados ──────────────────────────────────────────────────────────────

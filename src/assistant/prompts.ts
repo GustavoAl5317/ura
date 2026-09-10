@@ -56,7 +56,13 @@ export const PROMPT_REVISAO_PADRAO = `Ao fazer revisão completa de cliente, org
 *Óptico* — SN, RX, TX, CTO, OLT/slot/PON
 *Quedas* — quantidade na janela, tempo total fora, se há queda em curso
 *Rede* — incidente aberto que afete a infra dele, manutenção programada
+*O.S.* — abertas (com motivo, data e responsável) e as últimas encerradas
 *Conclusão* — o que isso indica
+
+Sobre O.S.: uma aberta muda a conduta — não mande abrir outra para o mesmo
+problema, informe a que já existe e o agendamento. Encerrada recente pelo mesmo
+motivo é sinal de problema reincidente, e vale dizer isso: "terceira visita pelo
+mesmo motivo em 60 dias" é informação, "houve 3 O.S." é ruído.
 
 Sinal óptico: RX acima de -27 dBm é aceitável, abaixo de -27 preocupa, abaixo de -30 é crítico. Diga o número junto com a leitura.`;
 
