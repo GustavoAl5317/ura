@@ -150,8 +150,66 @@ export class ZabbixClient {
   }
 
   private static normalizarTexto(s: string): string {
-    return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+    return s
+      .normalize('NFD')
+      // Sem isto, "Araçá" e "Araca" nunca casam — e o técnico digita sem acento.
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
+
+  /** Palavras que não distinguem nada em nome de CTO/host. */
+  private static readonly VAZIAS = new Set([
+    'da', 'de', 'do', 'das', 'dos', 'na', 'no', 'nas', 'nos', 'e', 'a', 'o', 'as', 'os',
+    'em', 'para', 'com', 'offline', 'off', 'down', 'queda', 'alerta',
+  ]);
+
+  private static tokens(s: string): string[] {
+    return ZabbixClient.normalizarTexto(s)
+      .split(' ')
+      // Dígito solto CONTA: o número é o que separa "CTO 3" de "CTO 5", e
+      // descartá-lo por ser curto faz uma CTO casar com a vizinha.
+      .filter((t) => (t.length >= 2 || /^\d$/.test(t)) && !ZabbixClient.VAZIAS.has(t));
+  }
+
+  /**
+   * Fração dos termos da busca que aparecem no nome (0 a 1).
+   *
+   * Existe porque SGP e Zabbix escrevem a mesma CTO de formas diferentes
+   * ("CTO 4 RUA 731, 310" vs "CTO 3 - Rua Araçá, 194- OFFLINE"), e o técnico
+   * digita uma terceira ("CTO 3 da Rua Araca"). Comparar string inteira falha
+   * nos três casos; sobreposição de termos resolve.
+   */
+  static semelhanca(termo: string, nome: string): number {
+    const t = ZabbixClient.tokens(termo);
+    if (!t.length) return 0;
+
+    // O número da CTO é decisivo, não é mais um termo qualquer: "CTO 5 da Rua
+    // Araçá" e "CTO 3 - Rua Araçá" dividem quase todas as palavras e são caixas
+    // diferentes. Se os dois lados dizem o número e eles divergem, não é a mesma.
+    const nA = ZabbixClient.numeroDaCto(termo);
+    const nB = ZabbixClient.numeroDaCto(nome);
+    if (nA !== null && nB !== null && nA !== nB) return 0;
+
+    const n = new Set(ZabbixClient.tokens(nome));
+    return t.filter((x) => n.has(x)).length / t.length;
+  }
+
+  private static numeroDaCto(s: string): string | null {
+    const m = ZabbixClient.normalizarTexto(s).match(/\bcto\s+(\d{1,3})\b/);
+    return m?.[1] ?? null;
+  }
+
+  /**
+   * Acima disto, dois nomes são a mesma coisa.
+   *
+   * 0.7 e não 0.6 porque "CTO 3 Rua Nova Jerusalém" contra "CTO 3 - Rua Araçá"
+   * dá exatamente 0.6: mesmo número, rua diferente. Casar isso faria o
+   * assistente relatar queda da CTO errada, com veredito confiante.
+   */
+  static readonly LIMIAR_SEMELHANCA = 0.7;
 
   /** Extrai nome da CTO do texto do trigger. */
   static extrairCtoDoAlerta(nome: string): string | null {
@@ -319,6 +377,48 @@ export class ZabbixClient {
       }
     }
 
+    // Caminho 3: nada casou literalmente. O nome que a pessoa (ou o modelo)
+    // digitou raramente é o nome exato do trigger — "CTO 3 da Rua Araca" contra
+    // "CTO 3 - Rua Araçá, 194- OFFLINE". Varre a janela e casa por sobreposição
+    // de termos. Sem isto, a resposta vira "não houve queda", que é falso.
+    if (!vistos.size) {
+      try {
+        const amplo = await this.call<EventoBruto[]>('event.get', {
+          ...comum,
+          limit: Math.max(limite, 500),
+        }) ?? [];
+        const nomesCasados = new Set<string>();
+        for (const e of amplo) {
+          const melhor = Math.max(...termos.map((t) => ZabbixClient.semelhanca(t, e.name)));
+          if (melhor >= ZabbixClient.LIMIAR_SEMELHANCA) nomesCasados.add(e.name);
+        }
+
+        // A varredura lê só os eventos mais recentes da janela, então serve para
+        // DESCOBRIR o nome — não para contar. Com o nome exato em mãos, refaz a
+        // consulta filtrada, que traz a janela inteira. Sem isto, a contagem sai
+        // truncada sem avisar, que é o mesmo erro de antes com outra roupa.
+        for (const nome of nomesCasados) {
+          const exatos = await this.call<EventoBruto[]>('event.get', {
+            ...comum,
+            search: { name: nome },
+          }) ?? [];
+          for (const e of exatos) vistos.set(e.eventid, e);
+        }
+
+        if (vistos.size) {
+          logger.info('Zabbix: histórico achado por semelhança e recontado pelo nome exato', {
+            termos,
+            nomes: [...nomesCasados],
+            eventos: vistos.size,
+          });
+        }
+      } catch (err: unknown) {
+        logger.warn('Zabbix: varredura por semelhança falhou', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const eventos = [...vistos.values()].sort(
       (a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10),
     );
@@ -352,6 +452,44 @@ export class ZabbixClient {
         emCurso: !fim,
       };
     });
+  }
+
+  /**
+   * Nomes de alerta parecidos com o termo, na janela.
+   *
+   * Serve para transformar "não achei" em "você quis dizer X?". A diferença
+   * importa: consulta vazia por nome errado NÃO é prova de que não houve queda,
+   * e responder "não caiu nenhuma vez" nesse caso é afirmar um fato falso.
+   */
+  async nomesSemelhantes(
+    termo: string,
+    desdeHoras = 720,
+    limite = 5,
+  ): Promise<Array<{ nome: string; ocorrencias: number; semelhanca: number }>> {
+    const desde = Math.floor(Date.now() / 1000) - desdeHoras * 3600;
+    const evs = await this.call<Array<{ name: string }>>('event.get', {
+      output: ['name'],
+      source: 0,
+      object: 0,
+      value: 1,
+      time_from: desde,
+      sortfield: ['clock'],
+      sortorder: 'DESC',
+      limit: 500,
+    }) ?? [];
+
+    const porNome = new Map<string, number>();
+    for (const e of evs) porNome.set(e.name, (porNome.get(e.name) ?? 0) + 1);
+
+    return [...porNome.entries()]
+      .map(([nome, ocorrencias]) => ({
+        nome,
+        ocorrencias,
+        semelhanca: ZabbixClient.semelhanca(termo, nome),
+      }))
+      .filter((x) => x.semelhanca > 0)
+      .sort((a, b) => b.semelhanca - a.semelhanca || b.ocorrencias - a.ocorrencias)
+      .slice(0, limite);
   }
 
   /**

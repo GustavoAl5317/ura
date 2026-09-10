@@ -7,6 +7,7 @@
 // quem opera. As travas de verdade estão em evidence.ts.
 
 import { db, registrarAuditoria } from './store/db';
+import { logger } from '../logger';
 
 export const PROMPT_PRINCIPAL_PADRAO = `Você é o assistente de operação da {EMPRESA}. Fala com TÉCNICOS de campo e do NOC, não com clientes finais. Seja direto e técnico; nada de tom comercial.
 
@@ -19,7 +20,13 @@ Você não sabe nada sobre a rede por conta própria. Todo dado que você afirma
 ## Regras que não se negociam
 
 1. NUNCA invente SN, contrato, endereço, valor de sinal, horário ou contagem. Se a ferramenta não trouxe, o dado não existe para você.
-2. Distinga "não achei" de "a fonte caiu". Se a fonte caiu, diga qual caiu.
+2. Distinga TRÊS coisas que parecem iguais e não são:
+   - "a fonte caiu" → diga qual caiu e que não deu para verificar;
+   - "consultei e não há registro PARA ESTE TERMO" → pode ser nome errado;
+   - "o evento não aconteceu" → só afirme isto quando a consulta cobriu o alvo certo.
+   Consulta vazia NUNCA vira "está tudo bem". Se a ferramenta devolver sugestões de
+   nome parecido, o nome usado estava errado: mostre as opções e pergunte qual é,
+   em vez de responder que não houve ocorrência.
 3. Dado do espelho local (campo "origem" citando sync) é FOTO, não tempo real. Ao usar, diga a idade. Para valor atual de um cliente, chame revisao_cliente.
 4. Quando localizar_cliente devolver casouPor "texto", pode ser homônimo. Liste os candidatos e pergunte qual é, em vez de escolher por conta.
 5. Cite a evidência que sustenta cada afirmação usando o rótulo dela (evd_1, evd_2…). Não invente rótulo: só existem os que as ferramentas devolveram.
@@ -69,16 +76,48 @@ const SEMENTES: Record<string, string> = {
   revisao: PROMPT_REVISAO_PADRAO,
 };
 
-/** Cria a versão 1 de cada prompt que ainda não existe no banco. */
+/**
+ * Semeia os prompts e mantém a semente atualizada entre deploys.
+ *
+ * Regra: se a versão ativa foi escrita pelo SISTEMA e o código mudou, cria uma
+ * versão nova automaticamente. Se alguém editou pelo painel, NÃO mexe — a
+ * edição do operador vence o código, senão o deploy apagaria o ajuste dele em
+ * silêncio. A versão anterior fica no banco nos dois casos, para rollback.
+ */
 export function semearPrompts(): void {
   const d = db();
-  const existe = d.prepare(`SELECT 1 FROM prompt WHERE chave = ? LIMIT 1`);
+  const agora = new Date().toISOString();
+
+  const ativo = d.prepare(
+    `SELECT versao, conteudo, autor FROM prompt WHERE chave = ? AND ativo = 1
+     ORDER BY versao DESC LIMIT 1`,
+  );
+  const maxVersao = d.prepare(`SELECT COALESCE(MAX(versao), 0) v FROM prompt WHERE chave = ?`);
+  const desativar = d.prepare(`UPDATE prompt SET ativo = 0 WHERE chave = ?`);
   const inserir = d.prepare(
     `INSERT INTO prompt (chave, versao, conteudo, ativo, autor, nota, criado_em)
-     VALUES (?, 1, ?, 1, 'sistema', 'semente inicial do código', ?)`,
+     VALUES (?, ?, ?, 1, 'sistema', ?, ?)`,
   );
+
   for (const [chave, conteudo] of Object.entries(SEMENTES)) {
-    if (!existe.get(chave)) inserir.run(chave, conteudo, new Date().toISOString());
+    const atual = ativo.get(chave) as
+      | { versao: number; conteudo: string; autor: string | null }
+      | undefined;
+
+    if (!atual) {
+      inserir.run(chave, 1, conteudo, 'semente inicial do código', agora);
+      continue;
+    }
+
+    if (atual.autor !== 'sistema') continue;          // editado no painel — respeita
+    if (atual.conteudo === conteudo) continue;        // já está igual ao código
+
+    const proxima = (maxVersao.get(chave) as { v: number }).v + 1;
+    d.transaction(() => {
+      desativar.run(chave);
+      inserir.run(chave, proxima, conteudo, 'semente atualizada pelo código', agora);
+    })();
+    logger.info(`Assistente: prompt "${chave}" atualizado para v${proxima} pela semente do código`);
   }
 }
 

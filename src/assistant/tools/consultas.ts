@@ -219,7 +219,11 @@ const zabbixHistorico: Ferramenta = {
   descricao:
     'Histórico de quedas de um host/CTO/OLT numa janela de horas, com quantidade, duração de ' +
     'cada uma e tempo total de indisponibilidade. Queda ainda em curso vem com duração nula — ' +
-    'nunca some duração de evento em curso como se estivesse fechado.',
+    'nunca some duração de evento em curso como se estivesse fechado. ' +
+    'CRÍTICO: se vier total_quedas 0 COM o campo "sugestoes" preenchido, o nome usado na busca ' +
+    'não existe no Zabbix — NÃO responda "não houve queda". Diga que não encontrou esse nome, ' +
+    'mostre as sugestões e pergunte qual é. Só afirme ausência de queda quando "sugestoes" ' +
+    'vier vazio, e mesmo assim diga que é ausência de registro para o termo consultado.',
   parametros: {
     type: 'object',
     properties: {
@@ -233,9 +237,32 @@ const zabbixHistorico: Ferramenta = {
     const horas = Math.min(720, Number(args.horas) || 24);
 
     return [
-      await medir(ctx, 'zabbix', 'zabbix.historico_quedas', { alvo, horas }, async () => {
+      // Genérico explícito: os dois caminhos (com quedas e sem) devolvem formatos
+      // diferentes de `dados`, e a inferência trava no primeiro que enxerga.
+      await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.historico_quedas', { alvo, horas }, async () => {
         if (!config.zabbix.enabled) throw new Error('Zabbix desabilitado na configuração');
         const quedas = await zabbix.historicoEventos([alvo], horas);
+
+        // Zero quedas é ambíguo: pode ser rede saudável ou nome errado. Só dá
+        // para afirmar ausência depois de conferir que o nome sequer existe.
+        if (!quedas.length) {
+          const sugestoes = await zabbix.nomesSemelhantes(alvo, horas);
+          return {
+            dados: {
+              alvo,
+              janela_horas: horas,
+              total_quedas: 0,
+              sugestoes,
+              interpretacao: sugestoes.length
+                ? 'NENHUM alerta com esse nome foi encontrado, mas existem nomes parecidos. ' +
+                  'Isso indica nome errado na busca, NÃO ausência de queda. Pergunte qual é o certo.'
+                : 'Nenhum alerta com esse nome nem parecido na janela. Ausência de REGISTRO ' +
+                  'para o termo consultado — diga isso, e não "a rede está boa".',
+            },
+            vazio: true,
+          };
+        }
+
         const resolvidas = quedas.filter((q) => q.duracaoSeg !== null);
         const somaSeg = resolvidas.reduce((a, q) => a + (q.duracaoSeg ?? 0), 0);
         return {
@@ -247,7 +274,6 @@ const zabbixHistorico: Ferramenta = {
             indisponibilidade_total_seg: somaSeg,
             quedas,
           },
-          vazio: quedas.length === 0,
         };
       }),
     ];
