@@ -191,6 +191,11 @@ function migrar(d: Database.Database): void {
   // "ADD COLUMN IF NOT EXISTS", então checa antes — bancos já em produção
   // precisam ganhar a coluna sem perder dado.
   adicionarColunaSeFaltar(d, 'sgp_sync', 'offset_atual', 'INTEGER');
+  // Trava entre PROCESSOS. A flag em memória só valia dentro de um processo, e
+  // o sync pode ser disparado por CLI, pela API e pelo agendador — em produção
+  // dois rodaram juntos, duplicando ~20 min de trabalho no mesmo banco.
+  adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
+  adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
 }
 
 function adicionarColunaSeFaltar(

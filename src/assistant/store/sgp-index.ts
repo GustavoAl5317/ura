@@ -263,11 +263,68 @@ export interface OpcoesSync {
   retomar?: boolean;
 }
 
-/** Sync completo. ~25 min para 3,6k clientes — rode fora do horário de pico. */
+/** Trava considerada abandonada depois disto (o sync inteiro leva ~20 min). */
+const LOCK_EXPIRA_MS = 90 * 60_000;
+
+/**
+ * Trava de sync entre PROCESSOS.
+ *
+ * A flag `sincronizando` em memória só vale dentro de um processo, e o sync pode
+ * ser disparado pelo CLI, pela API e pelo agendador. Em produção dois rodaram
+ * juntos e duplicaram 20 min de trabalho no mesmo banco. Aqui a trava vive na
+ * tabela, com PID e horário: se o dono morreu ou a trava envelheceu, é tomada.
+ */
+function tentarTravar(): { ok: true } | { ok: false; dono: number; desde: string } {
+  const d = db();
+  const atual = d.prepare(`SELECT lock_pid, lock_em FROM sgp_sync WHERE id = 1`)
+    .get() as { lock_pid: number | null; lock_em: string | null } | undefined;
+
+  if (atual?.lock_pid && atual.lock_em) {
+    const idade = Date.now() - new Date(atual.lock_em).getTime();
+    let donoVivo = false;
+    try {
+      // Sinal 0 não mata: só pergunta se o processo existe.
+      process.kill(atual.lock_pid, 0);
+      donoVivo = true;
+    } catch {
+      donoVivo = false;   // morreu sem liberar (kill -9, queda da VM)
+    }
+    if (donoVivo && idade < LOCK_EXPIRA_MS && atual.lock_pid !== process.pid) {
+      return { ok: false, dono: atual.lock_pid, desde: atual.lock_em };
+    }
+    if (!donoVivo) {
+      logger.warn(`SGP índice: trava órfã do PID ${atual.lock_pid} — assumindo`);
+    }
+  }
+
+  d.prepare(
+    `INSERT INTO sgp_sync (id, lock_pid, lock_em) VALUES (1, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET lock_pid = excluded.lock_pid, lock_em = excluded.lock_em`,
+  ).run(process.pid, new Date().toISOString());
+  return { ok: true };
+}
+
+function liberarTrava(): void {
+  try {
+    db().prepare(`UPDATE sgp_sync SET lock_pid = NULL, lock_em = NULL WHERE id = 1`).run();
+  } catch {
+    // Falhar ao liberar não pode derrubar o sync; a trava expira sozinha.
+  }
+}
+
+/** Sync completo. ~20 min para 3,6k clientes — rode fora do horário de pico. */
 export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
   if (sincronizando) {
     return { ok: false, parcial: false, paginas: 0, clientes: 0, servicos: 0, duracaoMs: 0, erro: 'sync_em_andamento' };
   }
+
+  const trava = tentarTravar();
+  if (!trava.ok) {
+    const msg = `outro processo (PID ${trava.dono}) já está sincronizando desde ${trava.desde}`;
+    logger.warn(`SGP índice: ${msg}`);
+    return { ok: false, parcial: false, paginas: 0, clientes: 0, servicos: 0, duracaoMs: 0, erro: msg };
+  }
+
   sincronizando = true;
 
   const inicio = Date.now();
@@ -291,11 +348,11 @@ export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
   let erro: string | undefined;
 
   db().prepare(
-    `INSERT INTO sgp_sync (id, iniciado_em, concluido_em, paginas, clientes, servicos, ok, erro)
-     VALUES (1,?,NULL,0,0,0,0,NULL)
+    `INSERT INTO sgp_sync (id, iniciado_em, concluido_em, paginas, clientes, servicos, ok, erro, lock_pid, lock_em)
+     VALUES (1,?,NULL,0,0,0,0,NULL,?,?)
      ON CONFLICT(id) DO UPDATE SET iniciado_em=excluded.iniciado_em,
        concluido_em=NULL, paginas=0, clientes=0, servicos=0, ok=0, erro=NULL`,
-  ).run(iniciadoEm);
+  ).run(iniciadoEm, process.pid, new Date().toISOString());
 
   logger.info('SGP índice: sync iniciado');
 
@@ -371,6 +428,7 @@ export async function sincronizar(opts: OpcoesSync = {}): Promise<ResumoSync> {
   );
 
   sincronizando = false;
+  liberarTrava();
 
   if (!erro) {
     logger.info(
