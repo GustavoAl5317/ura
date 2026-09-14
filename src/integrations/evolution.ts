@@ -180,6 +180,34 @@ export class EvolutionClient {
     }
   }
 
+  /**
+   * Conversas da instância (POST /chat/findChats). LANÇA em erro, ao contrário
+   * dos métodos de envio: o monitor de SLA precisa distinguir "não há conversa
+   * esperando" de "não consegui ler as conversas".
+   */
+  async buscarConversas(): Promise<unknown[]> {
+    if (!this.disponivel) throw new Error(`${this.rotulo}: instância não configurada`);
+    const res = await this.client.post(`/chat/findChats/${this.cfg.instance}`, {});
+    const d = res.data as unknown;
+    if (Array.isArray(d)) return d;
+    const obj = d as { chats?: unknown[]; data?: unknown[] } | null;
+    return obj?.chats ?? obj?.data ?? [];
+  }
+
+  /** Últimas mensagens de uma conversa (POST /chat/findMessages). Lança em erro. */
+  async ultimasMensagens(jid: string, limite = 5): Promise<unknown[]> {
+    if (!this.disponivel) throw new Error(`${this.rotulo}: instância não configurada`);
+    const res = await this.client.post(`/chat/findMessages/${this.cfg.instance}`, {
+      where: { key: { remoteJid: jid } },
+      limit: limite,
+    });
+    const d = res.data as { messages?: { records?: unknown[] } | unknown[] } | unknown[];
+    if (Array.isArray(d)) return d;
+    const m = (d as { messages?: { records?: unknown[] } | unknown[] }).messages;
+    if (Array.isArray(m)) return m;
+    return m?.records ?? [];
+  }
+
   /** Checa se a instância está conectada — alimenta o painel de integrações. */
   async estadoConexao(): Promise<{ ok: boolean; estado?: string; erro?: string }> {
     if (!this.disponivel) return { ok: false, erro: 'nao_configurado' };

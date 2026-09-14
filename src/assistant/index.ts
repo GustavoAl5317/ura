@@ -18,6 +18,10 @@ import { ferramentas } from './tools/base';
 import { parseWebhook } from '../integrations/evolution';
 import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
 import { responder } from './agent';
+import { rotasOperacao } from './rotas-operacao';
+import { ErroHttp } from './http-util';
+import { iniciarMonitorZabbix } from './monitors/zabbix';
+import { iniciarMonitorSla } from './monitors/sla';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -240,6 +244,8 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return json(res, 200, r);
   }
 
+  if (await rotasOperacao(req, res, url, p)) return;
+
   res.writeHead(404);
   res.end();
 }
@@ -278,9 +284,16 @@ async function main(): Promise<void> {
   }
 
   agendarSync();
+  iniciarMonitorZabbix();
+  iniciarMonitorSla();
 
   const server = http.createServer((req, res) => {
     rotear(req, res).catch((err) => {
+      // Erro de validação vira 4xx com mensagem legível para o painel; o resto é 500.
+      if (err instanceof ErroHttp) {
+        if (!res.headersSent) json(res, err.status, { error: err.message });
+        return;
+      }
       logger.error('Assistente: erro na rota', {
         url: req.url,
         err: err instanceof Error ? err.message : String(err),

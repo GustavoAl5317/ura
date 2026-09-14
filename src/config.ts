@@ -251,6 +251,22 @@ export const config = {
     grupoAlertas: opt('EVO_TEC_GRUPO_ALERTAS', ''),
   },
 
+  // ── Instância Evolution do ATENDIMENTO ao cliente — lida pelo monitor de SLA ──
+  // Por padrão é a mesma WHATSAPP_* da URA/chat. Só leitura: o monitor nunca envia
+  // por esta instância, para não interferir no atendimento humano.
+  evolutionAtendimento: {
+    apiUrl: opt('EVO_ATEND_API_URL', opt('WHATSAPP_API_URL')),
+    instance: opt('EVO_ATEND_INSTANCE', opt('WHATSAPP_INSTANCE')),
+    apiKey: opt('EVO_ATEND_API_KEY', opt('WHATSAPP_API_KEY')),
+  },
+
+  // ── Ponte URA → assistente (usada pelo processo da URA) ──
+  // Vazio = ponte desligada, e a URA segue exatamente como antes.
+  ponteAssistente: {
+    url: opt('ASSISTANT_EVENTS_URL', ''),
+    chave: opt('ASSISTANT_EVENTS_KEY', ''),
+  },
+
   questdb: {
     enabled: optBool('QUESTDB_ENABLED', false),
     /** Endpoint HTTP /exec do QuestDB — ex.: http://10.169.0.30:9000 */

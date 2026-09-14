@@ -14,6 +14,7 @@ import { ferramentas, CtxFerramenta } from './tools/base';
 import { montarSystem } from './prompts';
 import { calcularVeredito, formatarResposta, fontesIndisponiveis as decisaoFontes } from './evidence';
 import { Envelope, FonteId, Veredito, RespostaAssistente } from './types';
+import { publicar } from './eventos';
 
 const API = 'https://api.openai.com/v1/chat/completions';
 
@@ -369,6 +370,14 @@ function persistir(pedido: PedidoAssistente, r: RespostaAssistente): void {
         );
       }
     })();
+
+    // Painel ao vivo: só o resumo. A pergunta vai, a resposta e os dados das
+    // fontes ficam na auditoria, acessíveis por quem abrir a consulta.
+    publicar('consulta', {
+      id: consultaId, usuario: pedido.usuario, canal: pedido.canal, pergunta: pedido.pergunta,
+      veredito: r.veredito, fontes: [...new Set(r.evidencias.map((e) => e.fonte))],
+      duracaoMs: r.duracaoMs, at: agora,
+    });
   } catch (err) {
     // Falhar a auditoria não pode derrubar a resposta ao técnico, mas tem de gritar.
     logger.error('Assistente: falha ao persistir consulta', {

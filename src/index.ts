@@ -8,6 +8,7 @@ import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
 import { BUILD_ID } from './build';
 import { isUraEnabled } from './admin/ura-control';
+import { iniciarPonteAssistente } from './admin/assistant-bridge';
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { err: err.message, stack: err.stack });
@@ -42,6 +43,7 @@ async function main() {
   startSidecar();
   startAudioSocketServer();
   startAdminServer();
+  iniciarPonteAssistente();
 }
 
 main().catch((err) => {
