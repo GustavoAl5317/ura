@@ -610,6 +610,44 @@ export function buscar(termo: string, limite = 8): ResultadoBusca[] {
   return [];
 }
 
+/** Clientes cujo SN está na lista. Base da ponte Zabbix (SN) → SGP (contrato). */
+export function servicosPorSns(sns: string[]): ResultadoBusca[] {
+  const unicos = [...new Set(sns.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const saida: ResultadoBusca[] = [];
+  // SQLite limita parâmetros por instrução; lotes de 400 ficam longe do teto.
+  for (let i = 0; i < unicos.length; i += 400) {
+    const lote = unicos.slice(i, i + 400);
+    const marcas = lote.map(() => '?').join(',');
+    saida.push(...(db().prepare(`${SELECT_BASE} WHERE UPPER(s.sn) IN (${marcas})`)
+      .all(...lote) as LinhaBusca[]).map((l) => mapear(l, 'sn')));
+  }
+  return saida;
+}
+
+/**
+ * Clientes de uma PON pelo CADASTRO do SGP. Usado quando o Zabbix não monitora
+ * ONU nessa OLT (OLT-1 e OLT-2). Menos confiável que a lista do Zabbix: o SGP
+ * deixa `slot` vazio em muitas ONUs, então slot nulo casa com qualquer slot —
+ * e quem usa isto precisa dizer que o mapeamento veio do cadastro.
+ */
+export function servicosPorPon(oltNumero: number, slot: number | null, pon: number): ResultadoBusca[] {
+  const linhas = db().prepare(
+    `${SELECT_BASE}
+     WHERE (s.olt_nome LIKE ? OR s.olt_nome LIKE ?)
+       AND s.pon = ?
+       AND (? IS NULL OR s.slot = ? OR s.slot IS NULL)`,
+  ).all(`OLT-${oltNumero} %`, `OLT-${oltNumero}(%`, pon, slot, slot) as LinhaBusca[];
+  return linhas.map((l) => mapear(l, 'cto'));
+}
+
+/** Nomes distintos de CTO no espelho, com quantos serviços cada uma atende. */
+export function listarCtos(): Array<{ cto: string; servicos: number }> {
+  return db().prepare(
+    `SELECT cto_nome cto, COUNT(*) servicos FROM sgp_servico
+     WHERE cto_nome IS NOT NULL GROUP BY cto_nome`,
+  ).all() as Array<{ cto: string; servicos: number }>;
+}
+
 /** Todos os serviços de uma CTO — base para "quais CTOs estão ruins". */
 export function servicosPorCto(cto: string, limite = 200): ResultadoBusca[] {
   return (db().prepare(`${SELECT_BASE} WHERE s.cto_nome = ? COLLATE NOCASE LIMIT ?`)

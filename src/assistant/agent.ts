@@ -97,6 +97,20 @@ function paraModelo(envelopes: Envelope[]): string {
   return JSON.stringify(cortado).slice(0, MAX_CHARS_RESULTADO + 2_000);
 }
 
+/**
+ * Separa "HIPÓTESE: ..." do corpo. Fica fora do texto de propósito: hipótese
+ * misturada à resposta é lida como fato por quem está em campo com pressa.
+ */
+function extrairHipotese(texto: string): { hipotese?: string; corpo: string } {
+  // Vai até linha em branco, outra seção em negrito ("*Conclusão*:") ou o fim.
+  const m = texto.match(/(?:^|\n)\s*\*?HIP[ÓO]TESE\*?:\s*([\s\S]+?)(?=\n\s*\n|\n\s*\*?[A-ZÇÃÕ ]{4,}\*?:|$)/i);
+  if (!m) return { corpo: texto };
+  return {
+    hipotese: m[1].trim(),
+    corpo: (texto.slice(0, m.index) + texto.slice((m.index ?? 0) + m[0].length)).trim(),
+  };
+}
+
 function extrairVereditoProposto(texto: string): { veredito: Veredito; corpo: string } {
   const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO)\s*\n?/i);
   if (!m) {
@@ -276,7 +290,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     textoFinal = 'VEREDITO: INCONCLUSIVO\nNão consegui concluir dentro do limite de consultas.';
   }
 
-  const { veredito: proposto, corpo } = extrairVereditoProposto(textoFinal);
+  const { veredito: proposto, corpo: semVeredito } = extrairVereditoProposto(textoFinal);
+  const { hipotese, corpo } = extrairHipotese(semVeredito);
   const decisao = calcularVeredito(proposto, evidencias, corpo);
 
   const resultado: RespostaAssistente = {
@@ -286,6 +301,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     evidencias,
     fontesIndisponiveis: decisao.fontesIndisponiveis,
     lacunas: decisao.lacunas,
+    // Hipótese só faz sentido sem confirmação. Em CONFIRMADO, a causa já é fato.
+    hipotese: decisao.veredito === 'CONFIRMADO' ? undefined : hipotese,
     modelo: config.assistant.model,
     tokensEntrada,
     tokensSaida,
@@ -315,8 +332,8 @@ function persistir(pedido: PedidoAssistente, r: RespostaAssistente): void {
       d.prepare(
         `INSERT INTO consulta (id, conversa_id, usuario, canal, pergunta, resposta,
            veredito, veredito_ajustado, fontes, fontes_indisponiveis, lacunas,
-           modelo, tokens_entrada, tokens_saida, duracao_ms, at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           modelo, tokens_entrada, tokens_saida, duracao_ms, at, hipotese)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         consultaId,
         pedido.conversaId ?? null,
@@ -334,6 +351,7 @@ function persistir(pedido: PedidoAssistente, r: RespostaAssistente): void {
         r.tokensSaida ?? null,
         r.duracaoMs,
         agora,
+        r.hipotese ?? null,
       );
 
       const ins = d.prepare(
@@ -368,5 +386,6 @@ export function paraWhatsApp(r: RespostaAssistente): string {
     evidencias: r.evidencias,
     fontesIndisponiveis: r.fontesIndisponiveis,
     lacunas: r.lacunas,
+    hipotese: r.hipotese,
   });
 }

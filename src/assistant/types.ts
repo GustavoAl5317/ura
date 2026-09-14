@@ -57,6 +57,12 @@ export interface RespostaAssistente {
   fontesIndisponiveis: FonteId[];
   /** O que ficou faltando para chegar a uma conclusão mais forte. */
   lacunas: string[];
+  /**
+   * Causa mais provável quando o veredito NÃO é confirmado. É explicitamente
+   * separada do texto para nunca ser lida como fato: aparece rotulada como
+   * hipótese na resposta e fica registrada como tal na auditoria.
+   */
+  hipotese?: string;
   modelo: string;
   tokensEntrada?: number;
   tokensSaida?: number;

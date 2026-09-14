@@ -83,6 +83,14 @@ async function main() {
     ['rua diferente NÃO pode casar', 'CTO 3 Rua Nova Jerusalem', false],
   ];
 
+  // Regressão do caso real: sugeria a Cel. Fabriciano para "Rua Araca".
+  const FABRICIANO = 'CTO 3 - RUA CEL. FABRICIANO, 3736';
+  checa('"CTO 3 da Rua Araca" NÃO casa com a CTO 3 da Cel. Fabriciano (cto+3+rua não bastam)',
+    ZabbixClient.semelhanca('CTO 3 da Rua Araca', FABRICIANO) < LIMIAR,
+    `deu ${ZabbixClient.semelhanca('CTO 3 da Rua Araca', FABRICIANO).toFixed(2)}`);
+  checa('"CTO 3 grupo 1" NÃO casa com "CTO 3 da Rua Araca"',
+    ZabbixClient.semelhanca('CTO 3 GRUPO 1 RUA 1036 C/ AV. J', 'CTO 3 - Rua Araçá, 194') < LIMIAR);
+
   for (const [rotulo, termo, deveCasar] of casos) {
     const s = ZabbixClient.semelhanca(termo, CTO3);
     checa(`${rotulo}: "${termo}" ${deveCasar ? 'casa' : 'não casa'} (${s.toFixed(2)})`,

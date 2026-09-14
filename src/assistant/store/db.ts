@@ -196,6 +196,7 @@ function migrar(d: Database.Database): void {
   // dois rodaram juntos, duplicando ~20 min de trabalho no mesmo banco.
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'consulta', 'hipotese', 'TEXT');
 
   // Versões antigas do sync gravavam '' em colunas numéricas. Corrige o que já
   // está no banco, em vez de esperar o próximo sync noturno para agrupar por PON.

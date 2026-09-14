@@ -484,6 +484,34 @@ export async function onuPorTermo(termo: string): Promise<Onu[]> {
     .filter((o) => o.sn.toLowerCase() === alvo || o.login?.toLowerCase() === alvo);
 }
 
+/**
+ * ONUs de uma lista de SN numa única chamada (search com searchByAny). Consultar
+ * SN por SN custaria uma requisição por cliente — uma CTO com 16 clientes seriam
+ * 16 idas ao Zabbix para responder uma pergunta.
+ */
+export async function onusPorSns(sns: string[]): Promise<Onu[]> {
+  const unicos = [...new Set(sns.map((s) => s.trim()).filter((s) => s.length >= 6))];
+  if (!unicos.length) return [];
+
+  const resultado: Onu[] = [];
+  for (let i = 0; i < unicos.length; i += 100) {
+    const lote = unicos.slice(i, i + 100);
+    const brutos = await zabbix.api<ItemBruto[]>('item.get', {
+      output: SAIDA_ITEM,
+      selectHosts: ['hostid', 'name'],
+      search: { name: lote },
+      searchByAny: true,
+      limit: lote.length * 8,
+    }) ?? [];
+    const alvo = new Set(lote.map((s) => s.toUpperCase()));
+    resultado.push(
+      ...agruparOnus(brutos.map(paraMetrica).filter((it) => /na ONU GPON/i.test(it.nome)))
+        .filter((o) => alvo.has(o.sn.toUpperCase())),
+    );
+  }
+  return resultado;
+}
+
 /** Todas as ONUs monitoradas numa porta GPON de um host. */
 export async function onusDaPorta(host: string, porta: string): Promise<Onu[]> {
   const itens = await buscarItens({ host, nome: `na ONU GPON ${porta} -`, limite: 1000 });

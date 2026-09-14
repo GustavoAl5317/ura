@@ -165,10 +165,19 @@ export class ZabbixClient {
       .trim();
   }
 
-  /** Palavras que não distinguem nada em nome de CTO/host. */
+  /**
+   * Palavras que não distinguem nada em nome de CTO/host.
+   *
+   * "cto" e os tipos de logradouro entram aqui porque aparecem em quase todo
+   * nome de CTO: com eles contando, "CTO 3 da Rua Araca" casava 0,75 com
+   * "CTO 3 - Rua Cel. Fabriciano" (cto+3+rua), sem que a palavra que de fato
+   * identifica — "araca" — tivesse batido.
+   */
   private static readonly VAZIAS = new Set([
     'da', 'de', 'do', 'das', 'dos', 'na', 'no', 'nas', 'nos', 'e', 'a', 'o', 'as', 'os',
     'em', 'para', 'com', 'offline', 'off', 'down', 'queda', 'alerta',
+    'cto', 'rua', 'av', 'avenida', 'travessa', 'trav', 'tv', 'rodovia', 'rod', 'estrada',
+    'alameda', 'al', 'praca', 'pca', 'conjunto', 'cj', 'grupo', 'esquina', 'esq', 'quadra', 'qd', 'lote',
   ]);
 
   private static tokens(s: string): string[] {

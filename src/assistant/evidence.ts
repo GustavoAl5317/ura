@@ -146,12 +146,18 @@ export function formatarResposta(params: {
   evidencias: Envelope[];
   fontesIndisponiveis: FonteId[];
   lacunas: string[];
+  hipotese?: string;
   incluirRastro?: boolean;
 }): string {
   const linhas: string[] = [];
   linhas.push(`${EMOJI[params.veredito]} *${ROTULO[params.veredito]}*`);
   linhas.push('');
   linhas.push(params.texto.trim());
+
+  if (params.hipotese && params.veredito !== 'CONFIRMADO') {
+    linhas.push('');
+    linhas.push(`🧩 *Hipótese (não confirmada):* ${params.hipotese}`);
+  }
 
   if (params.fontesIndisponiveis.length) {
     linhas.push('');
