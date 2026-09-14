@@ -13,8 +13,10 @@
 [Unit]
 Description=Assistente de Observabilidade (Aquitelecom)
 Documentation=https://github.com/GustavoAl5317/ura
-After=network-online.target
+After=network-online.target docker.service
 Wants=network-online.target
+# docker.service: se ASSISTANT_HOST=172.17.0.1, essa interface é criada pelo
+# Docker. Num reboot, subir antes dele faz o bind falhar com EADDRNOTAVAIL.
 
 [Service]
 Type=simple

@@ -85,12 +85,13 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
+  // /health é SEM autenticação (é o que monitor e supervisor consultam), então
+  // não pode dizer nada além de "estou vivo". A versão anterior devolvia o
+  // tamanho da base de clientes, quantos têm ONU e o nome da instância
+  // interna — e a porta estava alcançável da internet. O detalhe mora em
+  // /api/health, que exige a chave.
   if (req.method === 'GET' && p === '/health') {
-    return json(res, 200, {
-      ok: true,
-      espelho: statusIndice(),
-      evolution: config.evolutionTecnicos.instance || null,
-    });
+    return json(res, 200, { ok: true, espelhoPronto: statusIndice().disponivel });
   }
 
   if (!p.startsWith('/api/')) {
@@ -100,6 +101,16 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (!autorizadoApi(req, url)) return json(res, 401, { error: 'unauthorized' });
+
+  // Health detalhado — o que o /health público mostrava antes, agora atrás da chave.
+  if (req.method === 'GET' && p === '/api/health') {
+    return json(res, 200, {
+      ok: true,
+      espelho: statusIndice(),
+      evolution: config.evolutionTecnicos.instance || null,
+      uptimeSec: Math.round(process.uptime()),
+    });
+  }
 
   // ── Painel operacional ─────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/status') {
@@ -285,8 +296,14 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
-  server.listen(config.assistant.port, '0.0.0.0', () => {
-    logger.info(`Assistente escutando na porta ${config.assistant.port}`);
+  server.listen(config.assistant.port, config.assistant.host, () => {
+    logger.info(`Assistente escutando em ${config.assistant.host}:${config.assistant.port}`);
+    if (config.assistant.host === '0.0.0.0') {
+      logger.warn(
+        'ASSISTANT_HOST=0.0.0.0 escuta em todas as interfaces, inclusive IP público. ' +
+        'Se o único cliente é o Evolution local, use 172.17.0.1 ou bloqueie a porta no firewall.',
+      );
+    }
     logger.info(`  webhook: POST http://<host>:${config.assistant.port}/webhook/evolution`);
   });
 }

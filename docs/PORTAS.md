@@ -12,6 +12,30 @@ na 9022 e bateu de frente com o `ura-chat`, que já estava lá.
 | 9030 | **Assistente de Observabilidade** (`ASSISTANT_PORT`) | 005-MANAGER |
 | 8080 | Evolution API (Docker Swarm, publish mode host) | 005-MANAGER |
 
+## Exposição à internet
+
+A 9030 foi encontrada **alcançável de fora** (testado de rede externa em
+14/09/2026): o assistente escutava em `0.0.0.0`, que inclui o IP público
+`181.191.160.18`. As rotas `/api/*` e `/webhook` exigem chave e respondiam 401,
+mas `/health` devolvia sem autenticação o tamanho da base de clientes e o nome
+da instância interna. O `/health` foi enxugado; o detalhe foi para `/api/health`.
+
+O único cliente legítimo é o Evolution local, que chega pela bridge do Docker.
+Duas formas de fechar, da mais simples para a mais robusta:
+
+```bash
+# 1. Escutar só na bridge do Docker (no .env do assistente)
+ASSISTANT_HOST=172.17.0.1
+
+# 2. Bloquear no firewall, liberando só loopback e redes privadas
+iptables -A INPUT -p tcp --dport 9030 -s 127.0.0.1 -j ACCEPT
+iptables -A INPUT -p tcp --dport 9030 -s 172.16.0.0/12 -j ACCEPT
+iptables -A INPUT -p tcp --dport 9030 -s 10.0.0.0/8 -j ACCEPT
+iptables -A INPUT -p tcp --dport 9030 -j DROP
+```
+
+Vale conferir as outras portas desta tabela com o mesmo teste externo.
+
 ## Antes de subir qualquer serviço novo
 
 ```bash

@@ -213,6 +213,12 @@ export const config = {
   assistant: {
     enabled: optBool('ASSISTANT_ENABLED', false),
     port: optInt('ASSISTANT_PORT', 9022),
+    /**
+     * Interface de escuta. 0.0.0.0 expõe em TODAS, inclusive o IP público —
+     * foi assim que a 9030 ficou alcançável da internet. O único cliente é o
+     * Evolution na mesma máquina, que chega pela bridge do Docker (172.17.0.1).
+     */
+    host: opt('ASSISTANT_HOST', '0.0.0.0'),
     /** Modelo de texto com tool calling. Não é o Realtime da URA. */
     model: opt('ASSISTANT_MODEL', 'gpt-4.1-mini'),
     temperature: optFloat('ASSISTANT_TEMPERATURE', 0.2),
