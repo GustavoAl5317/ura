@@ -7,6 +7,7 @@
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
+import { obter } from './config-dinamica';
 
 const API_TRANSCRICAO = 'https://api.openai.com/v1/audio/transcriptions';
 const API_FALA = 'https://api.openai.com/v1/audio/speech';
@@ -88,22 +89,27 @@ export function textoParaFala(texto: string): string {
     .trim();
 }
 
-/** Sintetiza em OGG/Opus, que é o formato que o WhatsApp aceita como PTT. */
-export async function sintetizar(texto: string): Promise<Buffer | null> {
+/**
+ * Sintetiza a resposta em áudio.
+ * @param formato 'opus' para PTT no WhatsApp; 'mp3' para o navegador — Safari
+ *                não toca Opus, e o chat interno precisa funcionar em qualquer um.
+ */
+export async function sintetizar(texto: string, formato: 'opus' | 'mp3' = 'opus'): Promise<Buffer | null> {
   const falado = textoParaFala(texto);
   if (!falado) return null;
 
-  // O TTS aceita textos longos, mas resposta falada de 3 minutos ninguém ouve.
-  const limitado = falado.length > 3_000 ? `${falado.slice(0, 3_000)}… resumo interrompido.` : falado;
+  // O TTS aceita textos longos, mas resposta falada longa ninguém ouve até o fim.
+  const max = obter<number>('audio.max_caracteres');
+  const limitado = falado.length > max ? `${falado.slice(0, max)}… o restante está na mensagem de texto.` : falado;
 
   try {
     const res = await axios.post(
       API_FALA,
       {
         model: 'tts-1',
-        voice: config.assistant.ttsVoice,
+        voice: obter<string>('audio.voz'),
         input: limitado,
-        response_format: 'opus',
+        response_format: formato,
       },
       {
         timeout: 90_000,

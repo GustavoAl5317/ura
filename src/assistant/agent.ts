@@ -13,8 +13,9 @@ import { db } from './store/db';
 import { ferramentas, CtxFerramenta } from './tools/base';
 import { montarSystem } from './prompts';
 import { calcularVeredito, formatarResposta, fontesIndisponiveis as decisaoFontes } from './evidence';
-import { Envelope, FonteId, Veredito, RespostaAssistente } from './types';
+import { Envelope, FonteId, Veredito, RespostaAssistente, FONTES as FONTES_CONHECIDAS } from './types';
 import { publicar } from './eventos';
+import { obter, fontesHabilitadas } from './config-dinamica';
 
 const API = 'https://api.openai.com/v1/chat/completions';
 
@@ -50,7 +51,10 @@ export function fontesDoUsuario(usuario: string): FonteId[] | null {
     `SELECT fontes, ativo FROM permissao WHERE usuario = ?`,
   ).get(usuario) as { fontes: string | null; ativo: number } | undefined;
 
-  if (!r || !r.ativo) return null;   // sem registro = sem restrição de fonte
+  if (!r) return null;   // sem registro = sem restrição individual de fonte
+  // Desativado = nenhuma fonte. Antes devolvia null, que significa TODAS: um
+  // usuário desativado tinha acesso irrestrito pelo chat interno.
+  if (!r.ativo) return [];
   if (!r.fontes) return null;
   try {
     const lista = JSON.parse(r.fontes) as FonteId[];
@@ -132,12 +136,12 @@ async function chamarModelo(
   }>(
     API,
     {
-      model: config.assistant.model,
+      model: obter<string>('ia.modelo'),
       messages,
       tools: tools.length ? tools : undefined,
       tool_choice: tools.length ? 'auto' : undefined,
-      temperature: config.assistant.temperature,
-      max_tokens: config.assistant.maxTokens,
+      temperature: obter<number>('ia.temperatura'),
+      max_tokens: obter<number>('ia.max_tokens'),
     },
     {
       timeout: 90_000,
@@ -160,7 +164,25 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   const evidencias: Envelope[] = [];
   let contadorEvd = 0;
 
-  const fontesPermitidas = fontesDoUsuario(pedido.usuario);
+  // Fontes efetivas = habilitadas globalmente ∩ permitidas ao usuário.
+  const doUsuario = fontesDoUsuario(pedido.usuario);
+  const globais = fontesHabilitadas();
+  const fontesPermitidas = doUsuario === null ? globais : doUsuario.filter((f) => globais.includes(f));
+
+  const limite = obter<number>('limites.consultas_por_hora');
+  const naUltimaHora = (db().prepare(
+    `SELECT COUNT(*) n FROM consulta WHERE usuario = ? AND at > ?`,
+  ).get(pedido.usuario, new Date(Date.now() - 3600_000).toISOString()) as { n: number }).n;
+  if (naUltimaHora >= limite) {
+    logger.warn('Assistente: limite de consultas por hora atingido', { usuario: pedido.usuario, limite });
+    return {
+      veredito: 'INCONCLUSIVO',
+      texto: `Limite de ${limite} consultas por hora atingido para este usuário. Tente novamente mais tarde.`,
+      evidencias: [], fontesIndisponiveis: [],
+      lacunas: ['Consulta recusada por limite de uso, antes de acessar qualquer fonte.'],
+      modelo: 'limite', duracaoMs: Date.now() - t0,
+    };
+  }
   const ctx: CtxFerramenta = {
     proximoId: () => `evd_${++contadorEvd}`,
     usuario: pedido.usuario,
@@ -169,8 +191,21 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
 
   const tools = ferramentas.comoOpenAiTools(fontesPermitidas);
   const messages: MsgOpenAi[] = [
-    { role: 'system', content: montarSystem(config.company.name, new Date()) },
+    { role: 'system', content: montarSystem(config.company.name, new Date(), fontesPermitidas) },
   ];
+
+  // Sem isto, fonte desligada vira silêncio: o modelo não tem a ferramenta e
+  // pede ao técnico um dado que não resolveria nada. Ele precisa saber o motivo.
+  const bloqueadas = FONTES_CONHECIDAS.filter((f) => !fontesPermitidas.includes(f));
+  if (bloqueadas.length) {
+    messages.push({
+      role: 'system',
+      content:
+        `Fontes BLOQUEADAS nesta conversa (desabilitadas pela administração ou sem permissão para este ` +
+        `usuário): ${bloqueadas.join(', ')}. Se a pergunta depender delas, diga exatamente isso — ` +
+        'que a fonte está bloqueada — em vez de pedir outro dado ao técnico.',
+    });
+  }
 
   if (pedido.origemAudio) {
     messages.push({
@@ -195,7 +230,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   let tokensSaida = 0;
   let erroFatal: string | null = null;
 
-  for (let rodada = 0; rodada < config.assistant.maxToolRounds; rodada++) {
+  const maxRodadas = obter<number>('ia.max_rodadas');
+  for (let rodada = 0; rodada < maxRodadas; rodada++) {
     let resposta;
     try {
       resposta = await chamarModelo(messages, tools);
@@ -278,7 +314,7 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
       evidencias,
       fontesIndisponiveis: decisaoFontes(evidencias),
       lacunas: ['O modelo de linguagem não respondeu. As fontes não chegaram a ser correlacionadas.'],
-      modelo: config.assistant.model,
+      modelo: obter<string>('ia.modelo'),
       tokensEntrada,
       tokensSaida,
       duracaoMs: Date.now() - t0,
@@ -304,7 +340,7 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     lacunas: decisao.lacunas,
     // Hipótese só faz sentido sem confirmação. Em CONFIRMADO, a causa já é fato.
     hipotese: decisao.veredito === 'CONFIRMADO' ? undefined : hipotese,
-    modelo: config.assistant.model,
+    modelo: obter<string>('ia.modelo'),
     tokensEntrada,
     tokensSaida,
     duracaoMs: Date.now() - t0,

@@ -19,6 +19,7 @@ import { parseWebhook } from '../integrations/evolution';
 import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
 import { responder } from './agent';
 import { rotasOperacao } from './rotas-operacao';
+import { rotasAdmin } from './rotas-admin';
 import { ErroHttp } from './http-util';
 import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
@@ -245,6 +246,7 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (await rotasOperacao(req, res, url, p)) return;
+  if (await rotasAdmin(req, res, url, p)) return;
 
   res.writeHead(404);
   res.end();

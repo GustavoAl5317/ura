@@ -11,6 +11,7 @@ import { EvolutionClient, MensagemRecebida, soNumero } from '../../integrations/
 import { db } from '../store/db';
 import { responder, paraWhatsApp } from '../agent';
 import { transcrever, sintetizar } from '../voice';
+import { obter } from '../config-dinamica';
 
 export const evoTecnicos = new EvolutionClient(
   {
@@ -42,22 +43,35 @@ function jaVista(id: string): boolean {
  * consulta dado cadastral de cliente, e um default aberto aqui seria um
  * vazamento esperando o primeiro desconhecido mandar "oi".
  */
+/**
+ * Dois números são o mesmo? Tolera o nono dígito: o WhatsApp às vezes entrega o
+ * JID de celular brasileiro sem o 9 (5585 8888-7777 vs 5585 9 8888-7777).
+ */
+export function mesmoNumero(a: string, b: string): boolean {
+  const x = soNumero(a).replace(/\D/g, '');
+  const y = soNumero(b).replace(/\D/g, '');
+  if (x.length < 8 || y.length < 8) return false;
+  if (x === y || x.endsWith(y) || y.endsWith(x)) return true;
+  // Mesmo DDD e mesmos 8 finais: diferença é só o nono dígito.
+  const ddd = (n: string) => (n.startsWith('55') && n.length >= 12 ? n.slice(2, 4) : n.slice(0, 2));
+  return x.slice(-8) === y.slice(-8) && ddd(x) === ddd(y);
+}
+
+/** Registro de permissão do número, se houver. */
+export function permissaoDoNumero(autorJid: string): { usuario: string; ativo: number } | undefined {
+  const linhas = db().prepare(`SELECT usuario, ativo FROM permissao WHERE usuario LIKE '%@s.whatsapp.net'`)
+    .all() as Array<{ usuario: string; ativo: number }>;
+  return linhas.find((l) => mesmoNumero(l.usuario, autorJid));
+}
+
 export function autorizado(autorJid: string): boolean {
+  // Cadastro no painel decide quando existe: libera sem editar o .env, e a
+  // desativação vence a lista do .env.
+  const r = permissaoDoNumero(autorJid);
+  if (r) return r.ativo === 1;
+
   const lista = config.evolutionTecnicos.autorizados;
-  if (!lista.length) return false;
-
-  const numero = soNumero(autorJid);
-  const bate = lista.some((permitido) => {
-    const p = soNumero(permitido).replace(/\D/g, '');
-    const n = numero.replace(/\D/g, '');
-    return p === n || p.endsWith(n) || n.endsWith(p);
-  });
-  if (!bate) return false;
-
-  // Registro em `permissao` pode desativar alguém sem editar o .env.
-  const r = db().prepare(`SELECT ativo FROM permissao WHERE usuario = ?`)
-    .get(autorJid) as { ativo: number } | undefined;
-  return r ? r.ativo === 1 : true;
+  return lista.some((permitido) => mesmoNumero(permitido, autorJid));
 }
 
 function obterConversa(usuario: string, nome: string | null): string {
@@ -188,19 +202,18 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
     return;
   }
 
-  gravarMensagem(conversaId, 'assistant', respostaEmAudio ? 'audio' : 'texto', textoResposta);
+  const querAudio = respostaEmAudio && obter<boolean>('audio.responder_em_audio');
+  const ogg = querAudio ? await sintetizar(textoResposta, 'opus') : null;
+  if (querAudio && !ogg) logger.warn('Assistente: sem áudio de resposta, seguiu só o texto');
 
-  // Texto sempre vai — inclusive quando a pergunta veio em áudio.
-  await evoTecnicos.enviarTexto(msg.jid, textoResposta);
+  gravarMensagem(conversaId, 'assistant', ogg ? 'audio' : 'texto', textoResposta);
 
-  if (respostaEmAudio) {
-    const ogg = await sintetizar(textoResposta);
-    if (ogg) {
-      await evoTecnicos.enviarAudio(msg.jid, ogg);
-    } else {
-      logger.warn('Assistente: sem áudio de resposta, seguiu só o texto');
-    }
+  // O texto só deixa de ir se o áudio FOI gerado e o painel mandou não duplicar.
+  // Áudio que falhou nunca deixa o técnico sem resposta.
+  if (!ogg || obter<boolean>('audio.enviar_texto_junto')) {
+    await evoTecnicos.enviarTexto(msg.jid, textoResposta);
   }
+  if (ogg) await evoTecnicos.enviarAudio(msg.jid, ogg);
 
   void evoTecnicos.presenca(msg.jid, 'paused');
 }

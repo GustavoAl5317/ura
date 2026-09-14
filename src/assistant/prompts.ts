@@ -89,9 +89,18 @@ export interface PromptRegistro {
   criado_em: string;
 }
 
+export const PROMPT_FONTE_ZABBIX = `Sobre o Zabbix: "sem_coleta" ou "atrasada" é leitura ausente, nunca valor zero. Equipamento "indisponível" significa que o Zabbix não consegue ler — pode ser queda ou só coleta; não afirme queda sem outra evidência (tráfego, clientes, ping). Monitoramento por ONU só existe na OLT-3.`;
+
+export const PROMPT_FONTE_SGP = `Sobre o SGP: dados do espelho local são do último sync noturno — diga a idade quando usar. O.S. com status Aberta, Em execução ou Pendente estão em aberto. Antes de sugerir abrir O.S., confira se já existe uma aberta para o mesmo cliente e motivo.`;
+
+export const PROMPT_FONTE_URA = `Sobre a URA: a intenção de uma chamada é derivada das ferramentas que a URA usou, não do conteúdo da conversa. Chamada sem intenção identificada é chamada em que a URA não chegou a consultar nada — não presuma o motivo.`;
+
 const SEMENTES: Record<string, string> = {
   principal: PROMPT_PRINCIPAL_PADRAO,
   revisao: PROMPT_REVISAO_PADRAO,
+  'fonte:zabbix': PROMPT_FONTE_ZABBIX,
+  'fonte:sgp': PROMPT_FONTE_SGP,
+  'fonte:ura': PROMPT_FONTE_URA,
 };
 
 /**
@@ -206,13 +215,17 @@ export function ativarVersao(chave: string, versao: number, autor: string): bool
 }
 
 /** Monta o system prompt final da conversa. */
-export function montarSystem(empresa: string, agora: Date): string {
+export function montarSystem(empresa: string, agora: Date, fontes: readonly string[] = []): string {
   const dataHora = agora.toLocaleString('pt-BR', { timeZone: 'America/Fortaleza' });
+  // Prompt de cada fonte só entra se a fonte estiver liberada nesta conversa:
+  // orientação sobre fonte que o modelo não pode consultar só confunde.
+  const porFonte = fontes.map((f) => promptAtivo(`fonte:${f}`)).filter(Boolean);
   return [
     promptAtivo('principal').replace(/\{EMPRESA\}/g, empresa),
     '',
     promptAtivo('revisao'),
     '',
+    ...(porFonte.length ? [...porFonte, ''] : []),
     `Agora são ${dataHora} (America/Fortaleza). Use isto para interpretar "hoje", "ontem" e "agora".`,
   ].join('\n');
 }
