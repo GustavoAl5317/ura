@@ -197,16 +197,11 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'consulta', 'hipotese', 'TEXT');
-  // Acontecimento não é pendência: corrige o que foi gravado antes de existir a distinção.
-  d.exec(`UPDATE alerta SET resolvido_em = criado_em
-          WHERE resolvido_em IS NULL AND (origem = 'ura' OR chave LIKE '%:resolvido')`);
 
-  // Versões antigas do sync gravavam '' em colunas numéricas. Corrige o que já
-  // está no banco, em vez de esperar o próximo sync noturno para agrupar por PON.
-  for (const col of ['olt_id', 'slot', 'pon', 'vlan', 'cto_porta', 'cto_id', 'plano_id', 'onu_id']) {
-    d.exec(`UPDATE sgp_servico SET ${col} = NULL WHERE ${col} = ''`);
-  }
-
+  // ORDEM DA MIGRAÇÃO: (1) cria tabelas, (2) adiciona colunas, (3) corrige dados.
+  // Correção de dado antes do CREATE TABLE derrubou o serviço em produção: o
+  // banco da VM era anterior à tabela `alerta`, e o UPDATE nela rodava primeiro.
+  // Na máquina de desenvolvimento passava, porque o banco local já tinha a tabela.
   d.exec(`
     -- ═══ Configuração editável sem restart (Bloco 6) ══════════════════════
     CREATE TABLE IF NOT EXISTS configuracao (
@@ -264,6 +259,18 @@ function migrar(d: Database.Database): void {
       atualizada_em      TEXT NOT NULL
     );
   `);
+
+  // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────
+
+  // Versões antigas do sync gravavam '' em colunas numéricas. Corrige o que já
+  // está no banco, em vez de esperar o próximo sync noturno para agrupar por PON.
+  for (const col of ['olt_id', 'slot', 'pon', 'vlan', 'cto_porta', 'cto_id', 'plano_id', 'onu_id']) {
+    d.exec(`UPDATE sgp_servico SET ${col} = NULL WHERE ${col} = ''`);
+  }
+
+  // Acontecimento não é pendência: corrige o que foi gravado antes de existir a distinção.
+  d.exec(`UPDATE alerta SET resolvido_em = criado_em
+          WHERE resolvido_em IS NULL AND (origem = 'ura' OR chave LIKE '%:resolvido')`);
 }
 
 function adicionarColunaSeFaltar(
