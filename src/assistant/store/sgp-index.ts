@@ -55,6 +55,12 @@ export function estaSincronizando(): boolean {
   return sincronizando;
 }
 
+/**
+ * Normaliza número vindo do SGP. Ele manda '' onde não há valor, e '' gravado
+ * numa coluna INTEGER do SQLite vira TEXTO — slot '' fica diferente de slot
+ * NULL, e todo agrupamento por OLT/slot/PON sai errado. Todo campo numérico
+ * do espelho passa por aqui.
+ */
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = typeof v === 'number' ? v : parseFloat(String(v));
@@ -167,8 +173,8 @@ export function indexar(
           cliente_id: c.id,
           status: txt(ct.status),
           motivo_status: txt(ct.motivo_status),
-          pop_id: ct.pop_id ?? null,
-          vencimento: ct.vencimento ?? null,
+          pop_id: num(ct.pop_id),
+          vencimento: num(ct.vencimento),
           forma_cobranca: txt(ct.formaCobranca),
           data_cadastro: txt(ct.dataCadastro),
           atualizado_em: agora,
@@ -188,22 +194,22 @@ export function indexar(
             tipo: txt(s.tipo),
             status: txt(s.status),
             grupo: txt(s.grupo),
-            plano_id: s.plano?.id ?? null,
+            plano_id: num(s.plano?.id),
             plano_desc: txt(s.plano?.descricao),
             login: txt(s.login),
             mac: txt(s.mac)?.toUpperCase() ?? null,
-            onu_id: o?.id ?? null,
+            onu_id: num(o?.id),
             sn: txt(o?.serial),
             rx: num(o?.rx),
             tx: num(o?.tx),
-            olt_id: o?.olt_id ?? null,
+            olt_id: num(o?.olt_id),
             olt_nome: txt(o?.olt_nome),
-            slot: o?.slot ?? null,
-            pon: o?.pon ?? null,
-            vlan: o?.vlan ?? null,
+            slot: num(o?.slot),
+            pon: num(o?.pon),
+            vlan: num(o?.vlan),
             cto_nome: txt(o?.splitter?.nome),
-            cto_porta: o?.splitter?.porta ?? null,
-            cto_id: o?.splitter?.id ?? null,
+            cto_porta: num(o?.splitter?.porta),
+            cto_id: num(o?.splitter?.id),
             conexao_status: txt(cx?.status),
             conexao_ip: txt(cx?.ip),
             conexao_desde: txt(cx?.data_conexao),

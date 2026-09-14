@@ -12,6 +12,7 @@ import { db } from './store/db';
 import { semearPrompts, listarChaves, listarVersoes, promptAtivo, salvarPrompt, ativarVersao } from './prompts';
 import { agendarSync, sincronizar, statusIndice } from './store/sgp-index';
 import { registrarFerramentas } from './tools/consultas';
+import { registrarFerramentasMetricas } from './tools/metricas';
 import { ferramentas } from './tools/base';
 import { parseWebhook } from '../integrations/evolution';
 import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
@@ -251,6 +252,7 @@ async function main(): Promise<void> {
   db();
   semearPrompts();
   registrarFerramentas();
+  registrarFerramentasMetricas();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;

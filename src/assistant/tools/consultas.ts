@@ -7,6 +7,7 @@
 import { config } from '../../config';
 import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { zabbix, ZabbixClient } from '../../integrations/zabbix';
+import { onuPorTermo } from '../../integrations/zabbix-metricas';
 import { db } from '../store/db';
 import { buscar, statusIndice, servicosPorCto, idadeEspelho } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas } from './base';
@@ -125,6 +126,28 @@ const revisaoCliente: Ferramenta = {
           return { dados: d, vazio: !d.temIncidente };
         }),
       );
+
+      // 3b. ONU lida direto na OLT pelo Zabbix — segunda fonte de sinal, que
+      // confirma ou contradiz o RX do SGP. Só existe para a OLT-3.
+      if (alvo?.sn || alvo?.login) {
+        envelopes.push(
+          await medir(ctx, 'zabbix', 'zabbix.onu', { sn: alvo?.sn, login: alvo?.login }, async () => {
+            const achadas = alvo?.sn ? await onuPorTermo(alvo.sn) : [];
+            const onus = achadas.length || !alvo?.login ? achadas : await onuPorTermo(alvo.login);
+            return {
+              dados: onus.length
+                ? onus.map((o) => ({
+                    porta_gpon: o.portaGpon, situacao: o.situacao, motivo: o.motivo,
+                    sinal_rx: o.sinalRx?.valorFormatado ?? null, sinal_tx: o.sinalTx?.valorFormatado ?? null,
+                    download: o.download?.valorFormatado ?? null, upload: o.upload?.valorFormatado ?? null,
+                    coleta_rx: o.sinalRx?.coleta ?? null,
+                  }))
+                : { observacao: 'ONU não monitorada no Zabbix (só a OLT-3 tem monitoramento por ONU)' },
+              vazio: onus.length === 0,
+            };
+          }),
+        );
+      }
 
       // 4. Histórico de quedas — quantidade e duração, não impressão.
       envelopes.push(

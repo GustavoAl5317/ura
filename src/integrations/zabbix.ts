@@ -79,6 +79,11 @@ export class ZabbixClient {
     return this.http.defaults.baseURL ?? '';
   }
 
+  /** Chamada autenticada à API. Usada pelo módulo de métricas (zabbix-metricas.ts). */
+  async api<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    return this.call<T>(method, params);
+  }
+
   private async call<T>(method: string, params: Record<string, unknown>, auth = true): Promise<T> {
     if (auth) await this.ensureAuth();
 

@@ -196,6 +196,70 @@ function migrar(d: Database.Database): void {
   // dois rodaram juntos, duplicando ~20 min de trabalho no mesmo banco.
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
+
+  // Versões antigas do sync gravavam '' em colunas numéricas. Corrige o que já
+  // está no banco, em vez de esperar o próximo sync noturno para agrupar por PON.
+  for (const col of ['olt_id', 'slot', 'pon', 'vlan', 'cto_porta', 'cto_id', 'plano_id', 'onu_id']) {
+    d.exec(`UPDATE sgp_servico SET ${col} = NULL WHERE ${col} = ''`);
+  }
+
+  d.exec(`
+    -- ═══ Configuração editável sem restart (Bloco 6) ══════════════════════
+    CREATE TABLE IF NOT EXISTS configuracao (
+      chave          TEXT PRIMARY KEY,
+      valor          TEXT NOT NULL,        -- JSON
+      atualizado_em  TEXT NOT NULL,
+      atualizado_por TEXT
+    );
+
+    -- ═══ Alertas proativos (Bloco 4) ══════════════════════════════════════
+    CREATE TABLE IF NOT EXISTS alerta (
+      id          TEXT PRIMARY KEY,
+      origem      TEXT NOT NULL,           -- zabbix | ura | sla | sistema
+      severidade  TEXT NOT NULL,           -- info | aviso | critico
+      titulo      TEXT NOT NULL,
+      texto       TEXT NOT NULL,
+      dados       TEXT,                    -- JSON
+      -- Chave de deduplicação: o mesmo fato não gera dois alertas.
+      chave       TEXT NOT NULL,
+      criado_em   TEXT NOT NULL,
+      enviado_em  TEXT,                    -- NULL = não despachado (silêncio, sem destino, falha)
+      envio_erro  TEXT,
+      reconhecido_em  TEXT,
+      reconhecido_por TEXT,
+      resolvido_em    TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_alerta_chave ON alerta(chave);
+    CREATE INDEX IF NOT EXISTS ix_alerta_criado ON alerta(criado_em DESC);
+
+    -- ═══ Chamadas da URA recebidas pelo monitor (Bloco 4) ═════════════════
+    CREATE TABLE IF NOT EXISTS chamada_ura (
+      call_id       TEXT PRIMARY KEY,
+      numero        TEXT,
+      cliente_nome  TEXT,
+      contrato_id   INTEGER,
+      intencao      TEXT,
+      status        TEXT NOT NULL,         -- em_andamento | encerrada | transferida
+      ferramentas   TEXT,                  -- JSON: ferramentas usadas na ligação
+      iniciada_em   TEXT NOT NULL,
+      encerrada_em  TEXT,
+      duracao_seg   INTEGER,
+      atualizada_em TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_chamada_iniciada ON chamada_ura(iniciada_em DESC);
+
+    -- ═══ Estado do monitor de SLA de atendimento (Bloco 4) ════════════════
+    CREATE TABLE IF NOT EXISTS sla_conversa (
+      jid                TEXT PRIMARY KEY,
+      nome               TEXT,
+      setor              TEXT,
+      ultima_msg_id      TEXT,
+      ultima_msg_cliente TEXT,             -- horário da última mensagem do cliente
+      aguardando_desde   TEXT,             -- NULL = respondida
+      alertado_msg_id    TEXT,             -- evita alertar duas vezes a mesma espera
+      atualizada_em      TEXT NOT NULL
+    );
+  `);
 }
 
 function adicionarColunaSeFaltar(
