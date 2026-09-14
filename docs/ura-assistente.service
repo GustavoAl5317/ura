@@ -23,6 +23,12 @@ Type=simple
 User=root
 WorkingDirectory=/opt/ura-assistente
 
+# Firewall da porta antes de abrir o socket: a VM tem IP público e as regras do
+# iptables somem no reboot. Se o script falhar (item inválido em
+# ASSISTANT_FIREWALL_LIBERAR), o serviço NÃO sobe — melhor fora do ar que
+# exposto. Ver scripts/firewall-assistente.sh.
+ExecStartPre=/bin/bash /opt/ura-assistente/scripts/firewall-assistente.sh
+
 # dotenv lê o .env a partir do WorkingDirectory — não precisa de EnvironmentFile.
 ExecStart=/usr/bin/node dist/assistant/index.js
 
