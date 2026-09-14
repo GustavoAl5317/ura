@@ -142,6 +142,7 @@ export async function receberEventoUra(e: EventoUra): Promise<{ ok: boolean; mot
       texto: linhas.join('\n'),
       chave: `ura:${e.callId}`,
       dados: { ...chamada, ferramentas },
+      evento: true,
     });
   }
 

@@ -197,6 +197,9 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'consulta', 'hipotese', 'TEXT');
+  // Acontecimento não é pendência: corrige o que foi gravado antes de existir a distinção.
+  d.exec(`UPDATE alerta SET resolvido_em = criado_em
+          WHERE resolvido_em IS NULL AND (origem = 'ura' OR chave LIKE '%:resolvido')`);
 
   // Versões antigas do sync gravavam '' em colunas numéricas. Corrige o que já
   // está no banco, em vez de esperar o próximo sync noturno para agrupar por PON.

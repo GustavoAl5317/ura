@@ -63,6 +63,12 @@ export async function emitir(p: {
   dados?: unknown;
   /** Grava sem enviar. Usado para semear problemas antigos no primeiro boot. */
   silencioso?: boolean;
+  /**
+   * É um acontecimento (chamada recebida, incidente resolvido), não um problema
+   * em aberto: nasce resolvido. Sem isto, cada chamada da URA ficaria para sempre
+   * em "alertas sem resolução", afogando os problemas de verdade.
+   */
+  evento?: boolean;
 }): Promise<Alerta | null> {
   const alerta: Alerta = {
     id: randomUUID(),
@@ -79,14 +85,16 @@ export async function emitir(p: {
     reconhecido_por: null,
     resolvido_em: null,
   };
+  if (p.evento) alerta.resolvido_em = alerta.criado_em;
 
   const r = db().prepare(
-    `INSERT OR IGNORE INTO alerta (id, origem, severidade, titulo, texto, dados, chave, criado_em, envio_erro)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT OR IGNORE INTO alerta (id, origem, severidade, titulo, texto, dados, chave, criado_em, envio_erro, resolvido_em)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     alerta.id, alerta.origem, alerta.severidade, alerta.titulo, alerta.texto,
     alerta.dados === null ? null : JSON.stringify(alerta.dados), alerta.chave, alerta.criado_em,
     p.silencioso ? 'semeado sem envio (já existia quando o monitor iniciou)' : null,
+    alerta.resolvido_em,
   );
   if (!r.changes) return null;   // chave repetida: fato já alertado
 

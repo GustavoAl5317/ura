@@ -125,6 +125,7 @@ export function iniciarMonitorZabbix(): () => void {
               .filter(Boolean).join('\n'),
             chave: `zabbix:${d.eventid}:resolvido`,
             dados: { eventid: d.eventid, duracaoSeg: dur },
+            evento: true,
           });
           emitidos++;
         }

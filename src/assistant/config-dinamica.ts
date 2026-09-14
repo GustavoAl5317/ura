@@ -29,19 +29,19 @@ export const DEFINICOES = {
   // ── IA ──────────────────────────────────────────────────────────────────
   'ia.modelo': {
     tipo: 'texto', grupo: 'ia', padrao: () => config.assistant.model,
-    descricao: 'Modelo de chat com tool calling. Validado contra os modelos liberados no projeto OpenAI.',
+    descricao: 'Modelo de IA que responde às perguntas. Só aparecem os liberados na conta OpenAI da empresa.',
   },
   'ia.temperatura': {
     tipo: 'numero', grupo: 'ia', padrao: () => config.assistant.temperature, min: 0, max: 1,
-    descricao: 'Criatividade. Baixo = respostas mais consistentes; para operação, fique abaixo de 0.4.',
+    descricao: 'Variação das respostas. Mais baixo dá respostas mais consistentes; para operação, fique abaixo de 0,4.',
   },
   'ia.max_tokens': {
     tipo: 'inteiro', grupo: 'ia', padrao: () => config.assistant.maxTokens, min: 200, max: 4000,
-    descricao: 'Tamanho máximo da resposta.',
+    descricao: 'Tamanho máximo da resposta, em tokens (cerca de 3 caracteres cada).',
   },
   'ia.max_rodadas': {
     tipo: 'inteiro', grupo: 'ia', padrao: () => config.assistant.maxToolRounds, min: 1, max: 12,
-    descricao: 'Rodadas de consulta às fontes por pergunta. Trava contra laço infinito.',
+    descricao: 'Quantas vezes a IA pode voltar às fontes numa mesma pergunta antes de responder.',
   },
 
   // ── Áudio ───────────────────────────────────────────────────────────────
@@ -66,13 +66,13 @@ export const DEFINICOES = {
   // ── Limites de automação ────────────────────────────────────────────────
   'limites.consultas_por_hora': {
     tipo: 'inteiro', grupo: 'limites', padrao: () => 60, min: 1, max: 1000,
-    descricao: 'Por usuário. Protege custo de IA e carga no SGP/Zabbix contra uso em laço.',
+    descricao: 'Perguntas por hora para cada pessoa. Protege o custo da IA e a carga no SGP e no Zabbix.',
   },
 
   // ── Alertas ─────────────────────────────────────────────────────────────
   'alertas.destino_grupo': {
     tipo: 'texto', grupo: 'alertas', padrao: () => config.evolutionTecnicos.grupoAlertas,
-    descricao: 'JID do grupo de WhatsApp que recebe os alertas (termina em @g.us). Vazio = só painel.',
+    descricao: 'Grupo de WhatsApp que recebe os alertas (o identificador termina em @g.us). Vazio: alertas só no painel.',
   },
   'alertas.silencio_inicio': {
     tipo: 'hora', grupo: 'alertas', padrao: () => '',

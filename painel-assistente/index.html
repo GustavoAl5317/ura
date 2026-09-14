@@ -1,0 +1,1337 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operação · Aquitelecom</title>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Tokens
+   Cor tem dois usos e só dois:
+     • veredito  → verde / âmbar / vermelho (os mesmos 🟢🟡🔴 do WhatsApp)
+     • fonte     → código de cores de fibra TIA-598
+   Nada de cor decorativa. Fibra cortada = fonte fora.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --aco: #ECEFF2;
+  --painel: #F9FAFB;
+  --painel-2: #F2F4F6;
+  --tinta: #151F29;
+  --tinta-2: #56636F;
+  --tinta-3: #8793A0;
+  --linha: #D2D8DE;
+
+  --confirmado: #1E7F46;
+  --provavel: #A96E12;
+  --inconclusivo: #B8352A;
+
+  /* TIA-598: posições 1 (azul), 10 (violeta), 12 (água), 11 (rosa), 4 (marrom), 5 (ardósia) */
+  --fibra-sgp: #2A67D1;
+  --fibra-zabbix: #7446C4;
+  --fibra-ura: #129AA8;
+  --fibra-whatsapp: #CF5B8E;
+  --fibra-netflow: #85552A;
+  --fibra-questdb: #6B7885;
+
+  --foco: #2A67D1;
+  --raio: 6px;
+
+  --f-placa: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-texto: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-dado: "Cascadia Mono", "JetBrains Mono", ui-monospace, "SF Mono", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --aco: #0E141A;
+    --painel: #151C23;
+    --painel-2: #1B232B;
+    --tinta: #E2E8ED;
+    --tinta-2: #97A3AE;
+    --tinta-3: #66727D;
+    --linha: #28323C;
+    --confirmado: #3BB273;
+    --provavel: #D69A2E;
+    --inconclusivo: #E0594C;
+    --fibra-sgp: #5B8DEB;
+    --fibra-zabbix: #9C7BE0;
+    --fibra-ura: #2FC0CE;
+    --fibra-whatsapp: #E07BA8;
+    --fibra-netflow: #B07B4B;
+    --fibra-questdb: #8C99A6;
+    --foco: #5B8DEB;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--aco);
+  color: var(--tinta);
+  font: 14px/1.45 var(--f-texto);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Tipos */
+.placa {
+  font-family: var(--f-placa);
+  font-stretch: 87.5%;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.dado { font-family: var(--f-dado); font-size: .92em; font-variant-numeric: tabular-nums; }
+.mudo { color: var(--tinta-2); }
+.fraco { color: var(--tinta-3); }
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h2.secao {
+  font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase;
+  letter-spacing: .06em; font-size: 12px; color: var(--tinta-2); font-weight: 600;
+  margin: 0 0 10px;
+}
+
+/* ── Fibra: a assinatura ──────────────────────────────────────────────────
+   Um fio por evidência. Contínuo = respondeu. Tracejado = sem registro.
+   Cortado = a fonte caiu. */
+.feixe { display: flex; gap: 3px; align-items: center; min-height: 10px; }
+.fio {
+  --cor: var(--tinta-3);
+  flex: 1 1 22px; max-width: 64px; height: 5px; border-radius: 3px;
+  background: var(--cor);
+  position: relative;
+}
+.fio.vazio {
+  background: repeating-linear-gradient(90deg, var(--cor) 0 5px, transparent 5px 9px);
+  opacity: .75;
+}
+.fio.falhou {
+  background: linear-gradient(90deg, var(--cor) 0 38%, transparent 38% 62%, var(--cor) 62%);
+}
+.fio.falhou::after {
+  content: ""; position: absolute; left: 50%; top: -4px; width: 2px; height: 12px;
+  background: var(--inconclusivo); transform: translateX(-50%) rotate(28deg); border-radius: 1px;
+}
+.fio[data-fonte="sgp"] { --cor: var(--fibra-sgp); }
+.fio[data-fonte="zabbix"] { --cor: var(--fibra-zabbix); }
+.fio[data-fonte="ura"] { --cor: var(--fibra-ura); }
+.fio[data-fonte="whatsapp"] { --cor: var(--fibra-whatsapp); }
+.fio[data-fonte="netflow"] { --cor: var(--fibra-netflow); }
+.fio[data-fonte="questdb"] { --cor: var(--fibra-questdb); }
+
+.cor-fonte { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+
+/* ── Estrutura ─────────────────────────────────────────────────────────── */
+.app { display: grid; grid-template-columns: 196px 1fr; min-height: 100vh; }
+.trilho {
+  background: var(--painel); border-right: 1px solid var(--linha);
+  display: flex; flex-direction: column; padding: 18px 12px; gap: 2px;
+  position: sticky; top: 0; height: 100vh;
+}
+.marca { padding: 2px 10px 18px; }
+.marca .nome { font-family: var(--f-placa); font-stretch: 87.5%; font-size: 19px; font-weight: 700; letter-spacing: .01em; }
+.marca .sub { font-size: 11px; color: var(--tinta-2); margin-top: 2px; }
+.aba {
+  display: flex; align-items: center; justify-content: space-between;
+  background: none; border: 0; border-radius: var(--raio);
+  padding: 8px 10px; text-align: left; cursor: pointer; color: var(--tinta-2);
+}
+.aba:hover { background: var(--painel-2); color: var(--tinta); }
+.aba[aria-selected="true"] { background: var(--tinta); color: var(--painel); }
+.aba .contador {
+  font-family: var(--f-dado); font-size: 11px; min-width: 20px; text-align: center;
+  padding: 0 6px; border-radius: 9px; background: var(--inconclusivo); color: #fff;
+}
+.trilho .rodape { margin-top: auto; padding: 10px; font-size: 12px; color: var(--tinta-2); border-top: 1px solid var(--linha); }
+.trilho .rodape button { background: none; border: 0; padding: 0; color: var(--tinta-2); text-decoration: underline; cursor: pointer; }
+
+.principal { min-width: 0; display: flex; flex-direction: column; }
+
+/* Faixa de integrações: cada fonte é um fio */
+.faixa {
+  display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center;
+  padding: 12px 24px; border-bottom: 1px solid var(--linha); background: var(--painel);
+}
+.integ { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.integ .rotulo { font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: .05em; color: var(--tinta-2); }
+.integ .fio { width: 34px; flex: none; }
+.integ .estado { color: var(--tinta-2); }
+.ao-vivo { margin-left: auto; font-size: 12px; color: var(--tinta-2); display: flex; align-items: center; gap: 7px; }
+.ao-vivo .ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--tinta-3); }
+.ao-vivo.on .ponto { background: var(--confirmado); animation: pulso 2.4s ease-in-out infinite; }
+@keyframes pulso { 50% { opacity: .35; } }
+
+.conteudo { padding: 22px 24px 40px; max-width: 1400px; width: 100%; }
+.cabeca-aba { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.cabeca-aba h1 { font-family: var(--f-placa); font-stretch: 87.5%; font-size: 26px; font-weight: 600; letter-spacing: .005em; }
+.cabeca-aba p { margin: 2px 0 0; color: var(--tinta-2); }
+
+.bloco { background: var(--painel); border: 1px solid var(--linha); border-radius: var(--raio); padding: 16px; }
+.grade { display: grid; gap: 16px; }
+.grade-2 { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.grade-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Fatos do dia — números discretos, não vitrine */
+.fatos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--linha); border-radius: var(--raio); background: var(--painel); margin-bottom: 16px; }
+.fato { padding: 12px 16px; border-left: 1px solid var(--linha); }
+.fato:first-child { border-left: 0; }
+.fato .n { font-family: var(--f-placa); font-stretch: 87.5%; font-size: 24px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.fato .r { font-size: 12px; color: var(--tinta-2); }
+.fato .n.alarme { color: var(--inconclusivo); }
+
+/* Barra de vereditos */
+.vereditos { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--painel-2); margin-top: 8px; }
+.vereditos span { display: block; }
+
+/* Linha do tempo ao vivo */
+.tempo { list-style: none; margin: 0; padding: 0; max-height: 560px; overflow: auto; }
+.tempo li { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--linha); }
+.tempo li:first-child { border-top: 0; }
+.tempo .h { font-family: var(--f-dado); font-size: 12px; color: var(--tinta-2); padding-top: 1px; }
+.tempo .t { font-weight: 500; }
+.tempo .d { font-size: 12.5px; color: var(--tinta-2); margin-top: 2px; overflow-wrap: anywhere; }
+.tempo li.novo { animation: chegar .5s ease-out; }
+@keyframes chegar { from { background: var(--painel-2); } to { background: transparent; } }
+
+/* Chips */
+.veredito {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: .05em;
+  font-size: 11.5px; font-weight: 600; padding: 2px 8px 1px; border-radius: 4px;
+  border: 1px solid currentColor;
+}
+.veredito::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.v-CONFIRMADO { color: var(--confirmado); }
+.v-PROVAVEL { color: var(--provavel); }
+.v-INCONCLUSIVO { color: var(--inconclusivo); }
+.sev { font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; font-weight: 600; }
+.sev-critico { color: var(--inconclusivo); }
+.sev-aviso { color: var(--provavel); }
+.sev-info { color: var(--tinta-2); }
+.etiqueta { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--painel-2); color: var(--tinta-2); border: 1px solid var(--linha); }
+
+/* Tabelas */
+.tabela-rolagem { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: .05em; font-size: 11.5px; font-weight: 600; color: var(--tinta-2); padding: 8px 10px; border-bottom: 1px solid var(--linha); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--linha); vertical-align: top; }
+tr.clicavel { cursor: pointer; }
+tr.clicavel:hover td { background: var(--painel-2); }
+tr[aria-selected="true"] td { background: var(--painel-2); }
+td.quebra { overflow-wrap: anywhere; }
+
+/* Formulários */
+.campo { display: grid; gap: 4px; }
+.campo label { font-size: 12px; color: var(--tinta-2); }
+input[type="text"], input[type="password"], input[type="number"], input[type="time"], select, textarea {
+  background: var(--painel); border: 1px solid var(--linha); border-radius: var(--raio);
+  padding: 7px 9px; width: 100%;
+}
+textarea { resize: vertical; min-height: 44px; }
+.botao {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--tinta); background: var(--tinta); color: var(--painel);
+  border-radius: var(--raio); padding: 7px 14px; cursor: pointer; font-weight: 500; white-space: nowrap;
+}
+.botao:hover { filter: brightness(1.15); }
+.botao.sec { background: transparent; color: var(--tinta); border-color: var(--linha); }
+.botao.sec:hover { background: var(--painel-2); filter: none; }
+.botao.perigo { background: transparent; color: var(--inconclusivo); border-color: var(--linha); }
+.botao:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+.botao.mini { padding: 3px 9px; font-size: 12.5px; }
+.linha-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+.filtros .campo { min-width: 160px; }
+
+.aviso { padding: 10px 12px; border-radius: var(--raio); border: 1px solid var(--linha); background: var(--painel-2); font-size: 13px; }
+.aviso.erro { border-color: var(--inconclusivo); color: var(--inconclusivo); background: transparent; }
+.aviso.ok { border-color: var(--confirmado); color: var(--confirmado); background: transparent; }
+.vazio-msg { color: var(--tinta-2); padding: 18px 2px; }
+
+details > summary { cursor: pointer; color: var(--tinta-2); font-size: 12.5px; }
+pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-radius: var(--raio); max-height: 320px; overflow: auto; font: 12px/1.5 var(--f-dado); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── Chat ──────────────────────────────────────────────────────────────── */
+.chat { display: grid; grid-template-rows: 1fr auto; height: calc(100vh - 170px); min-height: 460px; }
+.mensagens { overflow: auto; padding: 4px 2px 12px; display: flex; flex-direction: column; gap: 14px; }
+.msg { max-width: 820px; }
+.msg.eu { align-self: flex-end; background: var(--tinta); color: var(--painel); padding: 9px 13px; border-radius: 10px 10px 2px 10px; max-width: 70%; }
+.msg.eu .origem { font-size: 11px; opacity: .7; margin-top: 3px; }
+.msg.ia { align-self: flex-start; width: 100%; }
+.resposta { background: var(--painel); border: 1px solid var(--linha); border-radius: 2px 10px 10px 10px; padding: 12px 14px; }
+.resposta .topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.resposta .corpo { overflow-wrap: anywhere; }
+.resposta .corpo strong { font-weight: 600; }
+.ref { font-family: var(--f-dado); font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--painel-2); color: var(--tinta-2); border: 1px solid var(--linha); cursor: help; }
+.hipotese { margin-top: 10px; padding: 8px 11px; border-left: 3px solid var(--provavel); background: var(--painel-2); font-size: 13.5px; }
+.hipotese b { font-family: var(--f-placa); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: .05em; font-size: 11.5px; color: var(--provavel); display: block; margin-bottom: 2px; }
+.lacunas { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--tinta-2); }
+.rastro { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--linha); }
+.rastro .feixe { margin-bottom: 6px; }
+.evid { display: grid; grid-template-columns: 50px 14px 1fr auto; gap: 8px; align-items: baseline; font-size: 12.5px; padding: 3px 0; }
+.evid .st-falhou { color: var(--inconclusivo); }
+.evid .st-vazio { color: var(--tinta-3); }
+.ajuste { margin-top: 8px; font-size: 12px; color: var(--provavel); }
+
+.compositor { border-top: 1px solid var(--linha); padding-top: 12px; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; }
+.compositor textarea { min-height: 46px; max-height: 180px; }
+.mic { width: 46px; height: 46px; padding: 0; border-radius: 50%; }
+.mic.gravando { background: var(--inconclusivo); border-color: var(--inconclusivo); animation: pulso 1.2s ease-in-out infinite; }
+.mic svg { width: 18px; height: 18px; }
+.nota-mic { grid-column: 1 / -1; font-size: 12px; color: var(--tinta-2); }
+.pensando { display: flex; gap: 3px; padding: 14px; }
+.pensando .fio { max-width: 28px; animation: luz 1.4s ease-in-out infinite; }
+.pensando .fio:nth-child(2) { animation-delay: .2s; }
+.pensando .fio:nth-child(3) { animation-delay: .4s; }
+@keyframes luz { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+
+/* ── Admin ─────────────────────────────────────────────────────────────── */
+.subabas { display: flex; gap: 2px; border-bottom: 1px solid var(--linha); margin-bottom: 18px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.subabas::-webkit-scrollbar { display: none; }
+.subaba { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; color: var(--tinta-2); white-space: nowrap; margin-bottom: -1px; }
+.subaba[aria-selected="true"] { color: var(--tinta); border-bottom-color: var(--tinta); font-weight: 500; }
+.cfg-grupo + .cfg-grupo { margin-top: 18px; }
+.cfg-item { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto; gap: 14px; align-items: center; padding: 11px 0; border-top: 1px solid var(--linha); }
+.cfg-item:first-of-type { border-top: 0; }
+.cfg-item .chave { font-family: var(--f-dado); font-size: 12px; color: var(--tinta-2); }
+.cfg-item .desc { font-size: 13px; margin-top: 2px; }
+.cfg-item .alterado { color: var(--provavel); font-size: 11.5px; }
+.opcoes-lista { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.opcoes-lista label { display: flex; gap: 5px; align-items: center; font-size: 12.5px; }
+.interruptor { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.prompt-editor { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+.prompt-editor textarea { min-height: 420px; font: 12.5px/1.55 var(--f-dado); }
+
+.toast { position: fixed; bottom: 18px; right: 18px; max-width: 420px; z-index: 20; }
+
+/* Login */
+.entrada { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+.entrada .cartao { width: 100%; max-width: 380px; background: var(--painel); border: 1px solid var(--linha); border-radius: 10px; padding: 26px; display: grid; gap: 14px; }
+.entrada h1 { font-family: var(--f-placa); font-stretch: 87.5%; font-size: 24px; }
+.entrada .feixe { margin: 2px 0 4px; }
+
+/* Responsivo */
+@media (max-width: 1100px) {
+  .grade-2, .grade-3 { grid-template-columns: 1fr; }
+  .fatos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fato:nth-child(3) { border-left: 0; border-top: 1px solid var(--linha); }
+  .fato:nth-child(4) { border-top: 1px solid var(--linha); }
+  .prompt-editor { grid-template-columns: 1fr; }
+  .cfg-item { grid-template-columns: 1fr; gap: 8px; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .trilho {
+    position: fixed; bottom: 0; top: auto; left: 0; right: 0; height: auto; z-index: 10;
+    flex-direction: row; padding: 6px; overflow-x: auto; border-right: 0; border-top: 1px solid var(--linha);
+    scrollbar-width: none;
+  }
+  .trilho::-webkit-scrollbar { display: none; }
+  .marca, .trilho .rodape { display: none; }
+  .aba { flex: none; padding: 8px 10px; font-size: 13px; }
+  .conteudo { padding: 16px 14px 90px; }
+  .faixa { padding: 10px 14px; }
+  .chat { height: calc(100vh - 230px); }
+  .msg.eu { max-width: 88%; }
+  .evid { grid-template-columns: 44px 12px 1fr; }
+  .evid .dur { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Entrada ─────────────────────────────────────────────────────────── -->
+<section class="entrada" id="tela-entrada" hidden>
+  <form class="cartao" id="form-entrada">
+    <div>
+      <div class="feixe" aria-hidden="true">
+        <span class="fio" data-fonte="sgp"></span><span class="fio" data-fonte="zabbix"></span>
+        <span class="fio" data-fonte="ura"></span><span class="fio" data-fonte="whatsapp"></span>
+      </div>
+      <h1>Operação Aquitelecom</h1>
+      <p class="mudo" style="margin:4px 0 0">Assistente de observabilidade da rede</p>
+    </div>
+    <div class="campo">
+      <label for="in-operador">Seu nome</label>
+      <input type="text" id="in-operador" autocomplete="name" required maxlength="60" placeholder="Aparece na auditoria">
+    </div>
+    <div class="campo">
+      <label for="in-chave">Chave de acesso</label>
+      <input type="password" id="in-chave" autocomplete="current-password" required>
+    </div>
+    <div class="aviso erro" id="erro-entrada" hidden></div>
+    <button class="botao" type="submit">Entrar</button>
+  </form>
+</section>
+
+<!-- ── Aplicação ───────────────────────────────────────────────────────── -->
+<div class="app" id="tela-app" hidden>
+  <nav class="trilho" aria-label="Seções" role="tablist">
+    <div class="marca">
+      <div class="nome">Aquitelecom</div>
+      <div class="sub">Operação · assistente</div>
+    </div>
+    <button class="aba" role="tab" data-aba="visao">Visão geral</button>
+    <button class="aba" role="tab" data-aba="chat">Perguntar</button>
+    <button class="aba" role="tab" data-aba="consultas">Consultas</button>
+    <button class="aba" role="tab" data-aba="alertas">Alertas <span class="contador" id="cont-alertas" hidden>0</span></button>
+    <button class="aba" role="tab" data-aba="chamadas">Chamadas da URA</button>
+    <button class="aba" role="tab" data-aba="admin">Administração</button>
+    <div class="rodape">
+      <div id="rodape-operador"></div>
+      <button type="button" id="btn-sair">Sair</button>
+    </div>
+  </nav>
+
+  <main class="principal">
+    <header class="faixa" id="faixa" aria-label="Estado das fontes">
+      <span class="fraco">Carregando fontes…</span>
+    </header>
+    <div class="conteudo">
+
+      <!-- Visão geral -->
+      <section data-painel="visao" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Visão geral</h1><p>O que está acontecendo agora na rede e no assistente.</p></div>
+          <div class="fraco" id="visao-atualizado"></div>
+        </div>
+        <div class="fatos" id="fatos"></div>
+        <div class="grade grade-2">
+          <div class="bloco">
+            <h2 class="secao">Agora</h2>
+            <ul class="tempo" id="tempo"><li class="vazio-msg" style="display:block">Aguardando o primeiro acontecimento…</li></ul>
+          </div>
+          <div class="grade">
+            <div class="bloco"><h2 class="secao">Alertas sem resolução</h2><div id="visao-alertas"></div></div>
+            <div class="bloco"><h2 class="secao">Monitores</h2><div id="visao-monitores"></div></div>
+            <div class="bloco"><h2 class="secao">Espelho do SGP</h2><div id="visao-espelho"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chat -->
+      <section data-painel="chat" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Perguntar</h1><p>Escreva para receber texto. Grave para receber áudio.</p></div>
+          <button class="botao sec mini" type="button" id="btn-limpar-chat">Nova conversa</button>
+        </div>
+        <div class="chat bloco">
+          <div class="mensagens" id="mensagens" aria-live="polite">
+            <div class="vazio-msg" id="chat-vazio">
+              Pergunte como a um colega do NOC. Por exemplo:<br>
+              <span class="dado">como está o link principal agora?</span><br>
+              <span class="dado">revisão completa do cliente &lt;nome ou SN&gt;</span><br>
+              <span class="dado">por que a PON 0/1/8 da OLT 3 tem cliente sem luz?</span>
+            </div>
+          </div>
+          <form class="compositor" id="form-chat">
+            <textarea id="in-pergunta" rows="1" placeholder="Pergunte sobre a rede, um cliente, uma CTO…" aria-label="Pergunta"></textarea>
+            <button class="botao sec mic" type="button" id="btn-mic" aria-label="Gravar pergunta em áudio" title="Gravar pergunta em áudio">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            </button>
+            <button class="botao" type="submit" id="btn-enviar">Enviar</button>
+            <div class="nota-mic" id="nota-mic" hidden></div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Consultas -->
+      <section data-painel="consultas" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Consultas</h1><p>Toda pergunta respondida, com as fontes consultadas e o que cada uma devolveu.</p></div>
+          <button class="botao sec mini" type="button" id="btn-recarregar-consultas">Atualizar</button>
+        </div>
+        <div class="filtros">
+          <div class="campo"><label for="f-consulta-texto">Buscar</label><input type="text" id="f-consulta-texto" placeholder="Pergunta ou usuário"></div>
+          <div class="campo"><label for="f-consulta-veredito">Veredito</label>
+            <select id="f-consulta-veredito"><option value="">Todos</option><option>CONFIRMADO</option><option>PROVAVEL</option><option>INCONCLUSIVO</option></select></div>
+        </div>
+        <div class="grade grade-2">
+          <div class="bloco tabela-rolagem"><table><thead><tr><th>Quando</th><th>Pergunta</th><th>Veredito</th><th>Fontes</th></tr></thead><tbody id="tb-consultas"></tbody></table></div>
+          <div class="bloco" id="detalhe-consulta"><p class="vazio-msg">Selecione uma consulta para ver as evidências.</p></div>
+        </div>
+      </section>
+
+      <!-- Alertas -->
+      <section data-painel="alertas" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Alertas</h1><p>Incidentes da rede, chamadas e atendimento aguardando retorno.</p></div>
+        </div>
+        <div class="filtros">
+          <div class="campo"><label for="f-alerta-origem">Origem</label>
+            <select id="f-alerta-origem"><option value="">Todas</option><option value="zabbix">Rede (Zabbix)</option><option value="ura">URA</option><option value="sla">Atendimento</option><option value="sistema">Sistema</option></select></div>
+          <label class="interruptor" style="padding-bottom:8px"><input type="checkbox" id="f-alerta-abertos"> Só sem resolução</label>
+        </div>
+        <div class="bloco tabela-rolagem"><table><thead><tr><th>Quando</th><th>Nível</th><th>Alerta</th><th>Entrega</th><th></th></tr></thead><tbody id="tb-alertas"></tbody></table></div>
+      </section>
+
+      <!-- Chamadas -->
+      <section data-painel="chamadas" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Chamadas da URA</h1><p>A intenção vem das consultas que a URA fez na ligação, não do conteúdo da conversa.</p></div>
+          <button class="botao sec mini" type="button" id="btn-recarregar-chamadas">Atualizar</button>
+        </div>
+        <div class="bloco tabela-rolagem"><table><thead><tr><th>Início</th><th>Número</th><th>Cliente</th><th>Intenção</th><th>Status</th><th>Duração</th></tr></thead><tbody id="tb-chamadas"></tbody></table></div>
+      </section>
+
+      <!-- Administração -->
+      <section data-painel="admin" hidden>
+        <div class="cabeca-aba"><div><h1>Administração</h1><p>Mudanças valem na hora, sem reiniciar, e ficam registradas na auditoria.</p></div></div>
+        <div class="subabas" role="tablist">
+          <button class="subaba" data-sub="config">Comportamento</button>
+          <button class="subaba" data-sub="permissoes">Técnicos</button>
+          <button class="subaba" data-sub="prompts">Instruções da IA</button>
+          <button class="subaba" data-sub="monitores">Monitores e espelho</button>
+          <button class="subaba" data-sub="auditoria">Auditoria</button>
+        </div>
+        <div data-subpainel="config" hidden></div>
+        <div data-subpainel="permissoes" hidden></div>
+        <div data-subpainel="prompts" hidden></div>
+        <div data-subpainel="monitores" hidden></div>
+        <div data-subpainel="auditoria" hidden></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Utilitários
+   Todo texto vindo da API entra por textContent ou esc(): nome de cliente e
+   nome de alerta são dado externo, e esta tela não pode executar nada deles.
+   ───────────────────────────────────────────────────────────────────────── */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+/** replaceChildren transforma null em texto "null" — condicionais passam por aqui. */
+const trocar = (alvo, ...nos) => alvo.replaceChildren(...nos.flat().filter((n) => n !== null && n !== undefined && n !== false));
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function el(tag, attrs = {}, ...filhos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const f of filhos.flat()) if (f !== null && f !== undefined && f !== false) n.append(f.nodeType ? f : document.createTextNode(String(f)));
+  return n;
+}
+
+const TZ = 'America/Fortaleza';
+const hora = (iso) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ }) : '—';
+function quando(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: TZ });
+  const dia = d.toLocaleDateString('pt-BR', { timeZone: TZ });
+  return dia === hoje ? hora(iso) : `${dia.slice(0, 5)} ${hora(iso)}`;
+}
+const duracao = (s) => s === null || s === undefined ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, '0')}s`;
+
+const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB' };
+const ROTULO_VEREDITO = { CONFIRMADO: 'Confirmado', PROVAVEL: 'Provável', INCONCLUSIVO: 'Inconclusivo' };
+
+const chipVeredito = (v) => el('span', { class: `veredito v-${v}`, text: ROTULO_VEREDITO[v] || v });
+
+/** Um fio por evidência. É a mesma semântica do projeto: cortado = fonte fora. */
+function feixe(evidencias) {
+  const f = el('div', { class: 'feixe', role: 'img', 'aria-label': resumoFeixe(evidencias) });
+  for (const e of evidencias) {
+    const estado = !e.ok ? 'falhou' : (e.vazio ? 'vazio' : '');
+    f.append(el('span', { class: `fio ${estado}`, 'data-fonte': e.fonte, title: `${e.id || e.evd} · ${ROTULO_FONTE[e.fonte] || e.fonte} · ${e.consulta || e.nome_consulta} · ${estado || 'respondeu'}` }));
+  }
+  return f;
+}
+function resumoFeixe(ev) {
+  const ok = ev.filter((e) => e.ok && !e.vazio).length;
+  const falhou = ev.filter((e) => !e.ok).length;
+  return `${ev.length} consultas: ${ok} com dado, ${ev.length - ok - falhou} sem registro, ${falhou} com fonte fora`;
+}
+
+/** Marcação de WhatsApp → HTML seguro. Escapa primeiro, formata depois. */
+function formatarTexto(t) {
+  return esc(t)
+    .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+    .replace(/(^|\s)_([^_\n]+)_(?=\s|$)/g, '$1<em>$2</em>')
+    .replace(/\b(evd_(\d+))\b/g, '<span class="ref" title="$1">$2</span>')
+    .replace(/\n/g, '<br>');
+}
+
+let toastTimer;
+function toast(msg, tipo = '') {
+  const t = $('#toast');
+  t.replaceChildren(el('div', { class: `aviso ${tipo}`, text: msg }));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.replaceChildren(), 4200);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Sessão e API
+   ───────────────────────────────────────────────────────────────────────── */
+const sessao = {
+  get chave() { try { return sessionStorage.getItem('aq.chave') || ''; } catch { return ''; } },
+  get operador() { try { return sessionStorage.getItem('aq.operador') || ''; } catch { return ''; } },
+  salvar(chave, operador) { try { sessionStorage.setItem('aq.chave', chave); sessionStorage.setItem('aq.operador', operador); } catch {} },
+  limpar() { try { sessionStorage.removeItem('aq.chave'); } catch {} },
+};
+
+class ErroApi extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+
+async function api(metodo, caminho, corpo, extra = {}) {
+  const headers = { 'x-admin-key': sessao.chave, 'x-operador': sessao.operador, ...(extra.headers || {}) };
+  let body;
+  if (corpo instanceof Blob) body = corpo;
+  else if (corpo !== undefined) { body = JSON.stringify(corpo); headers['Content-Type'] = 'application/json'; }
+  const r = await fetch(caminho, { method: metodo, headers, body });
+  const txt = await r.text();
+  let j; try { j = txt ? JSON.parse(txt) : {}; } catch { j = { error: txt }; }
+  if (r.status === 401) { sair('Sessão recusada: confira a chave de acesso.'); throw new ErroApi(401, 'não autorizado'); }
+  if (!r.ok) throw new ErroApi(r.status, j.error || j.erro || `erro ${r.status}`);
+  return j;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Entrada
+   ───────────────────────────────────────────────────────────────────────── */
+$('#form-entrada').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const chave = $('#in-chave').value.trim();
+  const operador = $('#in-operador').value.trim();
+  $('#erro-entrada').hidden = true;
+  sessao.salvar(chave, operador);
+  try {
+    const r = await fetch('/api/health', { headers: { 'x-admin-key': chave } });
+    if (r.status === 401) throw new Error('Chave incorreta.');
+    if (!r.ok) throw new Error(`O assistente respondeu com erro ${r.status}.`);
+    iniciar();
+  } catch (e) {
+    sessao.limpar();
+    $('#erro-entrada').textContent = e.message === 'Failed to fetch' ? 'Não consegui falar com o assistente. Ele está no ar?' : e.message;
+    $('#erro-entrada').hidden = false;
+  }
+});
+
+function sair(motivo) {
+  sessao.limpar();
+  fontesStream?.close();
+  $('#tela-app').hidden = true;
+  $('#tela-entrada').hidden = false;
+  $('#in-chave').value = '';
+  if (motivo) { $('#erro-entrada').textContent = motivo; $('#erro-entrada').hidden = false; }
+}
+$('#btn-sair').addEventListener('click', () => sair());
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Navegação
+   ───────────────────────────────────────────────────────────────────────── */
+const carregadores = {};
+function irPara(aba) {
+  for (const b of $$('.aba')) b.setAttribute('aria-selected', String(b.dataset.aba === aba));
+  for (const p of $$('[data-painel]')) p.hidden = p.dataset.painel !== aba;
+  try { localStorage.setItem('aq.aba', aba); } catch {}
+  carregadores[aba]?.();
+}
+for (const b of $$('.aba')) b.addEventListener('click', () => irPara(b.dataset.aba));
+
+function irParaSub(sub) {
+  for (const b of $$('.subaba')) b.setAttribute('aria-selected', String(b.dataset.sub === sub));
+  for (const p of $$('[data-subpainel]')) p.hidden = p.dataset.subpainel !== sub;
+  subCarregadores[sub]?.();
+}
+for (const b of $$('.subaba')) b.addEventListener('click', () => irParaSub(b.dataset.sub));
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Faixa de fontes + visão geral
+   ───────────────────────────────────────────────────────────────────────── */
+let fontesStream = null;
+
+async function carregarStatus() {
+  const s = await api('GET', '/api/status');
+  const i = s.integracoes;
+  const itens = [
+    ['sgp', i.sgp, i.sgp ? 'ligado' : 'sem configuração'],
+    ['zabbix', i.zabbix, i.zabbix ? 'ligado' : 'desligado'],
+    ['whatsapp', i.evolution?.ok, i.evolution?.ok ? 'conectado' : (i.evolution?.estado || i.evolution?.erro || 'fora').replace('nao_configurado', 'sem número')],
+    ['questdb', i.questdb, i.questdb ? 'ligado' : 'não integrado'],
+    ['netflow', i.netflow, i.netflow ? 'ligado' : 'não integrado'],
+  ];
+  const faixa = $('#faixa');
+  faixa.replaceChildren(
+    ...itens.map(([f, ok, estado]) => el('div', { class: 'integ' },
+      el('span', { class: 'rotulo', text: ROTULO_FONTE[f] }),
+      el('span', { class: `fio ${ok ? '' : 'falhou'}`, 'data-fonte': f, 'aria-hidden': 'true' }),
+      el('span', { class: 'estado', text: estado }))),
+    el('div', { class: 'ao-vivo', id: 'ao-vivo' }, el('span', { class: 'ponto' }), el('span', { text: 'tempo real desligado' })),
+  );
+  marcarAoVivo(fontesStream && fontesStream.readyState === 1);
+  return s;
+}
+
+function marcarAoVivo(on) {
+  const a = $('#ao-vivo');
+  if (!a) return;
+  a.classList.toggle('on', !!on);
+  a.lastChild.textContent = on ? 'tempo real' : 'tempo real desligado';
+}
+
+carregadores.visao = async () => {
+  try {
+    const [s, mon, alertas] = await Promise.all([
+      carregarStatus(), api('GET', '/api/monitores'), api('GET', '/api/alertas?abertos=1&limite=200'),
+    ]);
+    const totalV = s.porVeredito.reduce((a, v) => a + v.n, 0);
+    const pctV = (nome) => { const v = s.porVeredito.find((x) => x.veredito === nome); return totalV ? (v?.n || 0) / totalV * 100 : 0; };
+    const incidentes = mon.monitores.find((m) => m.nome === 'zabbix')?.detalhe?.problemas_abertos;
+    const naoRec = alertas.alertas.filter((a) => !a.reconhecido_em).length;
+
+    $('#fatos').replaceChildren(
+      fato(incidentes ?? '—', 'incidentes abertos na rede', incidentes > 0),
+      fato(naoRec, 'alertas sem reconhecimento', naoRec > 0),
+      fato(s.consultas24h, 'perguntas nas últimas 24 h'),
+      el('div', { class: 'fato' },
+        el('div', { class: 'n', text: totalV ? `${Math.round(pctV('CONFIRMADO'))}%` : '—' }),
+        el('div', { class: 'r', text: 'confirmadas na semana' }),
+        el('div', { class: 'vereditos', role: 'img', 'aria-label': 'Distribuição de vereditos' },
+          el('span', { style: `width:${pctV('CONFIRMADO')}%;background:var(--confirmado)` }),
+          el('span', { style: `width:${pctV('PROVAVEL')}%;background:var(--provavel)` }),
+          el('span', { style: `width:${pctV('INCONCLUSIVO')}%;background:var(--inconclusivo)` }))),
+    );
+
+    renderAlertasCurtos(alertas.alertas.slice(0, 8));
+    renderMonitores($('#visao-monitores'), mon.monitores, true);
+
+    const e = s.espelho;
+    $('#visao-espelho').replaceChildren(
+      el('div', {}, el('span', { class: 'dado', text: e.clientes.toLocaleString('pt-BR') }), ' clientes · ',
+        el('span', { class: 'dado', text: e.comSn.toLocaleString('pt-BR') }), ' com ONU'),
+      el('div', { class: e.ultimoSyncOk ? 'mudo' : 'sev sev-aviso', style: 'margin-top:4px',
+        text: e.sincronizando ? 'Sincronizando agora…'
+          : e.ultimoSync ? `Sincronizado ${quando(e.ultimoSync)}${e.ultimoSyncOk ? '' : ' — último sync incompleto'}` : 'Nunca sincronizado' }),
+    );
+    $('#visao-atualizado').textContent = `Atualizado ${hora(new Date().toISOString())}`;
+  } catch (e) { if (e.status !== 401) toast(`Visão geral: ${e.message}`, 'erro'); }
+};
+
+function fato(n, rotulo, alarme) {
+  return el('div', { class: 'fato' }, el('div', { class: `n ${alarme ? 'alarme' : ''}`, text: n }), el('div', { class: 'r', text: rotulo }));
+}
+
+function renderAlertasCurtos(lista) {
+  const alvo = $('#visao-alertas');
+  if (!lista.length) { alvo.replaceChildren(el('p', { class: 'vazio-msg', text: 'Nenhum alerta aberto.' })); return; }
+  alvo.replaceChildren(el('ul', { class: 'tempo' }, lista.map((a) => el('li', {},
+    el('span', { class: 'h', text: hora(a.criado_em) }),
+    el('div', {}, el('div', { class: 't' }, el('span', { class: `sev sev-${a.severidade}`, text: rotuloSev(a.severidade) }), ' ', a.titulo),
+      a.envio_erro ? el('div', { class: 'd', text: `Não enviado: ${a.envio_erro}` }) : null)))));
+}
+const rotuloSev = (s) => ({ critico: 'Crítico', aviso: 'Aviso', info: 'Info' }[s] || s);
+
+function renderMonitores(alvo, lista, curto) {
+  const nomes = { zabbix: 'Incidentes da rede', sla_whatsapp: 'Atendimento aguardando retorno' };
+  alvo.replaceChildren(...lista.map((m) => el('div', { style: 'padding:6px 0;border-top:1px solid var(--linha)' },
+    el('div', { style: 'display:flex;justify-content:space-between;gap:8px' },
+      el('strong', { text: nomes[m.nome] || m.nome }),
+      el('span', { class: m.ultimoErro ? 'sev sev-critico' : m.ativo ? 'sev' : 'mudo', style: m.ativo && !m.ultimoErro ? 'color:var(--confirmado)' : '',
+        text: m.ultimoErro ? 'com erro' : m.ativo ? 'ligado' : 'desligado' })),
+    el('div', { class: 'd mudo', style: 'font-size:12.5px' },
+      m.ultimaExecucao ? `Rodou ${quando(m.ultimaExecucao)} · ${m.alertasEmitidos} alerta(s) desde o início` : 'Ainda não rodou',
+      m.ultimoErro ? el('div', { class: 'sev-critico', text: m.ultimoErro }) : null,
+      !curto && Object.keys(m.detalhe || {}).length ? el('pre', { class: 'json', text: JSON.stringify(m.detalhe, null, 2) }) : null))));
+}
+
+/* Linha do tempo alimentada pelo stream */
+function eventoNaLinha(ev, inicial = false) {
+  const lista = $('#tempo');
+  const d = ev.dados || {};
+  let t, det;
+  if (ev.tipo === 'alerta') { t = el('span', {}, el('span', { class: `sev sev-${d.severidade}`, text: rotuloSev(d.severidade) }), ' ', d.titulo); det = d.envio_erro ? `Não enviado: ${d.envio_erro}` : d.enviado_em ? 'Enviado ao grupo' : null; }
+  else if (ev.tipo === 'chamada') { t = `Chamada · ${d.cliente_nome || d.numero || 'não identificado'}`; det = [d.intencao, d.status === 'em_andamento' ? 'em andamento' : d.status].filter(Boolean).join(' · '); }
+  else if (ev.tipo === 'consulta') { t = el('span', {}, chipVeredito(d.veredito), ' ', d.pergunta); det = `${d.usuario} · ${(d.fontes || []).map((f) => ROTULO_FONTE[f] || f).join(', ') || 'sem fonte'} · ${(d.duracaoMs / 1000).toFixed(1)}s`; }
+  else if (ev.tipo === 'monitor') { if (!d.ultimoErro) return; t = `Monitor com erro · ${d.nome}`; det = d.ultimoErro; }
+  else return;
+  // O aviso de "aguardando" só sai quando algo de fato entra na lista.
+  $('.vazio-msg', lista)?.remove();
+  const chave = `${ev.tipo}:${d.id || d.call_id || ''}:${d.status || d.veredito || ''}:${d.resolvido_em || ''}`;
+  if ($(`[data-chave="${CSS.escape(chave)}"]`, lista)) return;
+  const li = el('li', { class: inicial ? '' : 'novo', 'data-chave': chave, 'data-at': ev.at },
+    el('span', { class: 'h', text: quando(ev.at) }),
+    el('div', {}, el('div', { class: 't' }, t), det ? el('div', { class: 'd', text: det }) : null));
+  // Mantém a ordem por horário mesmo quando o histórico chega depois do ao vivo.
+  const depois = $$('li[data-at]', lista).find((x) => x.dataset.at < ev.at);
+  depois ? lista.insertBefore(li, depois) : lista.append(li);
+  while (lista.children.length > 80) lista.lastChild.remove();
+}
+
+/**
+ * O barramento ao vivo é em memória: depois de um restart ele volta vazio, e a
+ * tela principal nasceria em branco. Semeia com o que está gravado.
+ */
+async function semearLinhaDoTempo() {
+  try {
+    const [c, a, ch] = await Promise.all([
+      api('GET', '/api/consultas?limite=12'), api('GET', '/api/alertas?limite=12'), api('GET', '/api/chamadas?limite=12'),
+    ]);
+    const evs = [
+      ...c.consultas.map((x) => { let f = []; try { f = JSON.parse(x.fontes || '[]'); } catch {} return { tipo: 'consulta', at: x.at, dados: { ...x, fontes: f, duracaoMs: x.duracao_ms } }; }),
+      ...a.alertas.filter((x) => x.origem !== 'ura').map((x) => ({ tipo: 'alerta', at: x.criado_em, dados: x })),
+      ...ch.chamadas.map((x) => ({ tipo: 'chamada', at: x.iniciada_em, dados: x })),
+    ];
+    for (const ev of evs) eventoNaLinha(ev, true);
+    if (!$('#tempo li[data-at]')) $('#tempo').replaceChildren(el('li', { class: 'vazio-msg', style: 'display:block', text: 'Nada registrado ainda. Perguntas, chamadas e alertas aparecem aqui assim que acontecem.' }));
+  } catch {}
+}
+
+function abrirStream() {
+  fontesStream?.close();
+  const es = new EventSource(`/api/eventos/stream?key=${encodeURIComponent(sessao.chave)}`);
+  fontesStream = es;
+  es.addEventListener('open', () => marcarAoVivo(true));
+  es.addEventListener('error', () => marcarAoVivo(false));
+  es.addEventListener('conectado', (m) => {
+    marcarAoVivo(true);
+    const { recentes } = JSON.parse(m.data);
+    for (const ev of recentes) eventoNaLinha(ev);
+  });
+  for (const tipo of ['alerta', 'chamada', 'consulta', 'monitor']) {
+    es.addEventListener(tipo, (m) => {
+      const ev = JSON.parse(m.data);
+      eventoNaLinha(ev);
+      if (tipo === 'alerta') atualizarContadorAlertas();
+      if (tipo === 'chamada' && !$('[data-painel="chamadas"]').hidden) carregadores.chamadas();
+    });
+  }
+}
+
+async function atualizarContadorAlertas() {
+  try {
+    const r = await api('GET', '/api/alertas?abertos=1&limite=200');
+    const n = r.alertas.filter((a) => !a.reconhecido_em && a.severidade !== 'info').length;
+    const c = $('#cont-alertas');
+    c.hidden = !n; c.textContent = n;
+  } catch {}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Perguntar (texto → texto, áudio → áudio)
+   ───────────────────────────────────────────────────────────────────────── */
+let historico = [];
+
+function renderResposta(r, audioSrc) {
+  const naoConfirmado = r.veredito !== 'CONFIRMADO';
+  const corpo = el('div', { class: 'corpo' });
+  corpo.innerHTML = formatarTexto(r.texto);
+
+  const caixa = el('div', { class: 'resposta' },
+    el('div', { class: 'topo' }, chipVeredito(r.veredito),
+      el('span', { class: 'fraco dado', text: `${(r.duracaoMs / 1000).toFixed(1)}s · ${r.modelo}` })),
+    corpo,
+    r.hipotese ? el('div', { class: 'hipotese' }, el('b', { text: 'Hipótese — não confirmada' }), r.hipotese) : null,
+    naoConfirmado && r.lacunas?.length ? el('ul', { class: 'lacunas' }, r.lacunas.slice(0, 4).map((l) => el('li', { text: l }))) : null,
+    r.fontesIndisponiveis?.length ? el('div', { class: 'aviso erro', style: 'margin-top:10px', text: `Fonte fora: ${r.fontesIndisponiveis.map((f) => ROTULO_FONTE[f] || f).join(', ')}` }) : null,
+    audioSrc ? el('audio', { controls: true, src: audioSrc, style: 'width:100%;margin-top:10px', autoplay: true }) : null,
+    r.evidencias?.length ? el('div', { class: 'rastro' },
+      feixe(r.evidencias),
+      el('details', {}, el('summary', { text: `Ver as ${r.evidencias.length} consultas às fontes` }),
+        r.evidencias.map((e) => el('div', { class: 'evid' },
+          el('span', { class: 'dado fraco', text: e.id }),
+          el('span', { class: 'cor-fonte', 'data-fonte': e.fonte, style: `background:var(--fibra-${e.fonte})` }),
+          el('span', {}, el('span', { class: 'dado', text: e.consulta }), ' ',
+            el('span', { class: !e.ok ? 'st-falhou' : e.vazio ? 'st-vazio' : '', text: !e.ok ? `fora: ${e.erro}` : e.vazio ? 'sem registro' : '' })),
+          el('span', { class: 'dur dado fraco', text: `${e.duracaoMs}ms` }))))) : null,
+    r.vereditoAjustado ? el('div', { class: 'ajuste', text: r.vereditoAjustado }) : null,
+  );
+  return el('div', { class: 'msg ia' }, caixa);
+}
+
+function adicionarMensagem(no) {
+  $('#chat-vazio')?.remove();
+  const m = $('#mensagens');
+  m.append(no);
+  m.scrollTop = m.scrollHeight;
+}
+
+function mostrarPensando() {
+  const p = el('div', { class: 'msg ia', id: 'pensando' }, el('div', { class: 'resposta pensando', 'aria-label': 'Consultando as fontes' },
+    el('span', { class: 'fio', 'data-fonte': 'sgp' }), el('span', { class: 'fio', 'data-fonte': 'zabbix' }), el('span', { class: 'fio', 'data-fonte': 'ura' })));
+  adicionarMensagem(p);
+}
+const tirarPensando = () => $('#pensando')?.remove();
+
+function travarChat(sim) {
+  $('#btn-enviar').disabled = sim;
+  $('#in-pergunta').disabled = sim;
+  if (!micIndisponivel) $('#btn-mic').disabled = sim && !gravando;
+}
+
+$('#form-chat').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const pergunta = $('#in-pergunta').value.trim();
+  if (!pergunta) return;
+  $('#in-pergunta').value = '';
+  adicionarMensagem(el('div', { class: 'msg eu' }, pergunta));
+  travarChat(true); mostrarPensando();
+  try {
+    const r = await api('POST', '/api/chat', { pergunta, historico: historico.slice(-12) });
+    tirarPensando();
+    adicionarMensagem(renderResposta(r));
+    historico.push({ papel: 'user', conteudo: pergunta }, { papel: 'assistant', conteudo: r.texto });
+  } catch (e) {
+    tirarPensando();
+    if (e.status !== 401) adicionarMensagem(el('div', { class: 'msg ia' }, el('div', { class: 'aviso erro', text: `Não foi possível responder: ${e.message}` })));
+  } finally { travarChat(false); $('#in-pergunta').focus(); }
+});
+
+$('#in-pergunta').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#form-chat').requestSubmit(); }
+});
+$('#btn-limpar-chat').addEventListener('click', () => {
+  historico = [];
+  $('#mensagens').replaceChildren(el('div', { class: 'vazio-msg', id: 'chat-vazio', text: 'Nova conversa. O assistente não lembra das perguntas anteriores.' }));
+});
+
+/* Gravação. Navegador só libera microfone em HTTPS ou localhost — em vez de
+   um botão que falha calado, a tela explica. */
+let gravador = null, gravando = false, pedacos = [];
+const micIndisponivel = !window.isSecureContext || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined';
+if (micIndisponivel) {
+  $('#btn-mic').disabled = true;
+  const n = $('#nota-mic');
+  n.hidden = false;
+  n.textContent = !window.isSecureContext
+    ? 'Voz desativada: o navegador só libera o microfone com o painel aberto em HTTPS ou em localhost.'
+    : 'Voz desativada: este navegador não permite gravar áudio.';
+}
+
+$('#btn-mic').addEventListener('click', async () => {
+  if (micIndisponivel) return;
+  if (gravando) { gravador.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const tipo = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    gravador = new MediaRecorder(stream, tipo ? { mimeType: tipo } : undefined);
+    pedacos = [];
+    gravador.addEventListener('dataavailable', (e) => e.data.size && pedacos.push(e.data));
+    gravador.addEventListener('stop', async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      gravando = false;
+      $('#btn-mic').classList.remove('gravando');
+      $('#btn-mic').setAttribute('aria-label', 'Gravar pergunta em áudio');
+      const blob = new Blob(pedacos, { type: gravador.mimeType || 'audio/webm' });
+      if (blob.size < 1200) { toast('Gravação curta demais.', 'erro'); return; }
+      await enviarAudio(blob);
+    });
+    gravador.start();
+    gravando = true;
+    $('#btn-mic').classList.add('gravando');
+    $('#btn-mic').setAttribute('aria-label', 'Parar gravação e enviar');
+  } catch (e) {
+    toast(e.name === 'NotAllowedError' ? 'Permissão do microfone negada.' : `Não consegui gravar: ${e.message}`, 'erro');
+  }
+});
+
+async function enviarAudio(blob) {
+  const bolha = el('div', { class: 'msg eu' }, el('span', { class: 'fraco', text: 'Transcrevendo…' }));
+  adicionarMensagem(bolha);
+  travarChat(true); mostrarPensando();
+  try {
+    const q = encodeURIComponent(JSON.stringify(historico.slice(-12)));
+    const r = await api('POST', `/api/chat/audio?historico=${q}`, blob, { headers: { 'Content-Type': blob.type } });
+    bolha.replaceChildren(r.transcricao, el('div', { class: 'origem', text: 'áudio transcrito' }));
+    tirarPensando();
+    adicionarMensagem(renderResposta(r.resposta, r.audio));
+    historico.push({ papel: 'user', conteudo: r.transcricao }, { papel: 'assistant', conteudo: r.resposta.texto });
+  } catch (e) {
+    tirarPensando();
+    bolha.replaceChildren(el('span', { class: 'fraco', text: 'Áudio não enviado' }));
+    if (e.status !== 401) adicionarMensagem(el('div', { class: 'msg ia' }, el('div', { class: 'aviso erro', text: e.message })));
+  } finally { travarChat(false); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Consultas
+   ───────────────────────────────────────────────────────────────────────── */
+let consultasCache = [];
+carregadores.consultas = async () => {
+  try {
+    const r = await api('GET', '/api/consultas?limite=200');
+    consultasCache = r.consultas;
+    renderConsultas();
+  } catch (e) { if (e.status !== 401) toast(`Consultas: ${e.message}`, 'erro'); }
+};
+function renderConsultas() {
+  const txt = $('#f-consulta-texto').value.trim().toLowerCase();
+  const ver = $('#f-consulta-veredito').value;
+  const lista = consultasCache.filter((c) => (!ver || c.veredito === ver) && (!txt || `${c.pergunta} ${c.usuario}`.toLowerCase().includes(txt)));
+  const tb = $('#tb-consultas');
+  if (!lista.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 4, class: 'vazio-msg', text: consultasCache.length ? 'Nenhuma consulta com esse filtro.' : 'Nenhuma pergunta respondida ainda.' }))); return; }
+  tb.replaceChildren(...lista.map((c) => {
+    let fontes = []; try { fontes = JSON.parse(c.fontes || '[]'); } catch {}
+    const tr = el('tr', { class: 'clicavel', tabindex: 0 },
+      el('td', { class: 'dado', text: quando(c.at) }),
+      el('td', { class: 'quebra' }, el('div', { text: c.pergunta }), el('div', { class: 'fraco', style: 'font-size:12px', text: `${c.usuario} · ${c.canal}` })),
+      el('td', {}, chipVeredito(c.veredito)),
+      el('td', {}, fontes.map((f) => el('span', { class: 'cor-fonte', style: `background:var(--fibra-${f})`, title: ROTULO_FONTE[f] || f }))));
+    const abrir = () => { $$('#tb-consultas tr').forEach((x) => x.removeAttribute('aria-selected')); tr.setAttribute('aria-selected', 'true'); abrirConsulta(c.id); };
+    tr.addEventListener('click', abrir);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') abrir(); });
+    return tr;
+  }));
+}
+$('#f-consulta-texto').addEventListener('input', renderConsultas);
+$('#f-consulta-veredito').addEventListener('change', renderConsultas);
+$('#btn-recarregar-consultas').addEventListener('click', () => carregadores.consultas());
+
+async function abrirConsulta(id) {
+  const alvo = $('#detalhe-consulta');
+  alvo.replaceChildren(el('p', { class: 'vazio-msg', text: 'Carregando…' }));
+  try {
+    const { consulta: c, evidencias } = await api('GET', `/api/consultas/${encodeURIComponent(id)}`);
+    const ev = evidencias.map((e) => ({ ...e, id: e.evd, consulta: e.nome_consulta, ok: !!e.ok, vazio: !!e.vazio }));
+    let lacunas = []; try { lacunas = JSON.parse(c.lacunas || '[]'); } catch {}
+    const corpo = el('div', { class: 'corpo', style: 'margin-top:10px' }); corpo.innerHTML = formatarTexto(c.resposta);
+    trocar(alvo,
+      el('div', { style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' }, chipVeredito(c.veredito),
+        el('span', { class: 'fraco dado', text: `${quando(c.at)} · ${c.usuario} · ${c.canal} · ${(c.duracao_ms / 1000).toFixed(1)}s · ${c.modelo}` })),
+      el('h3', { style: 'margin:10px 0 0;font-size:15px', text: c.pergunta }),
+      corpo,
+      c.hipotese ? el('div', { class: 'hipotese' }, el('b', { text: 'Hipótese — não confirmada' }), c.hipotese) : null,
+      c.veredito_ajustado ? el('div', { class: 'ajuste', text: c.veredito_ajustado }) : null,
+      c.veredito !== 'CONFIRMADO' && lacunas.length ? el('ul', { class: 'lacunas' }, lacunas.map((l) => el('li', { text: l }))) : null,
+      el('div', { class: 'rastro' },
+        el('h2', { class: 'secao', text: 'Dados usados' }),
+        ev.length ? feixe(ev) : el('p', { class: 'mudo', text: 'Nenhuma fonte consultada.' }),
+        ...ev.map((e) => el('details', { style: 'padding:6px 0;border-top:1px solid var(--linha)' },
+          el('summary', {},
+            el('span', { class: 'cor-fonte', style: `background:var(--fibra-${e.fonte})` }),
+            el('span', { class: 'dado', text: `${e.id} ${e.consulta}` }), ' ',
+            el('span', { class: !e.ok ? 'sev sev-critico' : 'fraco', text: !e.ok ? 'fonte fora' : e.vazio ? 'sem registro' : `${e.duracao_ms}ms` })),
+          e.erro ? el('div', { class: 'aviso erro', style: 'margin-top:6px', text: e.erro }) : null,
+          el('div', { class: 'fraco dado', style: 'margin-top:6px;font-size:11.5px', text: `consultado ${quando(e.consultado_em)} · argumentos ${e.args}` }),
+          e.dados ? el('pre', { class: 'json', text: bonito(e.dados) }) : null))),
+    );
+  } catch (e) { alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+}
+const bonito = (s) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return String(s); } };
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Alertas
+   ───────────────────────────────────────────────────────────────────────── */
+carregadores.alertas = async () => {
+  const origem = $('#f-alerta-origem').value;
+  const abertos = $('#f-alerta-abertos').checked;
+  try {
+    const r = await api('GET', `/api/alertas?limite=200${origem ? `&origem=${origem}` : ''}${abertos ? '&abertos=1' : ''}`);
+    const tb = $('#tb-alertas');
+    if (!r.alertas.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'vazio-msg', text: 'Nenhum alerta com esse filtro.' }))); return; }
+    tb.replaceChildren(...r.alertas.map((a) => el('tr', {},
+      el('td', { class: 'dado', text: quando(a.criado_em) }),
+      el('td', {}, el('span', { class: `sev sev-${a.severidade}`, text: rotuloSev(a.severidade) })),
+      el('td', { class: 'quebra' },
+        el('div', { style: 'font-weight:500', text: a.titulo }),
+        el('details', {}, el('summary', { text: 'Mensagem' }), el('pre', { class: 'json', text: a.texto })),
+        a.resolvido_em ? el('div', { class: 'fraco', style: 'font-size:12px', text: `Resolvido ${quando(a.resolvido_em)}` }) : null),
+      el('td', { style: 'font-size:12.5px' }, a.enviado_em ? el('span', { style: 'color:var(--confirmado)', text: `Enviado ${hora(a.enviado_em)}` }) : el('span', { class: 'mudo', text: a.envio_erro || 'Pendente' })),
+      el('td', {}, a.reconhecido_em
+        ? el('span', { class: 'fraco', style: 'font-size:12px', text: `Visto por ${String(a.reconhecido_por).replace('painel:', '')}` })
+        : el('button', { class: 'botao sec mini', type: 'button', text: 'Marcar como visto', onclick: async (ev) => {
+            ev.target.disabled = true;
+            try { await api('POST', `/api/alertas/${a.id}/reconhecer`); toast('Alerta marcado como visto.', 'ok'); carregadores.alertas(); atualizarContadorAlertas(); }
+            catch (e) { ev.target.disabled = false; toast(e.message, 'erro'); }
+          } })),
+    )));
+  } catch (e) { if (e.status !== 401) toast(`Alertas: ${e.message}`, 'erro'); }
+};
+$('#f-alerta-origem').addEventListener('change', () => carregadores.alertas());
+$('#f-alerta-abertos').addEventListener('change', () => carregadores.alertas());
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Chamadas
+   ───────────────────────────────────────────────────────────────────────── */
+carregadores.chamadas = async () => {
+  try {
+    const r = await api('GET', '/api/chamadas?limite=150');
+    const tb = $('#tb-chamadas');
+    if (!r.chamadas.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'vazio-msg', text: 'Nenhuma chamada recebida. A URA precisa estar com ASSISTANT_EVENTS_URL configurado.' }))); return; }
+    const status = { em_andamento: 'Em andamento', encerrada: 'Encerrada na URA', transferida: 'Transferida' };
+    tb.replaceChildren(...r.chamadas.map((c) => el('tr', {},
+      el('td', { class: 'dado', text: quando(c.iniciada_em) }),
+      el('td', { class: 'dado', text: c.numero || '—' }),
+      el('td', {}, el('div', { text: c.cliente_nome || 'Não identificado' }), c.contrato_id ? el('div', { class: 'fraco dado', style: 'font-size:12px', text: `contrato ${c.contrato_id}` }) : null),
+      el('td', {}, c.intencao ? el('span', { class: 'etiqueta', text: c.intencao }) : el('span', { class: 'fraco', text: '—' }),
+        c.ferramentasLista?.length ? el('div', { class: 'fraco dado', style: 'font-size:11px;margin-top:3px', text: c.ferramentasLista.join(', ') }) : null),
+      el('td', { text: status[c.status] || c.status }),
+      el('td', { class: 'dado', text: duracao(c.duracao_seg) }))));
+  } catch (e) { if (e.status !== 401) toast(`Chamadas: ${e.message}`, 'erro'); }
+};
+$('#btn-recarregar-chamadas').addEventListener('click', () => carregadores.chamadas());
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Administração
+   ───────────────────────────────────────────────────────────────────────── */
+const subCarregadores = {};
+carregadores.admin = () => {
+  const atual = $$('.subaba').find((b) => b.getAttribute('aria-selected') === 'true')?.dataset.sub || 'config';
+  irParaSub(atual);
+};
+
+const GRUPOS = {
+  ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', fontes: 'Fontes de dados',
+};
+
+subCarregadores.config = async () => {
+  const alvo = $('[data-subpainel="config"]');
+  try {
+    const [{ itens }, modelos] = await Promise.all([api('GET', '/api/config'), api('GET', '/api/modelos').catch(() => null)]);
+    const porGrupo = {};
+    for (const i of itens) (porGrupo[i.grupo] ||= []).push(i);
+    alvo.replaceChildren(...Object.entries(porGrupo).map(([g, lista]) => el('div', { class: 'bloco cfg-grupo' },
+      el('h2', { class: 'secao', text: GRUPOS[g] || g }),
+      ...lista.map((i) => itemConfig(i, modelos)))));
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+function itemConfig(i, modelos) {
+  let controle, ler;
+  if (i.tipo === 'booleano') {
+    const c = el('input', { type: 'checkbox', checked: !!i.valor });
+    controle = el('label', { class: 'interruptor' }, c, el('span', { text: i.valor ? 'Ligado' : 'Desligado' }));
+    c.addEventListener('change', () => { controle.lastChild.textContent = c.checked ? 'Ligado' : 'Desligado'; });
+    ler = () => c.checked;
+  } else if (i.tipo === 'lista') {
+    const sel = new Set(i.valor || []);
+    const caixas = (i.opcoes || []).map((o) => { const c = el('input', { type: 'checkbox', value: o, checked: sel.has(o) }); return el('label', {}, c, ROTULO_FONTE[o] || o); });
+    controle = el('div', { class: 'opcoes-lista' }, caixas);
+    ler = () => $$('input', controle).filter((x) => x.checked).map((x) => x.value);
+  } else if (i.chave === 'ia.modelo' && modelos?.chat) {
+    controle = el('select', {}, modelos.chat.map((m) => el('option', { value: m, selected: m === i.valor, text: m })));
+    ler = () => controle.value;
+  } else if (i.opcoes) {
+    controle = el('select', {}, i.opcoes.map((o) => el('option', { value: o, selected: o === i.valor, text: o })));
+    ler = () => controle.value;
+  } else if (i.tipo === 'hora') {
+    controle = el('input', { type: 'time', value: i.valor || '' });
+    ler = () => controle.value;
+  } else if (i.tipo === 'numero' || i.tipo === 'inteiro') {
+    controle = el('input', { type: 'number', value: i.valor, min: i.min, max: i.max, step: i.tipo === 'inteiro' ? 1 : 0.05 });
+    ler = () => controle.value;
+  } else {
+    controle = el('input', { type: 'text', value: i.valor ?? '' });
+    ler = () => controle.value;
+  }
+  const btnSalvar = el('button', { class: 'botao mini', type: 'button', text: 'Salvar' });
+  const btnRestaurar = i.alterado ? el('button', { class: 'botao sec mini', type: 'button', text: 'Voltar ao padrão' }) : null;
+
+  btnSalvar.addEventListener('click', async () => {
+    btnSalvar.disabled = true;
+    try {
+      const r = await api('PUT', `/api/config/${i.chave}`, { valor: ler() });
+      toast(r.aviso ? `Salvo. ${r.aviso}` : 'Salvo. Vale a partir de agora.', r.aviso ? '' : 'ok');
+      subCarregadores.config();
+    } catch (e) { toast(e.message, 'erro'); btnSalvar.disabled = false; }
+  });
+  btnRestaurar?.addEventListener('click', async () => {
+    try { await api('DELETE', `/api/config/${i.chave}`); toast('Voltou ao padrão.', 'ok'); subCarregadores.config(); }
+    catch (e) { toast(e.message, 'erro'); }
+  });
+
+  return el('div', { class: 'cfg-item' },
+    el('div', {},
+      el('div', { class: 'desc', text: i.descricao }),
+      el('div', {}, el('span', { class: 'chave', text: i.chave }),
+        i.alterado ? el('span', { class: 'alterado', text: ` · alterado (padrão: ${Array.isArray(i.padrao) ? i.padrao.join(', ') : i.padrao === '' ? 'vazio' : i.padrao})` }) : null)),
+    controle,
+    el('div', { class: 'linha-acoes' }, btnSalvar, btnRestaurar));
+}
+
+subCarregadores.permissoes = async () => {
+  const alvo = $('[data-subpainel="permissoes"]');
+  try {
+    const r = await api('GET', '/api/permissoes');
+    const fontesBox = (sel) => el('div', { class: 'opcoes-lista' }, r.fontes.map((f) => el('label', {}, el('input', { type: 'checkbox', value: f, checked: sel ? sel.includes(f) : false }), ROTULO_FONTE[f] || f)));
+    const form = el('form', { class: 'bloco grade', style: 'gap:12px;margin-bottom:16px' },
+      el('h2', { class: 'secao', text: 'Liberar técnico no WhatsApp' }),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'p-num', text: 'Celular com DDD' }), el('input', { type: 'text', id: 'p-num', required: true, placeholder: '85999999999', inputmode: 'tel' })),
+        el('div', { class: 'campo' }, el('label', { for: 'p-nome', text: 'Nome' }), el('input', { type: 'text', id: 'p-nome', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'p-papel', text: 'Papel' }), el('select', { id: 'p-papel' }, r.papeis.map((p) => el('option', { value: p, text: p }))))),
+      el('div', { class: 'campo' }, el('label', { text: 'Fontes que pode consultar — nenhuma marcada libera todas' }), fontesBox(null)),
+      el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Liberar' })));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fontes = $$('.opcoes-lista input', form).filter((x) => x.checked).map((x) => x.value);
+      try {
+        await api('POST', '/api/permissoes', { usuario: $('#p-num', form).value, nome: $('#p-nome', form).value, papel: $('#p-papel', form).value, fontes: fontes.length ? fontes : null });
+        toast('Técnico liberado. Já pode mandar mensagem.', 'ok'); subCarregadores.permissoes();
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const tabela = el('div', { class: 'bloco tabela-rolagem' },
+      el('h2', { class: 'secao', text: 'Cadastrados' }),
+      r.permissoes.length ? el('table', {}, el('thead', {}, el('tr', {}, ['Técnico', 'Número', 'Papel', 'Fontes', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.permissoes.map((p) => el('tr', {},
+          el('td', { text: p.nome || '—' }),
+          el('td', { class: 'dado', text: p.usuario.replace('@s.whatsapp.net', '') }),
+          el('td', { text: p.papel }),
+          el('td', { style: 'font-size:12.5px', text: p.fontes ? p.fontes.map((f) => ROTULO_FONTE[f] || f).join(', ') : 'todas' }),
+          el('td', {}, el('span', { style: `color:var(${p.ativo ? '--confirmado' : '--inconclusivo'})`, text: p.ativo ? 'Liberado' : 'Bloqueado' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            el('button', { class: 'botao sec mini', type: 'button', text: p.ativo ? 'Bloquear' : 'Liberar', onclick: async () => {
+              try { await api('PUT', `/api/permissoes/${encodeURIComponent(p.usuario)}`, { ativo: !p.ativo }); toast(p.ativo ? 'Técnico bloqueado.' : 'Técnico liberado.', 'ok'); subCarregadores.permissoes(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } }),
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              if (!confirm(`Remover ${p.nome || p.usuario}? Se o número estiver no .env, ele continua liberado por lá.`)) return;
+              try { await api('DELETE', `/api/permissoes/${encodeURIComponent(p.usuario)}`); toast('Removido.', 'ok'); subCarregadores.permissoes(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } }))))))) : el('p', { class: 'vazio-msg', text: 'Nenhum técnico cadastrado pelo painel.' }),
+      r.autorizados_pelo_env.length ? el('p', { class: 'mudo', style: 'font-size:12.5px;margin:12px 0 0' },
+        'Também liberados pelo arquivo de configuração do servidor (só dá para bloquear cadastrando aqui): ',
+        el('span', { class: 'dado', text: r.autorizados_pelo_env.join(', ') })) : null);
+
+    alvo.replaceChildren(form, tabela);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA' };
+subCarregadores.prompts = async (chaveSel) => {
+  const alvo = $('[data-subpainel="prompts"]');
+  try {
+    const { chaves } = await api('GET', '/api/prompts');
+    const chave = chaveSel || chaves[0]?.chave;
+    const sel = el('select', { 'aria-label': 'Instrução' }, chaves.map((c) => el('option', { value: c.chave, selected: c.chave === chave, text: `${NOME_PROMPT[c.chave] || c.chave} · v${c.versaoAtiva}` })));
+    sel.addEventListener('change', () => subCarregadores.prompts(sel.value));
+    const p = await api('GET', `/api/prompts/${encodeURIComponent(chave)}`);
+    const ta = el('textarea', { spellcheck: 'false', 'aria-label': 'Conteúdo da instrução' }); ta.value = p.ativo;
+    const nota = el('input', { type: 'text', placeholder: 'O que mudou e por quê (vai para o histórico)' });
+    const salvar = el('button', { class: 'botao', type: 'button', text: 'Salvar nova versão' });
+    salvar.addEventListener('click', async () => {
+      if (ta.value.trim() === p.ativo.trim()) { toast('Nada mudou.'); return; }
+      try { await api('POST', `/api/prompts/${encodeURIComponent(chave)}`, { conteudo: ta.value, autor: `painel:${sessao.operador}`, nota: nota.value || null }); toast('Nova versão salva e ativa.', 'ok'); subCarregadores.prompts(chave); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+    alvo.replaceChildren(
+      el('div', { class: 'aviso', style: 'margin-bottom:14px' },
+        'As instruções orientam a IA, mas não são o que impede resposta inventada: essa trava é feita no código e não pode ser desligada aqui. Uma edição sua não é sobrescrita por atualização do sistema.'),
+      el('div', { class: 'prompt-editor' },
+        el('div', { class: 'grade', style: 'gap:10px' }, sel, ta, nota, el('div', {}, salvar)),
+        el('div', { class: 'bloco' }, el('h2', { class: 'secao', text: 'Versões' }),
+          el('ul', { class: 'tempo', style: 'max-height:520px' }, p.versoes.map((v) => el('li', {},
+            el('span', { class: 'h', text: `v${v.versao}` }),
+            el('div', {},
+              el('div', { class: 't' }, v.ativo ? el('span', { style: 'color:var(--confirmado)', text: 'Em uso' }) : el('button', { class: 'botao sec mini', type: 'button', text: 'Voltar para esta', onclick: async () => {
+                try { await api('POST', `/api/prompts/${encodeURIComponent(chave)}/ativar/${v.versao}`, { autor: `painel:${sessao.operador}` }); toast(`Versão ${v.versao} em uso.`, 'ok'); subCarregadores.prompts(chave); }
+                catch (e) { toast(e.message, 'erro'); }
+              } })),
+              el('div', { class: 'd', text: `${quando(v.criado_em)} · ${String(v.autor || '').replace('painel:', '')}` }),
+              v.nota ? el('div', { class: 'd', text: v.nota }) : null)))))),
+    );
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.monitores = async () => {
+  const alvo = $('[data-subpainel="monitores"]');
+  try {
+    const [mon, s] = await Promise.all([api('GET', '/api/monitores'), api('GET', '/api/espelho')]);
+    const listaMon = el('div');
+    renderMonitores(listaMon, mon.monitores, false);
+    const saidaDiag = el('div', { style: 'margin-top:10px' });
+    const btnDiag = el('button', { class: 'botao sec', type: 'button', text: 'Testar leitura das conversas' });
+    btnDiag.addEventListener('click', async () => {
+      btnDiag.disabled = true; saidaDiag.replaceChildren(el('p', { class: 'mudo', text: 'Lendo conversas…' }));
+      try { const d = await api('GET', '/api/monitores/sla/diagnostico'); saidaDiag.replaceChildren(el('pre', { class: 'json', text: JSON.stringify(d, null, 2) })); }
+      catch (e) { saidaDiag.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+      finally { btnDiag.disabled = false; }
+    });
+    const btnSync = el('button', { class: 'botao sec', type: 'button', text: 'Sincronizar espelho agora', disabled: s.sincronizando });
+    btnSync.addEventListener('click', async () => {
+      if (!confirm('O sync completo leva uns 20 minutos e pesa no SGP. Rodar agora?')) return;
+      try { await api('POST', '/api/espelho/sync'); toast('Sincronização iniciada.', 'ok'); subCarregadores.monitores(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+    alvo.replaceChildren(el('div', { class: 'grade grade-2' },
+      el('div', { class: 'bloco' }, el('h2', { class: 'secao', text: 'Monitores' }), listaMon,
+        el('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--linha)' },
+          el('p', { class: 'mudo', style: 'margin:0 0 8px;font-size:13px', text: 'O monitor de atendimento começa desligado. Teste a leitura antes de ligar em Comportamento — o teste mostra só a estrutura das conversas, nunca o texto dos clientes.' }),
+          btnDiag, saidaDiag)),
+      el('div', { class: 'bloco' }, el('h2', { class: 'secao', text: 'Espelho do SGP' }),
+        el('dl', { style: 'display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0 0 14px;font-size:13.5px' },
+          el('dt', { class: 'mudo', text: 'Clientes' }), el('dd', { class: 'dado', style: 'margin:0', text: s.clientes.toLocaleString('pt-BR') }),
+          el('dt', { class: 'mudo', text: 'Serviços' }), el('dd', { class: 'dado', style: 'margin:0', text: s.servicos.toLocaleString('pt-BR') }),
+          el('dt', { class: 'mudo', text: 'Com ONU' }), el('dd', { class: 'dado', style: 'margin:0', text: s.comSn.toLocaleString('pt-BR') }),
+          el('dt', { class: 'mudo', text: 'Último sync' }), el('dd', { style: 'margin:0', text: s.ultimoSync ? `${quando(s.ultimoSync)}${s.ultimoSyncOk ? '' : ' (incompleto)'}` : 'nunca' }),
+          el('dt', { class: 'mudo', text: 'Agora' }), el('dd', { style: 'margin:0', text: s.sincronizando ? 'sincronizando' : 'parado' })),
+        btnSync)));
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.auditoria = async () => {
+  const alvo = $('[data-subpainel="auditoria"]');
+  if (!alvo.dataset.montado) {
+    alvo.dataset.montado = '1';
+    const filtros = el('form', { class: 'filtros' },
+      el('div', { class: 'campo' }, el('label', { for: 'a-acao', text: 'Ação' }),
+        el('select', { id: 'a-acao' }, [['', 'Todas'], ['config', 'Comportamento'], ['permissao', 'Técnicos'], ['prompt', 'Instruções da IA']].map(([v, t]) => el('option', { value: v, text: t })))),
+      el('div', { class: 'campo' }, el('label', { for: 'a-ator', text: 'Quem' }), el('input', { type: 'text', id: 'a-ator' })),
+      el('div', { class: 'campo' }, el('label', { for: 'a-alvo', text: 'Sobre o quê' }), el('input', { type: 'text', id: 'a-alvo' })),
+      el('button', { class: 'botao sec', type: 'submit', text: 'Filtrar' }));
+    filtros.addEventListener('submit', (ev) => { ev.preventDefault(); subCarregadores.auditoria(); });
+    alvo.append(filtros, el('div', { class: 'bloco tabela-rolagem', id: 'aud-tabela' }));
+  }
+  const q = new URLSearchParams({ limite: 200 });
+  for (const [k, id] of [['acao', 'a-acao'], ['ator', 'a-ator'], ['alvo', 'a-alvo']]) { const v = $(`#${id}`).value.trim(); if (v) q.set(k, v); }
+  try {
+    const { registros } = await api('GET', `/api/auditoria/busca?${q}`);
+    const t = $('#aud-tabela');
+    if (!registros.length) { t.replaceChildren(el('p', { class: 'vazio-msg', text: 'Nenhuma alteração registrada com esse filtro.' })); return; }
+    t.replaceChildren(el('table', {}, el('thead', {}, el('tr', {}, ['Quando', 'Quem', 'Ação', 'Sobre', 'Mudança'].map((x) => el('th', { text: x })))),
+      el('tbody', {}, registros.map((r) => el('tr', {},
+        el('td', { class: 'dado', text: quando(r.at) }),
+        el('td', { text: String(r.ator).replace('painel:', '') }),
+        el('td', { class: 'dado', text: r.acao }),
+        el('td', { class: 'dado quebra', text: r.alvo || '—' }),
+        el('td', {}, el('details', {}, el('summary', { text: 'Antes e depois' }),
+          el('div', { class: 'fraco', style: 'font-size:12px;margin-top:6px', text: 'Antes' }), el('pre', { class: 'json', text: r.antes ? bonito(r.antes) : '—' }),
+          el('div', { class: 'fraco', style: 'font-size:12px;margin-top:6px', text: 'Depois' }), el('pre', { class: 'json', text: r.depois ? bonito(r.depois) : '—' }))))))));
+  } catch (e) { if (e.status !== 401) toast(`Auditoria: ${e.message}`, 'erro'); }
+};
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Início
+   ───────────────────────────────────────────────────────────────────────── */
+function iniciar() {
+  $('#tela-entrada').hidden = true;
+  $('#tela-app').hidden = false;
+  $('#rodape-operador').textContent = sessao.operador;
+  abrirStream();
+  carregarStatus().catch(() => {});
+  semearLinhaDoTempo();
+  atualizarContadorAlertas();
+  let aba = 'visao';
+  try { aba = localStorage.getItem('aq.aba') || 'visao'; } catch {}
+  if (!$(`[data-aba="${aba}"]`)) aba = 'visao';
+  irPara(aba);
+  // A visão geral refaz a leitura de tempos em tempos; o resto é sob demanda + stream.
+  setInterval(() => { if (!$('[data-painel="visao"]').hidden) carregadores.visao(); }, 60_000);
+}
+
+if (sessao.chave && sessao.operador) {
+  fetch('/api/health', { headers: { 'x-admin-key': sessao.chave } })
+    .then((r) => r.ok ? iniciar() : sair())
+    .catch(() => sair('Não consegui falar com o assistente. Ele está no ar?'));
+} else {
+  $('#tela-entrada').hidden = false;
+  try { $('#in-operador').value = localStorage.getItem('aq.ultimoOperador') || ''; } catch {}
+}
+$('#form-entrada').addEventListener('submit', () => { try { localStorage.setItem('aq.ultimoOperador', $('#in-operador').value.trim()); } catch {} });
+</script>
+</body>
+</html>

@@ -20,6 +20,8 @@ import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
 import { responder } from './agent';
 import { rotasOperacao } from './rotas-operacao';
 import { rotasAdmin } from './rotas-admin';
+import { rotasPainel, rotasChatAudio } from './rotas-painel';
+import { ator } from './http-util';
 import { ErroHttp } from './http-util';
 import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
@@ -100,6 +102,9 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (req.method === 'GET' && p === '/health') {
     return json(res, 200, { ok: true, espelhoPronto: statusIndice().disponivel });
   }
+
+  // Página do painel: estática e sem chave (a chave é pedida na tela).
+  if (await rotasPainel(req, res, url, p)) return;
 
   if (!p.startsWith('/api/')) {
     res.writeHead(404);
@@ -237,7 +242,7 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     const r = await responder({
       pergunta: b.pergunta,
-      usuario: b.usuario ?? 'painel',
+      usuario: b.usuario ?? ator(req),
       canal: 'chat',
       conversaId: b.conversaId,
       historico: b.historico,
@@ -245,6 +250,7 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return json(res, 200, r);
   }
 
+  if (await rotasChatAudio(req, res, url, p)) return;
   if (await rotasOperacao(req, res, url, p)) return;
   if (await rotasAdmin(req, res, url, p)) return;
 
