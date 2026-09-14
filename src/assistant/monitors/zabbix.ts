@@ -18,7 +18,7 @@ const inicioProcesso = Date.now();
 /** Problema aberto até este tanto antes do boot ainda alerta: pode ter caído enquanto o serviço reiniciava. */
 const TOLERANCIA_BOOT_MS = 10 * 60_000;
 
-const ROTULO_TIPO: Record<ZabbixEventoTipo, string> = {
+export const ROTULO_TIPO: Record<ZabbixEventoTipo, string> = {
   cto_off: 'CTO offline',
   pop_off: 'POP fora',
   fibra: 'Queda de interface / fibra',

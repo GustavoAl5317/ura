@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'fontes';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'resumo' | 'fontes';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -142,6 +142,22 @@ export const DEFINICOES = {
   'monitor.sla.setor_padrao': {
     tipo: 'texto', grupo: 'monitor_sla', padrao: () => 'Atendimento',
     descricao: 'Setor mostrado quando a conversa não tem etiqueta.',
+  },
+
+  // ── Resumo diário ───────────────────────────────────────────────────────
+  'resumo.ativo': {
+    tipo: 'booleano', grupo: 'resumo', padrao: () => true,
+    descricao: 'Manda todo dia no grupo de alertas um resumo das últimas 24 horas.',
+  },
+  'resumo.hora': {
+    tipo: 'hora', grupo: 'resumo', padrao: () => '07:00',
+    descricao: 'Horário do envio (HH:MM). O resumo cobre as 24 horas anteriores a ele.',
+  },
+  'resumo.secoes': {
+    tipo: 'lista', grupo: 'resumo',
+    padrao: () => ['rede', 'os', 'ura', 'atendimento', 'assistente'],
+    opcoes: ['rede', 'os', 'ura', 'atendimento', 'assistente'],
+    descricao: 'O que entra no resumo.',
   },
 
   // ── Fontes ──────────────────────────────────────────────────────────────

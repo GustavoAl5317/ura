@@ -647,8 +647,22 @@ export class SgpClient {
     const inicio = new Date(hoje.getTime() - diasJanela * 86_400_000);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-    const abertas: SgpOrdemServico[] = [];
-    let examinadas = 0;
+    const r = await this.ordensServicoPorCadastro(iso(inicio), iso(hoje), limitePorPagina, maxPaginas);
+    return { abertas: r.ordens.filter(osEstaAberta), examinadas: r.ordens.length, janelaCompleta: r.janelaCompleta };
+  }
+
+  /**
+   * Todas as O.S. cadastradas entre duas datas (AAAA-MM-DD, inclusivas), abertas
+   * ou não. Falha do SGP LANÇA — lista vazia aqui significa "nenhuma O.S.", nunca
+   * "não consegui perguntar".
+   */
+  async ordensServicoPorCadastro(
+    dataInicio: string,
+    dataFim: string,
+    limitePorPagina = 500,
+    maxPaginas = 6,
+  ): Promise<{ ordens: SgpOrdemServico[]; janelaCompleta: boolean }> {
+    const ordens: SgpOrdemServico[] = [];
     let offset = 0;
     let janelaCompleta = true;
 
@@ -657,8 +671,8 @@ export class SgpClient {
         paginacao?: { total?: number };
         ordens_servicos?: SgpOrdemServico[];
       }>('/api/ura/ordemservico/list/', {
-        data_cadastro_inicio: iso(inicio),
-        data_cadastro_fim: iso(hoje),
+        data_cadastro_inicio: dataInicio,
+        data_cadastro_fim: dataFim,
         limit: limitePorPagina,
         offset,
       });
@@ -666,8 +680,7 @@ export class SgpClient {
       const lote = r?.ordens_servicos ?? [];
       if (!lote.length) break;
 
-      examinadas += lote.length;
-      abertas.push(...lote.filter(osEstaAberta));
+      ordens.push(...lote);
       offset += limitePorPagina;
 
       const total = r?.paginacao?.total ?? 0;
@@ -678,7 +691,7 @@ export class SgpClient {
       if (pagina === maxPaginas - 1) janelaCompleta = false;
     }
 
-    return { abertas, examinadas, janelaCompleta };
+    return { ordens, janelaCompleta };
   }
 
   // ─── Chamados ──────────────────────────────────────────────────────────────

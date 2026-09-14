@@ -6,6 +6,7 @@ import { listar as listarAlertas, reconhecer } from './alertas';
 import { receberEventoUra, listarChamadas, EventoUra } from './monitors/ura';
 import { estadoMonitores } from './monitors/base';
 import { diagnosticoSla } from './monitors/sla';
+import { montarResumo, enviarResumoManual } from './resumo-diario';
 
 export const rotasOperacao: Rota = async (req, res, url, p) => {
   // ── Stream ao vivo do painel ──────────────────────────────────────────────
@@ -55,6 +56,23 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
   // ── Monitores ─────────────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/monitores') {
     json(res, 200, { monitores: estadoMonitores() });
+    return true;
+  }
+
+  // ── Resumo diário ─────────────────────────────────────────────────────────
+  // Prévia não envia nem grava nada: é para conferir os números antes de ligar.
+  if (req.method === 'GET' && p === '/api/resumo/previa') {
+    json(res, 200, await montarResumo());
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/resumo/enviar') {
+    const a = await enviarResumoManual(ator(req));
+    json(res, 200, {
+      ok: true,
+      enviado: !!a?.enviado_em,
+      motivo: a?.envio_erro ?? null,
+    });
     return true;
   }
 

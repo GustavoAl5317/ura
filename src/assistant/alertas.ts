@@ -183,5 +183,8 @@ export function duracaoHumana(seg: number): string {
   const min = Math.round(seg / 60);
   if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60);
-  return `${h}h${String(min % 60).padStart(2, '0')}`;
+  if (h < 48) return `${h}h${String(min % 60).padStart(2, '0')}`;
+  // Incidente esquecido aberto há meses virava "9373h44" — ninguém lê isso de relance.
+  const dias = Math.floor(h / 24);
+  return h % 24 ? `${dias} dias e ${h % 24}h` : `${dias} dias`;
 }

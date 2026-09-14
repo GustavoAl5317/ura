@@ -536,7 +536,9 @@ function quando(iso) {
 }
 const duracao = (s) => s === null || s === undefined ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, '0')}s`;
 
-const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB' };
+const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB',
+  // Seções do resumo diário: a lista de opções reaproveita este rótulo.
+  rede: 'Rede (Zabbix)', os: 'Ordens de serviço', atendimento: 'Atendimento WhatsApp', assistente: 'Uso do assistente' };
 const ROTULO_VEREDITO = { CONFIRMADO: 'Confirmado', PROVAVEL: 'Provável', INCONCLUSIVO: 'Inconclusivo' };
 
 const chipVeredito = (v) => el('span', { class: `veredito v-${v}`, text: ROTULO_VEREDITO[v] || v });
@@ -735,7 +737,7 @@ function renderAlertasCurtos(lista) {
 const rotuloSev = (s) => ({ critico: 'Crítico', aviso: 'Aviso', info: 'Info' }[s] || s);
 
 function renderMonitores(alvo, lista, curto) {
-  const nomes = { zabbix: 'Incidentes da rede', sla_whatsapp: 'Atendimento aguardando retorno' };
+  const nomes = { zabbix: 'Incidentes da rede', sla_whatsapp: 'Atendimento aguardando retorno', resumo_diario: 'Resumo diário' };
   alvo.replaceChildren(...lista.map((m) => el('div', { style: 'padding:6px 0;border-top:1px solid var(--linha)' },
     el('div', { style: 'display:flex;justify-content:space-between;gap:8px' },
       el('strong', { text: nomes[m.nome] || m.nome }),
@@ -1084,7 +1086,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', resumo: 'Resumo diário', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1257,11 +1259,32 @@ subCarregadores.monitores = async () => {
       try { await api('POST', '/api/espelho/sync'); toast('Sincronização iniciada.', 'ok'); subCarregadores.monitores(); }
       catch (e) { toast(e.message, 'erro'); }
     });
+    const saidaResumo = el('div', { style: 'margin-top:10px' });
+    const btnPrevia = el('button', { class: 'botao sec', type: 'button', text: 'Ver prévia do resumo' });
+    const btnEnviarResumo = el('button', { class: 'botao sec', type: 'button', text: 'Enviar resumo agora' });
+    btnPrevia.addEventListener('click', async () => {
+      btnPrevia.disabled = true; saidaResumo.replaceChildren(el('p', { class: 'mudo', text: 'Montando o resumo (consulta o SGP)…' }));
+      try { const r = await api('GET', '/api/resumo/previa'); saidaResumo.replaceChildren(el('pre', { class: 'json', style: 'white-space:pre-wrap', text: r.texto })); }
+      catch (e) { saidaResumo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+      finally { btnPrevia.disabled = false; }
+    });
+    btnEnviarResumo.addEventListener('click', async () => {
+      if (!confirm('Enviar agora o resumo das últimas 24 horas no grupo de alertas? O resumo do horário programado continua saindo.')) return;
+      btnEnviarResumo.disabled = true;
+      try {
+        const r = await api('POST', '/api/resumo/enviar');
+        r.enviado ? toast('Resumo enviado ao grupo.', 'ok') : toast(`Resumo registrado, mas não enviado: ${r.motivo}`, 'erro');
+      } catch (e) { toast(e.message, 'erro'); }
+      finally { btnEnviarResumo.disabled = false; }
+    });
     alvo.replaceChildren(el('div', { class: 'grade grade-2' },
       el('div', { class: 'bloco' }, el('h2', { class: 'secao', text: 'Monitores' }), listaMon,
         el('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--linha)' },
           el('p', { class: 'mudo', style: 'margin:0 0 8px;font-size:13px', text: 'O monitor de atendimento começa desligado. Teste a leitura antes de ligar em Comportamento — o teste mostra só a estrutura das conversas, nunca o texto dos clientes.' }),
-          btnDiag, saidaDiag)),
+          btnDiag, saidaDiag),
+        el('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--linha)' },
+          el('p', { class: 'mudo', style: 'margin:0 0 8px;font-size:13px', text: 'O resumo diário sai no horário definido em Comportamento. A prévia mostra o texto sem enviar.' }),
+          el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, btnPrevia, btnEnviarResumo), saidaResumo)),
       el('div', { class: 'bloco' }, el('h2', { class: 'secao', text: 'Espelho do SGP' }),
         el('dl', { style: 'display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0 0 14px;font-size:13.5px' },
           el('dt', { class: 'mudo', text: 'Clientes' }), el('dd', { class: 'dado', style: 'margin:0', text: s.clientes.toLocaleString('pt-BR') }),

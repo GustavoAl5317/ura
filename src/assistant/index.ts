@@ -25,6 +25,7 @@ import { ator } from './http-util';
 import { ErroHttp } from './http-util';
 import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
+import { iniciarMonitorResumo } from './resumo-diario';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -129,10 +130,12 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const evo = await evoTecnicos.estadoConexao();
     const d = db();
     const consultas24h = (d.prepare(
-      `SELECT COUNT(*) n FROM consulta WHERE at > datetime('now','-1 day')`,
+      // `at` é ISO 8601 (com T e Z); datetime('now') tem espaço, e a comparação de
+      // texto contava até um dia a mais. strftime no mesmo formato compara certo.
+      `SELECT COUNT(*) n FROM consulta WHERE at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')`,
     ).get() as { n: number }).n;
     const porVeredito = d.prepare(
-      `SELECT veredito, COUNT(*) n FROM consulta WHERE at > datetime('now','-7 day')
+      `SELECT veredito, COUNT(*) n FROM consulta WHERE at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 day')
        GROUP BY veredito`,
     ).all() as Array<{ veredito: string; n: number }>;
 
@@ -294,6 +297,7 @@ async function main(): Promise<void> {
   agendarSync();
   iniciarMonitorZabbix();
   iniciarMonitorSla();
+  iniciarMonitorResumo();
 
   const server = http.createServer((req, res) => {
     rotear(req, res).catch((err) => {
@@ -323,7 +327,12 @@ async function main(): Promise<void> {
 
   server.listen(config.assistant.port, config.assistant.host, () => {
     logger.info(`Assistente escutando em ${config.assistant.host}:${config.assistant.port}`);
-    if (config.assistant.host === '0.0.0.0') {
+    // O firewall é aplicado pelo systemd (scripts/firewall-assistente.sh), que lê
+    // a mesma variável do .env. Com ela definida, o aviso seria alarme falso.
+    const firewall = (process.env.ASSISTANT_FIREWALL_LIBERAR ?? '').trim();
+    if (config.assistant.host === '0.0.0.0' && firewall && firewall !== 'desligado') {
+      logger.info(`  porta filtrada pelo firewall: só ${firewall}`);
+    } else if (config.assistant.host === '0.0.0.0') {
       logger.warn(
         'ASSISTANT_HOST=0.0.0.0 escuta em todas as interfaces, inclusive IP público. ' +
         'Se o único cliente é o Evolution local, use 172.17.0.1 ou bloqueie a porta no firewall.',
