@@ -1,12 +1,12 @@
 // Monitor de SLA do atendimento no WhatsApp (Bloco 4).
 //
-// Avisa quando um cliente espera resposta humana além do limite configurado.
-// Duas fontes, escolhidas em monitor.sla.fonte:
-//   · "chat" (padrão): o banco do ura-chat — ver sla-chat.ts. É a única que
-//     enxerga o número oficial da Meta e distingue IA de atendente.
-//   · "evolution": /chat/findChats de uma instância. Não sabe se quem respondeu
-//     foi a IA ou uma pessoa; serve para número atendido só por humanos.
+// Lê as conversas de uma instância do Evolution (EVO_ATEND_*) e avisa quando a
+// última mensagem é do cliente e ninguém respondeu além do limite configurado.
 // Só lê. O aviso vai para o grupo dos técnicos, pela instância deles.
+//
+// Limite conhecido: número atendido pela API oficial da Meta não passa pelo
+// Evolution e fica invisível aqui. E o Evolution não distingue resposta de
+// robô de resposta humana — serve para número atendido por pessoas.
 //
 // NASCE DESLIGADO. Antes de ligar, confira GET /api/monitores/sla/diagnostico —
 // ele mostra como as conversas estão sendo entendidas, sem nome nem texto.
@@ -17,7 +17,6 @@ import { db } from '../store/db';
 import { obter, dentroDaJanela } from '../config-dinamica';
 import { emitir, marcarResolvido, horaCurta } from '../alertas';
 import { iniciarMonitor } from './base';
-import { lerConversasDoChat, ConversaChat } from './sla-chat';
 
 export const evoAtendimento = new EvolutionClient(
   {
@@ -42,7 +41,7 @@ export interface ConversaLida {
   ultimaDeMim: boolean | null;
   ultimaEm: Date | null;
   setor: string | null;
-  origemDaUltima: 'lastMessage' | 'findMessages' | 'nenhuma' | 'chat';
+  origemDaUltima: 'lastMessage' | 'findMessages' | 'nenhuma';
 }
 
 type Obj = Record<string, unknown>;
@@ -107,19 +106,8 @@ async function completarUltima(conv: ReturnType<typeof lerConversa> & object): P
   };
 }
 
-type Fonte = 'chat' | 'evolution';
-const fonteAtual = (): Fonte => (obter<string>('monitor.sla.fonte') === 'evolution' ? 'evolution' : 'chat');
-
-/** Lê e interpreta as conversas recentes da fonte configurada. Base do ciclo e do diagnóstico. */
+/** Lê e interpreta as conversas recentes. Base do ciclo e do diagnóstico. */
 async function lerConversasRecentes(): Promise<{ lidas: ConversaLida[]; brutas: number; ignoradas: number }> {
-  if (fonteAtual() === 'chat') {
-    const r = lerConversasDoChat();
-    return { lidas: r.conversas, brutas: r.conversas.length + r.ignoradas, ignoradas: r.ignoradas };
-  }
-  return lerConversasEvolution();
-}
-
-async function lerConversasEvolution(): Promise<{ lidas: ConversaLida[]; brutas: number; ignoradas: number }> {
   const brutas = await evoAtendimento.buscarConversas();
   const limite = Date.now() - JANELA_MAX_HORAS * 3600_000;
   const lidas: ConversaLida[] = [];
@@ -146,9 +134,7 @@ export function iniciarMonitorSla(): () => void {
   return iniciarMonitor({
     nome: 'sla_whatsapp',
     descricao: 'Conversas de atendimento aguardando retorno além do limite',
-    // Fonte "chat" não depende de instância: se o banco não abrir, o ciclo
-    // falha com o motivo e o painel mostra — melhor que parecer desligado.
-    ativo: () => obter<boolean>('monitor.sla.ativo') && (fonteAtual() === 'chat' || evoAtendimento.disponivel),
+    ativo: () => obter<boolean>('monitor.sla.ativo') && evoAtendimento.disponivel,
     intervaloSeg: () => obter<number>('monitor.sla.intervalo_seg'),
     ciclo: cicloSla,
   });
@@ -203,18 +189,16 @@ export async function cicloSla(): Promise<{ alertas: number; detalhe: Record<str
 
     if (esperaMin >= limiteMin && alertado !== c.ultimaMsgId) {
       if (emitidos < MAX_ALERTAS_CICLO) {
-        const semDono = (c as Partial<ConversaChat>).situacao === 'aguardando_assumir';
         const a = await emitir({
           origem: 'sla',
           severidade: esperaMin >= limiteMin * 3 ? 'critico' : 'aviso',
-          titulo: `${semDono ? 'Aguardando atendente assumir' : 'Aguardando retorno'}: ${c.nome ?? 'cliente sem nome'}`,
+          titulo: `Aguardando retorno: ${c.nome ?? 'cliente sem nome'}`,
           texto: [
-            semDono ? '⚠️ *Transferido pela IA e ninguém assumiu*' : '⚠️ *Atendimento aguardando retorno*',
+            '⚠️ *Atendimento aguardando retorno*',
             `Cliente: ${c.nome ?? 'sem nome no WhatsApp'}`,
             `Tempo de espera: ${esperaMin} minutos`,
-            `${semDono ? 'Transferido às' : 'Última mensagem'}: ${horaCurta(c.ultimaEm!)}`,
-            // Com atendente, o responsável é ela; sem, o setor padrão.
-            `${c.setor ? 'Com' : 'Setor responsável'}: ${setor}`,
+            `Última mensagem: ${horaCurta(c.ultimaEm!)}`,
+            `Setor responsável: ${setor}`,
           ].join('\n'),
           chave: `sla:${c.jid}:${c.ultimaMsgId ?? c.ultimaEm!.getTime()}`,
           dados: { jid: c.jid, nome: c.nome, setor, esperaMin, ultimaEm: c.ultimaEm!.toISOString() },
@@ -265,7 +249,7 @@ export async function cicloSla(): Promise<{ alertas: number; detalhe: Record<str
   return {
     alertas: emitidos,
     detalhe: {
-      fonte: fonteAtual(), conversas_lidas: brutas, recentes: lidas.length, ignoradas,
+      conversas_lidas: brutas, recentes: lidas.length, ignoradas,
       aguardando, resolvidas, sairam_da_fila: sairamDaFila, limite_min: limiteMin,
     },
   };
@@ -276,28 +260,8 @@ export async function cicloSla(): Promise<{ alertas: number; detalhe: Record<str
  * conversas foram entendidas — nunca nome de cliente nem texto de mensagem.
  */
 export async function diagnosticoSla(): Promise<Record<string, unknown>> {
-  if (fonteAtual() === 'chat') {
-    const { conversas, ignoradas } = lerConversasDoChat();
-    const porSituacao: Record<string, number> = {};
-    for (const c of conversas) porSituacao[c.situacao] = (porSituacao[c.situacao] ?? 0) + 1;
-    return {
-      ok: true,
-      fonte: 'chat',
-      arquivo: config.chatAtendimento.dbPath,
-      abertas_recentes: conversas.length,
-      ignoradas_paradas_ha_mais_de_12h: ignoradas,
-      por_situacao: porSituacao,
-      limite_min: obter<number>('monitor.sla.minutos'),
-      esperando: conversas.filter((c) => c.ultimaDeMim === false).map((c) => ({
-        situacao: c.situacao,
-        espera_min: Math.floor((Date.now() - c.ultimaEm!.getTime()) / 60_000),
-        com_atendente: !!c.setor,
-      })).slice(0, 15),
-    };
-  }
-
   if (!evoAtendimento.disponivel) {
-    return { ok: false, fonte: 'evolution', erro: 'instância de atendimento não configurada (EVO_ATEND_* ou WHATSAPP_*)' };
+    return { ok: false, erro: 'instância de atendimento não configurada (EVO_ATEND_* ou WHATSAPP_*)' };
   }
   const brutas = await evoAtendimento.buscarConversas();
   const amostra = brutas.slice(0, 3).map((b) => {
@@ -312,7 +276,6 @@ export async function diagnosticoSla(): Promise<Record<string, unknown>> {
 
   return {
     ok: true,
-    fonte: 'evolution',
     instancia: config.evolutionAtendimento.instance,
     conversas_devolvidas: brutas.length,
     estrutura_amostra: amostra,
