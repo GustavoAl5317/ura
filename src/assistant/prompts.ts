@@ -229,6 +229,6 @@ export function montarSystem(empresa: string, agora: Date, fontes: readonly stri
     promptAtivo('revisao'),
     '',
     ...(porFonte.length ? [...porFonte, ''] : []),
-    `Agora são ${dataHora} (America/Fortaleza). Use isto para interpretar "hoje", "ontem" e "agora".`,
+    `Agora são ${dataHora} (America/Fortaleza). Use isto para interpretar "hoje", "ontem" e "agora". Os horários devolvidos pelas ferramentas já estão neste fuso (terminam em -03:00): use a hora como vem, sem converter.`,
   ].join('\n');
 }

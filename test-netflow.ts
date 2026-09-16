@@ -154,6 +154,16 @@ async function main() {
   checa('pico vem da série, com horário', !!dados(e).pico_no_intervalo?.em && /Mbps|Gbps/.test(dados(e).pico_no_intervalo.mbps), dados(e).pico_no_intervalo);
   checa('envia a chave como Bearer', estado.cabecalhos.every((h) => h === `Bearer ${CHAVE}`));
 
+  console.log('\n─── Horário local (o modelo leu 19:12Z como 19:12) ───');
+  const { isoLocal, horariosLocais } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'base')) as typeof import('./src/assistant/tools/base');
+  checa('UTC vira Fortaleza com fuso explícito', isoLocal('2026-09-16T19:12:00.000Z') === '2026-09-16T16:12:00-03:00', isoLocal('2026-09-16T19:12:00.000Z'));
+  checa('virada de meia-noite muda o dia', isoLocal('2026-09-17T02:00:00Z') === '2026-09-16T23:00:00-03:00', isoLocal('2026-09-17T02:00:00Z'));
+  const conv = horariosLocais({ a: '2026-09-16T19:12:00Z', b: ['x', { c: '2026-09-16T10:00:00.000Z' }], d: 'texto 19:12Z', n: 5 });
+  checa('converte em qualquer nível e não toca no resto',
+    conv.a === '2026-09-16T16:12:00-03:00' && (conv.b[1] as { c: string }).c === '2026-09-16T07:00:00-03:00' && conv.d === 'texto 19:12Z' && conv.n === 5, conv);
+  e = await rodar('netflow_trafego', { minutos: 30 });
+  checa('ferramenta já entrega horário local', /-03:00$/.test(dados(e).pico_no_intervalo.em) && /-03:00$/.test(dados(e).janela.fim), dados(e).janela);
+
   console.log('\n─── Coleta parada (o que aconteceu de 28/07 a 16/09) ───');
   estado.coletaViva = false;
   e = await rodar('netflow_trafego', { minutos: 30 });

@@ -10,6 +10,7 @@
 
 import { FonteId, Envelope, envelopeOk, envelopeVazio, envelopeErro } from '../types';
 import { logger } from '../../logger';
+import { config } from '../../config';
 
 export interface CtxFerramenta {
   /** Gera o próximo rótulo evd_N da consulta em andamento. */
@@ -39,6 +40,43 @@ function argsSeguros(args: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z$/;
+
+/** "…Z" → mesmo instante no fuso da operação, com o deslocamento explícito (…-03:00). */
+export function isoLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat('en-GB', {
+    timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(d)) p[x.type] = x.value;
+  if (p.hour === '24') p.hour = '00';
+  const comoUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  const offMin = Math.round((comoUtc - Math.floor(d.getTime() / 1000) * 1000) / 60_000);
+  const sinal = offMin < 0 ? '-' : '+';
+  const abs = Math.abs(offMin);
+  const off = `${sinal}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${off}`;
+}
+
+/**
+ * Troca todo horário UTC ("…Z") dos dados por horário local com fuso.
+ * Existe porque o modelo não converte: com "19:12Z" na mão, respondeu "pico
+ * às 19:12" para um pico das 16:12 de Fortaleza.
+ */
+export function horariosLocais<T>(v: T, prof = 0): T {
+  if (prof > 12 || v === null || v === undefined) return v;
+  if (typeof v === 'string') return (ISO_UTC.test(v) ? isoLocal(v) : v) as T;
+  if (Array.isArray(v)) return v.map((x) => horariosLocais(x, prof + 1)) as T;
+  if (typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = horariosLocais(x, prof + 1);
+    return out as T;
+  }
+  return v;
+}
+
 /**
  * Executa o corpo de uma ferramenta atômica já embrulhando em Envelope:
  * cronometra, captura exceção e distingue "não achei" de "a fonte caiu".
@@ -65,7 +103,7 @@ export async function medir<T>(
     const r = await corpo();
     base.duracaoMs = Date.now() - t0;
     if (r === null) return envelopeVazio(base);
-    return envelopeOk<T>(base, r.dados, r.vazio ?? false);
+    return envelopeOk<T>(base, horariosLocais(r.dados), r.vazio ?? false);
   } catch (err) {
     base.duracaoMs = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
