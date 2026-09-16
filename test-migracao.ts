@@ -57,7 +57,7 @@ function colunas(d: Database.Database, t: string): string[] {
 
 const ESPERADAS = ['sgp_cliente', 'sgp_contrato', 'sgp_servico', 'sgp_busca', 'sgp_sync', 'conversa', 'mensagem',
   'consulta', 'evidencia', 'prompt', 'permissao', 'auditoria', 'configuracao', 'alerta', 'chamada_ura', 'sla_conversa',
-  'sgp_contrato_evento'];
+  'sgp_contrato_evento', 'equipe'];
 
 function tmp(nome: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `aq-migra-${nome}-`));
@@ -105,6 +105,7 @@ async function main() {
       checa('sgp_sync ganhou offset_atual, lock_pid e lock_em',
         ['offset_atual', 'lock_pid', 'lock_em'].every((c) => colunas(d, 'sgp_sync').includes(c)));
       checa('consulta ganhou hipotese', colunas(d, 'consulta').includes('hipotese'));
+      checa('permissao ganhou equipe', colunas(d, 'permissao').includes('equipe'));
       const s = d.prepare(`SELECT slot, pon FROM sgp_servico WHERE servico_id = 1`).get() as { slot: unknown; pon: unknown };
       checa("slot '' corrigido para NULL", s.slot === null, `slot=${JSON.stringify(s.slot)}`);
       checa('dado válido preservado (pon 8)', s.pon === 8);

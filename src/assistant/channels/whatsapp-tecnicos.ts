@@ -58,9 +58,14 @@ export function mesmoNumero(a: string, b: string): boolean {
 }
 
 /** Registro de permissão do número, se houver. */
-export function permissaoDoNumero(autorJid: string): { usuario: string; ativo: number } | undefined {
-  const linhas = db().prepare(`SELECT usuario, ativo FROM permissao WHERE usuario LIKE '%@s.whatsapp.net'`)
-    .all() as Array<{ usuario: string; ativo: number }>;
+export function permissaoDoNumero(autorJid: string): { usuario: string; ativo: number; equipe_ok: number } | undefined {
+  // equipe_ok: sem equipe, ou equipe existente e ativa. Equipe bloqueada bloqueia o membro.
+  const linhas = db().prepare(
+    `SELECT p.usuario, p.ativo,
+            CASE WHEN p.equipe IS NULL THEN 1 ELSE COALESCE(e.ativo, 0) END AS equipe_ok
+     FROM permissao p LEFT JOIN equipe e ON e.id = p.equipe
+     WHERE p.usuario LIKE '%@s.whatsapp.net'`,
+  ).all() as Array<{ usuario: string; ativo: number; equipe_ok: number }>;
   return linhas.find((l) => mesmoNumero(l.usuario, autorJid));
 }
 
@@ -68,7 +73,7 @@ export function autorizado(autorJid: string): boolean {
   // Cadastro no painel decide quando existe: libera sem editar o .env, e a
   // desativação vence a lista do .env.
   const r = permissaoDoNumero(autorJid);
-  if (r) return r.ativo === 1;
+  if (r) return r.ativo === 1 && r.equipe_ok === 1;
 
   const lista = config.evolutionTecnicos.autorizados;
   return lista.some((permitido) => mesmoNumero(permitido, autorJid));

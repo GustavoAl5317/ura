@@ -1168,26 +1168,35 @@ subCarregadores.permissoes = async () => {
       el('div', { class: 'grade grade-3' },
         el('div', { class: 'campo' }, el('label', { for: 'p-num', text: 'Celular com DDD' }), el('input', { type: 'text', id: 'p-num', required: true, placeholder: '85999999999', inputmode: 'tel' })),
         el('div', { class: 'campo' }, el('label', { for: 'p-nome', text: 'Nome' }), el('input', { type: 'text', id: 'p-nome', required: true })),
-        el('div', { class: 'campo' }, el('label', { for: 'p-papel', text: 'Papel' }), el('select', { id: 'p-papel' }, r.papeis.map((p) => el('option', { value: p, text: p }))))),
+        el('div', { class: 'campo' }, el('label', { for: 'p-papel', text: 'Papel' }), el('select', { id: 'p-papel' }, r.papeis.map((p) => el('option', { value: p, text: p })))),
+        el('div', { class: 'campo' }, el('label', { for: 'p-equipe', text: 'Equipe' }), el('select', { id: 'p-equipe' }, [el('option', { value: '', text: 'Sem equipe' }), ...r.equipes.map((e) => el('option', { value: e.id, text: e.nome }))]))),
       el('div', { class: 'campo' }, el('label', { text: 'Fontes que pode consultar — nenhuma marcada libera todas' }), fontesBox(null)),
       el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Liberar' })));
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const fontes = $$('.opcoes-lista input', form).filter((x) => x.checked).map((x) => x.value);
       try {
-        await api('POST', '/api/permissoes', { usuario: $('#p-num', form).value, nome: $('#p-nome', form).value, papel: $('#p-papel', form).value, fontes: fontes.length ? fontes : null });
+        await api('POST', '/api/permissoes', { usuario: $('#p-num', form).value, nome: $('#p-nome', form).value, papel: $('#p-papel', form).value, equipe: $('#p-equipe', form).value || null, fontes: fontes.length ? fontes : null });
         toast('Técnico liberado. Já pode mandar mensagem.', 'ok'); subCarregadores.permissoes();
       } catch (e) { toast(e.message, 'erro'); }
     });
 
     const tabela = el('div', { class: 'bloco tabela-rolagem' },
       el('h2', { class: 'secao', text: 'Cadastrados' }),
-      r.permissoes.length ? el('table', {}, el('thead', {}, el('tr', {}, ['Técnico', 'Número', 'Papel', 'Fontes', 'Situação', ''].map((t) => el('th', { text: t })))),
+      r.permissoes.length ? el('table', {}, el('thead', {}, el('tr', {}, ['Técnico', 'Número', 'Papel', 'Equipe', 'Fontes', 'Situação', ''].map((t) => el('th', { text: t })))),
         el('tbody', {}, r.permissoes.map((p) => el('tr', {},
           el('td', { text: p.nome || '—' }),
           el('td', { class: 'dado', text: p.usuario.replace('@s.whatsapp.net', '') }),
           el('td', { text: p.papel }),
-          el('td', { style: 'font-size:12.5px', text: p.fontes ? p.fontes.map((f) => ROTULO_FONTE[f] || f).join(', ') : 'todas' }),
+          el('td', {}, (() => {
+            const s = el('select', { 'aria-label': `Equipe de ${p.nome || p.usuario}` }, [el('option', { value: '', text: 'Sem equipe', selected: !p.equipe }), ...r.equipes.map((e) => el('option', { value: e.id, text: e.nome, selected: e.id === p.equipe }))]);
+            s.addEventListener('change', async () => {
+              try { await api('PUT', `/api/permissoes/${encodeURIComponent(p.usuario)}`, { equipe: s.value || null }); toast('Equipe alterada.', 'ok'); subCarregadores.permissoes(); }
+              catch (e) { toast(e.message, 'erro'); }
+            });
+            return s;
+          })()),
+          el('td', { style: 'font-size:12.5px', text: p.fontes ? p.fontes.map((f) => ROTULO_FONTE[f] || f).join(', ') : (p.equipe ? 'as da equipe' : 'todas') }),
           el('td', {}, el('span', { style: `color:var(${p.ativo ? '--confirmado' : '--inconclusivo'})`, text: p.ativo ? 'Liberado' : 'Bloqueado' })),
           el('td', {}, el('div', { class: 'linha-acoes' },
             el('button', { class: 'botao sec mini', type: 'button', text: p.ativo ? 'Bloquear' : 'Liberar', onclick: async () => {
@@ -1203,11 +1212,45 @@ subCarregadores.permissoes = async () => {
         'Também liberados pelo arquivo de configuração do servidor (só dá para bloquear cadastrando aqui): ',
         el('span', { class: 'dado', text: r.autorizados_pelo_env.join(', ') })) : null);
 
-    alvo.replaceChildren(form, tabela);
+    // ── Equipes ──
+    const formEq = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'campo' }, el('label', { for: 'eq-nome', text: 'Nova equipe' }), el('input', { type: 'text', id: 'eq-nome', required: true, placeholder: 'Ex.: NOC, Campo, Suporte N2' })),
+      el('div', { class: 'campo' }, el('label', { text: 'Fontes que a equipe pode consultar — nenhuma marcada libera todas' }), fontesBox(null)),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Criar equipe' })));
+    formEq.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fontes = $$('.opcoes-lista input', formEq).filter((x) => x.checked).map((x) => x.value);
+      try { await api('POST', '/api/equipes', { nome: $('#eq-nome', formEq).value, fontes: fontes.length ? fontes : null }); toast('Equipe criada.', 'ok'); subCarregadores.permissoes(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+    const membros = (id) => r.permissoes.filter((p) => p.equipe === id).length;
+    const blocoEq = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Equipes' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'A equipe define o máximo que os membros podem consultar. Cada pessoa pode ser ainda mais restrita. Equipe bloqueada bloqueia todos os membros.' }),
+      r.equipes.length ? el('div', { class: 'tabela-rolagem' }, el('table', {}, el('thead', {}, el('tr', {}, ['Equipe', 'Fontes', 'Membros', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.equipes.map((e) => el('tr', {},
+          el('td', { text: e.nome }),
+          el('td', { style: 'font-size:12.5px', text: e.fontes ? e.fontes.map((f) => ROTULO_FONTE[f] || f).join(', ') : 'todas' }),
+          el('td', { class: 'dado', text: String(membros(e.id)) }),
+          el('td', {}, el('span', { style: `color:var(${e.ativo ? '--confirmado' : '--inconclusivo'})`, text: e.ativo ? 'Ativa' : 'Bloqueada' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            el('button', { class: 'botao sec mini', type: 'button', text: e.ativo ? 'Bloquear' : 'Liberar', onclick: async () => {
+              try { await api('PUT', `/api/equipes/${encodeURIComponent(e.id)}`, { ativo: !e.ativo }); toast(e.ativo ? 'Equipe bloqueada.' : 'Equipe liberada.', 'ok'); subCarregadores.permissoes(); }
+              catch (err) { toast(err.message, 'erro'); }
+            } }),
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              if (!confirm(`Remover a equipe ${e.nome}?`)) return;
+              try { await api('DELETE', `/api/equipes/${encodeURIComponent(e.id)}`); toast('Equipe removida.', 'ok'); subCarregadores.permissoes(); }
+              catch (err) { toast(err.message, 'erro'); }
+            } }))))))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhuma equipe criada.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formEq));
+
+    alvo.replaceChildren(form, tabela, blocoEq);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
-const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA' };
+const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow' };
 subCarregadores.prompts = async (chaveSel) => {
   const alvo = $('[data-subpainel="prompts"]');
   try {

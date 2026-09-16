@@ -46,22 +46,43 @@ export interface PedidoAssistente {
 }
 
 /** Fontes que o usuário pode consultar. null = todas. */
-export function fontesDoUsuario(usuario: string): FonteId[] | null {
-  const r = db().prepare(
-    `SELECT fontes, ativo FROM permissao WHERE usuario = ?`,
-  ).get(usuario) as { fontes: string | null; ativo: number } | undefined;
-
-  if (!r) return null;   // sem registro = sem restrição individual de fonte
-  // Desativado = nenhuma fonte. Antes devolvia null, que significa TODAS: um
-  // usuário desativado tinha acesso irrestrito pelo chat interno.
-  if (!r.ativo) return [];
-  if (!r.fontes) return null;
+function lerLista(json: string | null): FonteId[] | null {
+  if (!json) return null;
   try {
-    const lista = JSON.parse(r.fontes) as FonteId[];
+    const lista = JSON.parse(json) as FonteId[];
     return Array.isArray(lista) && lista.length ? lista : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Fontes que o usuário pode consultar. null = sem restrição (valem as globais).
+ *
+ * Regra: equipe é o teto, pessoa pode restringir mais — o acesso é a
+ * interseção das duas. Desativado (pessoa ou equipe) = nenhuma fonte. Antes da
+ * equipe, desativado devolvia null, que significa TODAS: um usuário
+ * desativado tinha acesso irrestrito pelo chat interno.
+ */
+export function fontesDoUsuario(usuario: string): FonteId[] | null {
+  const r = db().prepare(
+    `SELECT p.fontes, p.ativo, p.equipe, e.fontes AS equipe_fontes, e.ativo AS equipe_ativa, e.id AS equipe_existe
+     FROM permissao p LEFT JOIN equipe e ON e.id = p.equipe
+     WHERE p.usuario = ?`,
+  ).get(usuario) as {
+    fontes: string | null; ativo: number; equipe: string | null;
+    equipe_fontes: string | null; equipe_ativa: number | null; equipe_existe: string | null;
+  } | undefined;
+
+  if (!r) return null;   // sem registro = sem restrição individual de fonte
+  if (!r.ativo) return [];
+  // Equipe apagada ou desativada não pode virar "sem teto".
+  if (r.equipe && (!r.equipe_existe || !r.equipe_ativa)) return [];
+
+  const pessoa = lerLista(r.fontes);
+  const equipe = r.equipe ? lerLista(r.equipe_fontes) : null;
+  if (pessoa && equipe) return pessoa.filter((f) => equipe.includes(f));
+  return pessoa ?? equipe;
 }
 
 /**

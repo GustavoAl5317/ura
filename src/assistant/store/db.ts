@@ -197,6 +197,7 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_pid', 'INTEGER');
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'consulta', 'hipotese', 'TEXT');
+  adicionarColunaSeFaltar(d, 'permissao', 'equipe', 'TEXT');
 
   // ORDEM DA MIGRAÇÃO: (1) cria tabelas, (2) adiciona colunas, (3) corrige dados.
   // Correção de dado antes do CREATE TABLE derrubou o serviço em produção: o
@@ -257,6 +258,16 @@ function migrar(d: Database.Database): void {
       aguardando_desde   TEXT,             -- NULL = respondida
       alertado_msg_id    TEXT,             -- evita alertar duas vezes a mesma espera
       atualizada_em      TEXT NOT NULL
+    );
+
+    -- ═══ Equipes (Bloco 6) ════════════════════════════════════════════════
+    -- A equipe é o TETO de fontes dos membros; a pessoa pode ser mais restrita.
+    CREATE TABLE IF NOT EXISTS equipe (
+      id        TEXT PRIMARY KEY,         -- slug: noc, campo, suporte…
+      nome      TEXT NOT NULL,
+      fontes    TEXT,                     -- JSON; null = todas
+      ativo     INTEGER NOT NULL DEFAULT 1,
+      criado_em TEXT NOT NULL
     );
 
     -- ═══ Mudança de situação de contrato vista pelo sync ═════════════════
