@@ -6,6 +6,8 @@
 
 import 'dotenv/config';
 import http from 'http';
+import https from 'https';
+import fs from 'fs';
 import { config } from '../config';
 import { logger } from '../logger';
 import { db } from './store/db';
@@ -320,7 +322,7 @@ async function main(): Promise<void> {
   iniciarMonitorResumo();
   iniciarMonitorNetflow();
 
-  const server = http.createServer((req, res) => {
+  const atender = (req: http.IncomingMessage, res: http.ServerResponse) => {
     rotear(req, res).catch((err) => {
       // Erro de validação vira 4xx com mensagem legível para o painel; o resto é 500.
       if (err instanceof ErroHttp) {
@@ -333,7 +335,8 @@ async function main(): Promise<void> {
       });
       if (!res.headersSent) json(res, 500, { error: 'erro_interno' });
     });
-  });
+  };
+  const server = http.createServer(atender);
 
   // Sem isto, um bind que falha vira "uncaught exception" e o processo fica
   // VIVO sem servir nada — o supervisor não reinicia porque ninguém morreu.
@@ -360,6 +363,34 @@ async function main(): Promise<void> {
       );
     }
     logger.info(`  webhook: POST http://<host>:${config.assistant.port}/webhook/evolution`);
+  });
+
+  iniciarHttps(atender);
+}
+
+/**
+ * HTTPS opcional, só para o painel poder usar o microfone. Falha aqui NÃO
+ * derruba o assistente: o HTTP (webhook, URA, painel sem voz) segue no ar.
+ */
+function iniciarHttps(atender: http.RequestListener): void {
+  const porta = config.assistant.httpsPort;
+  if (!porta) return;
+  let credenciais: { key: Buffer; cert: Buffer };
+  try {
+    credenciais = { key: fs.readFileSync(config.assistant.httpsKey), cert: fs.readFileSync(config.assistant.httpsCert) };
+  } catch (err) {
+    logger.error(`Assistente: HTTPS na porta ${porta} não iniciou — certificado ilegível`, {
+      cert: config.assistant.httpsCert, key: config.assistant.httpsKey,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  const seguro = https.createServer(credenciais, atender);
+  seguro.on('error', (err: NodeJS.ErrnoException) => {
+    logger.error(`Assistente: HTTPS na porta ${porta} falhou`, { err: err.message });
+  });
+  seguro.listen(porta, config.assistant.host, () => {
+    logger.info(`Assistente escutando em HTTPS ${config.assistant.host}:${porta} (painel com microfone)`);
   });
 }
 

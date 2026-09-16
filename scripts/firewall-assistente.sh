@@ -32,12 +32,19 @@ ler_env() {
 }
 
 PORTA="$(ler_env ASSISTANT_PORT)"; PORTA="${PORTA:-9030}"
+# HTTPS do painel (opcional) passa pelo mesmo filtro.
+PORTA_HTTPS="$(ler_env ASSISTANT_HTTPS_PORT)"; [ "$PORTA_HTTPS" = "0" ] && PORTA_HTTPS=""
 LIBERAR="$(ler_env ASSISTANT_FIREWALL_LIBERAR)"
 LIBERAR="${LIBERAR:-127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}"
 
 if [ "$LIBERAR" = "desligado" ]; then
   echo "firewall-assistente: ASSISTANT_FIREWALL_LIBERAR=desligado — porta $PORTA sem filtro"
   exit 0
+fi
+
+if [ -n "$PORTA_HTTPS" ] && ! [[ "$PORTA_HTTPS" =~ ^[0-9]+$ ]]; then
+  echo "firewall-assistente: ASSISTANT_HTTPS_PORT inválida: $PORTA_HTTPS" >&2
+  exit 1
 fi
 
 if ! [[ "$PORTA" =~ ^[0-9]+$ ]]; then
@@ -64,7 +71,9 @@ for s in "${FONTES[@]}"; do
 done
 iptables -A ASSISTENTE_NOVO -j DROP
 
-iptables -I INPUT 1 -p tcp --dport "$PORTA" -j ASSISTENTE_NOVO
+for p in $PORTA $PORTA_HTTPS; do
+  iptables -I INPUT 1 -p tcp --dport "$p" -j ASSISTENTE_NOVO
+done
 # Remove saltos antigos (inclusive de outra porta, se ASSISTANT_PORT mudou).
 while iptables -S INPUT | grep -q -- '-j ASSISTENTE$'; do
   regra="$(iptables -S INPUT | grep -- '-j ASSISTENTE$' | head -n1 | sed 's/^-A INPUT //')"
@@ -77,4 +86,4 @@ if iptables -n -L ASSISTENTE >/dev/null 2>&1; then
 fi
 iptables -E ASSISTENTE_NOVO ASSISTENTE
 
-echo "firewall-assistente: porta $PORTA liberada só para ${FONTES[*]}"
+echo "firewall-assistente: porta(s) $PORTA ${PORTA_HTTPS} liberada(s) só para ${FONTES[*]}"

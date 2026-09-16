@@ -218,6 +218,13 @@ export const config = {
     enabled: optBool('ASSISTANT_ENABLED', false),
     port: optInt('ASSISTANT_PORT', 9022),
     /**
+     * Porta HTTPS opcional (0 = desligada). O navegador só libera o microfone do
+     * painel em HTTPS; sem domínio, o certificado é autoassinado e gerado na VM.
+     */
+    httpsPort: optInt('ASSISTANT_HTTPS_PORT', 0),
+    httpsCert: opt('ASSISTANT_HTTPS_CERT', 'data/tls/cert.pem'),
+    httpsKey: opt('ASSISTANT_HTTPS_KEY', 'data/tls/key.pem'),
+    /**
      * Interface de escuta. 0.0.0.0 expõe em TODAS, inclusive o IP público —
      * foi assim que a 9030 ficou alcançável da internet. O único cliente é o
      * Evolution na mesma máquina, que chega pela bridge do Docker (172.17.0.1).
