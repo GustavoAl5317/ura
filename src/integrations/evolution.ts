@@ -187,7 +187,7 @@ export class EvolutionClient {
    */
   async buscarConversas(): Promise<unknown[]> {
     if (!this.disponivel) throw new Error(`${this.rotulo}: instância não configurada`);
-    const res = await this.client.post(`/chat/findChats/${this.cfg.instance}`, {});
+    const res = await this.client.post(`/chat/findChats/${this.cfg.instance}`, {}).catch((e) => { throw this.erroLegivel(e); });
     const d = res.data as unknown;
     if (Array.isArray(d)) return d;
     const obj = d as { chats?: unknown[]; data?: unknown[] } | null;
@@ -200,12 +200,25 @@ export class EvolutionClient {
     const res = await this.client.post(`/chat/findMessages/${this.cfg.instance}`, {
       where: { key: { remoteJid: jid } },
       limit: limite,
-    });
+    }).catch((e) => { throw this.erroLegivel(e); });
     const d = res.data as { messages?: { records?: unknown[] } | unknown[] } | unknown[];
     if (Array.isArray(d)) return d;
     const m = (d as { messages?: { records?: unknown[] } | unknown[] }).messages;
     if (Array.isArray(m)) return m;
     return m?.records ?? [];
+  }
+
+  /**
+   * "Request failed with status code 404" não diz nada; o Evolution explica no
+   * corpo (ex.: 'The "X" instance does not exist'). Leva essa explicação adiante.
+   */
+  private erroLegivel(err: unknown): Error {
+    const ax = err as AxiosError<{ response?: { message?: unknown }; message?: unknown }>;
+    const corpo = ax.response?.data;
+    const msg = corpo?.response?.message ?? corpo?.message;
+    const detalhe = Array.isArray(msg) ? msg.join('; ') : typeof msg === 'string' ? msg : '';
+    const status = ax.response?.status;
+    return new Error(`${this.rotulo}: ${status ? `HTTP ${status}` : ax.message}${detalhe ? ` — ${detalhe}` : ''}`);
   }
 
   /** Checa se a instância está conectada — alimenta o painel de integrações. */

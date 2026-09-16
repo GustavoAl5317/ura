@@ -123,6 +123,11 @@ export const DEFINICOES = {
     tipo: 'booleano', grupo: 'monitor_sla', padrao: () => false,
     descricao: 'Avisa quando conversa de atendimento fica sem resposta além do limite.',
   },
+  'monitor.sla.fonte': {
+    tipo: 'texto', grupo: 'monitor_sla', padrao: () => 'chat',
+    opcoes: ['chat', 'evolution'],
+    descricao: 'Onde ler as conversas. "chat": sistema de atendimento (número oficial e Evolution). "evolution": direto de uma instância do Evolution.',
+  },
   'monitor.sla.minutos': {
     tipo: 'inteiro', grupo: 'monitor_sla', padrao: () => 15, min: 1, max: 1440,
     descricao: 'Tempo de espera que dispara o aviso.',

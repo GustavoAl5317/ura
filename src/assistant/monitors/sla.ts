@@ -1,14 +1,15 @@
 // Monitor de SLA do atendimento no WhatsApp (Bloco 4).
 //
-// Lê as conversas da instância de ATENDIMENTO (a do cliente) e avisa quando a
-// última mensagem é do cliente e ninguém respondeu além do limite configurado.
-// Só lê. Nunca envia pela instância do cliente: o aviso vai para o grupo dos
-// técnicos, pela instância deles.
+// Avisa quando um cliente espera resposta humana além do limite configurado.
+// Duas fontes, escolhidas em monitor.sla.fonte:
+//   · "chat" (padrão): o banco do ura-chat — ver sla-chat.ts. É a única que
+//     enxerga o número oficial da Meta e distingue IA de atendente.
+//   · "evolution": /chat/findChats de uma instância. Não sabe se quem respondeu
+//     foi a IA ou uma pessoa; serve para número atendido só por humanos.
+// Só lê. O aviso vai para o grupo dos técnicos, pela instância deles.
 //
-// NASCE DESLIGADO. O formato de /chat/findChats muda entre versões da Evolution
-// e não foi possível validá-lo contra a instância real durante o desenvolvimento.
-// Antes de ligar, confira GET /api/monitores/sla/diagnostico — ele mostra se o
-// parser está entendendo as conversas, sem expor conteúdo de mensagem.
+// NASCE DESLIGADO. Antes de ligar, confira GET /api/monitores/sla/diagnostico —
+// ele mostra como as conversas estão sendo entendidas, sem nome nem texto.
 
 import { config } from '../../config';
 import { EvolutionClient } from '../../integrations/evolution';
@@ -16,6 +17,7 @@ import { db } from '../store/db';
 import { obter, dentroDaJanela } from '../config-dinamica';
 import { emitir, marcarResolvido, horaCurta } from '../alertas';
 import { iniciarMonitor } from './base';
+import { lerConversasDoChat, ConversaChat } from './sla-chat';
 
 export const evoAtendimento = new EvolutionClient(
   {
@@ -40,7 +42,7 @@ export interface ConversaLida {
   ultimaDeMim: boolean | null;
   ultimaEm: Date | null;
   setor: string | null;
-  origemDaUltima: 'lastMessage' | 'findMessages' | 'nenhuma';
+  origemDaUltima: 'lastMessage' | 'findMessages' | 'nenhuma' | 'chat';
 }
 
 type Obj = Record<string, unknown>;
@@ -105,8 +107,19 @@ async function completarUltima(conv: ReturnType<typeof lerConversa> & object): P
   };
 }
 
-/** Lê e interpreta as conversas recentes. Base do ciclo e do diagnóstico. */
+type Fonte = 'chat' | 'evolution';
+const fonteAtual = (): Fonte => (obter<string>('monitor.sla.fonte') === 'evolution' ? 'evolution' : 'chat');
+
+/** Lê e interpreta as conversas recentes da fonte configurada. Base do ciclo e do diagnóstico. */
 async function lerConversasRecentes(): Promise<{ lidas: ConversaLida[]; brutas: number; ignoradas: number }> {
+  if (fonteAtual() === 'chat') {
+    const r = lerConversasDoChat();
+    return { lidas: r.conversas, brutas: r.conversas.length + r.ignoradas, ignoradas: r.ignoradas };
+  }
+  return lerConversasEvolution();
+}
+
+async function lerConversasEvolution(): Promise<{ lidas: ConversaLida[]; brutas: number; ignoradas: number }> {
   const brutas = await evoAtendimento.buscarConversas();
   const limite = Date.now() - JANELA_MAX_HORAS * 3600_000;
   const lidas: ConversaLida[] = [];
@@ -133,111 +146,158 @@ export function iniciarMonitorSla(): () => void {
   return iniciarMonitor({
     nome: 'sla_whatsapp',
     descricao: 'Conversas de atendimento aguardando retorno além do limite',
-    ativo: () => obter<boolean>('monitor.sla.ativo') && evoAtendimento.disponivel,
+    // Fonte "chat" não depende de instância: se o banco não abrir, o ciclo
+    // falha com o motivo e o painel mostra — melhor que parecer desligado.
+    ativo: () => obter<boolean>('monitor.sla.ativo') && (fonteAtual() === 'chat' || evoAtendimento.disponivel),
     intervaloSeg: () => obter<number>('monitor.sla.intervalo_seg'),
-    async ciclo() {
-      const inicio = obter<string>('monitor.sla.horario_inicio');
-      const fim = obter<string>('monitor.sla.horario_fim');
-      if (inicio && fim && !dentroDaJanela(inicio, fim)) {
-        return { alertas: 0, detalhe: { fora_do_expediente: `${inicio}–${fim}` } };
-      }
-
-      const limiteMin = obter<number>('monitor.sla.minutos');
-      const setorPadrao = obter<string>('monitor.sla.setor_padrao');
-      const { lidas, brutas, ignoradas } = await lerConversasRecentes();
-      const d = db();
-      const agora = new Date();
-      let emitidos = 0;
-      let aguardando = 0;
-      let excedentes = 0;
-      let resolvidas = 0;
-
-      const anterior = d.prepare(`SELECT * FROM sla_conversa WHERE jid = ?`);
-      const salvar = d.prepare(
-        `INSERT INTO sla_conversa (jid, nome, setor, ultima_msg_id, ultima_msg_cliente, aguardando_desde, alertado_msg_id, atualizada_em)
-         VALUES (@jid,@nome,@setor,@ultima_msg_id,@ultima_msg_cliente,@aguardando_desde,@alertado_msg_id,@atualizada_em)
-         ON CONFLICT(jid) DO UPDATE SET nome=excluded.nome, setor=excluded.setor,
-           ultima_msg_id=excluded.ultima_msg_id, ultima_msg_cliente=excluded.ultima_msg_cliente,
-           aguardando_desde=excluded.aguardando_desde, alertado_msg_id=excluded.alertado_msg_id,
-           atualizada_em=excluded.atualizada_em`,
-      );
-
-      for (const c of lidas) {
-        const prev = anterior.get(c.jid) as { alertado_msg_id: string | null } | undefined;
-        const setor = c.setor ?? setorPadrao;
-
-        if (c.ultimaDeMim) {
-          // Respondida: se havia alerta dessa espera, marca resolvido.
-          if (prev?.alertado_msg_id && marcarResolvido(`sla:${c.jid}:${prev.alertado_msg_id}`)) resolvidas++;
-          salvar.run({
-            jid: c.jid, nome: c.nome, setor, ultima_msg_id: c.ultimaMsgId,
-            ultima_msg_cliente: null, aguardando_desde: null, alertado_msg_id: null,
-            atualizada_em: agora.toISOString(),
-          });
-          continue;
-        }
-
-        aguardando++;
-        const esperaMin = Math.floor((agora.getTime() - c.ultimaEm!.getTime()) / 60_000);
-        let alertado = prev?.alertado_msg_id ?? null;
-
-        if (esperaMin >= limiteMin && alertado !== c.ultimaMsgId) {
-          if (emitidos < MAX_ALERTAS_CICLO) {
-            const a = await emitir({
-              origem: 'sla',
-              severidade: esperaMin >= limiteMin * 3 ? 'critico' : 'aviso',
-              titulo: `Aguardando retorno: ${c.nome ?? c.jid}`,
-              texto: [
-                '⚠️ *Atendimento aguardando retorno*',
-                `Cliente: ${c.nome ?? 'sem nome no WhatsApp'}`,
-                `Tempo de espera: ${esperaMin} minutos`,
-                `Última mensagem: ${horaCurta(c.ultimaEm!)}`,
-                `Setor responsável: ${setor}`,
-              ].join('\n'),
-              chave: `sla:${c.jid}:${c.ultimaMsgId ?? c.ultimaEm!.getTime()}`,
-              dados: { jid: c.jid, nome: c.nome, setor, esperaMin, ultimaEm: c.ultimaEm!.toISOString() },
-            });
-            if (a) emitidos++;
-          } else {
-            excedentes++;
-          }
-          alertado = c.ultimaMsgId;
-        }
-
-        salvar.run({
-          jid: c.jid, nome: c.nome, setor, ultima_msg_id: c.ultimaMsgId,
-          ultima_msg_cliente: c.ultimaEm!.toISOString(), aguardando_desde: c.ultimaEm!.toISOString(),
-          alertado_msg_id: alertado, atualizada_em: agora.toISOString(),
-        });
-      }
-
-      if (excedentes) {
-        await emitir({
-          origem: 'sla',
-          severidade: 'critico',
-          titulo: `Mais ${excedentes} conversas aguardando retorno`,
-          texto: `⚠️ *Fila de atendimento*\nAlém dos avisos acima, mais ${excedentes} conversas passaram de ${limiteMin} min sem resposta. Veja o painel.`,
-          chave: `sla:resumo:${agora.toISOString().slice(0, 16)}`,
-        });
-        emitidos++;
-      }
-
-      return {
-        alertas: emitidos,
-        detalhe: { conversas_lidas: brutas, recentes: lidas.length, ignoradas, aguardando, resolvidas, limite_min: limiteMin },
-      };
-    },
+    ciclo: cicloSla,
   });
 }
 
+/** Um ciclo do monitor. Exportado para teste. */
+export async function cicloSla(): Promise<{ alertas: number; detalhe: Record<string, unknown> }> {
+  const inicio = obter<string>('monitor.sla.horario_inicio');
+  const fim = obter<string>('monitor.sla.horario_fim');
+  if (inicio && fim && !dentroDaJanela(inicio, fim)) {
+    return { alertas: 0, detalhe: { fora_do_expediente: `${inicio}–${fim}` } };
+  }
+
+  const limiteMin = obter<number>('monitor.sla.minutos');
+  const setorPadrao = obter<string>('monitor.sla.setor_padrao');
+  const { lidas, brutas, ignoradas } = await lerConversasRecentes();
+  const d = db();
+  const agora = new Date();
+  let emitidos = 0;
+  let aguardando = 0;
+  let excedentes = 0;
+  let resolvidas = 0;
+
+  const anterior = d.prepare(`SELECT * FROM sla_conversa WHERE jid = ?`);
+  const salvar = d.prepare(
+    `INSERT INTO sla_conversa (jid, nome, setor, ultima_msg_id, ultima_msg_cliente, aguardando_desde, alertado_msg_id, atualizada_em)
+     VALUES (@jid,@nome,@setor,@ultima_msg_id,@ultima_msg_cliente,@aguardando_desde,@alertado_msg_id,@atualizada_em)
+     ON CONFLICT(jid) DO UPDATE SET nome=excluded.nome, setor=excluded.setor,
+       ultima_msg_id=excluded.ultima_msg_id, ultima_msg_cliente=excluded.ultima_msg_cliente,
+       aguardando_desde=excluded.aguardando_desde, alertado_msg_id=excluded.alertado_msg_id,
+       atualizada_em=excluded.atualizada_em`,
+  );
+
+  for (const c of lidas) {
+    const prev = anterior.get(c.jid) as { alertado_msg_id: string | null } | undefined;
+    const setor = c.setor ?? setorPadrao;
+
+    if (c.ultimaDeMim) {
+      // Respondida: se havia alerta dessa espera, marca resolvido.
+      if (prev?.alertado_msg_id && marcarResolvido(`sla:${c.jid}:${prev.alertado_msg_id}`)) resolvidas++;
+      salvar.run({
+        jid: c.jid, nome: c.nome, setor, ultima_msg_id: c.ultimaMsgId,
+        ultima_msg_cliente: null, aguardando_desde: null, alertado_msg_id: null,
+        atualizada_em: agora.toISOString(),
+      });
+      continue;
+    }
+
+    aguardando++;
+    const esperaMin = Math.floor((agora.getTime() - c.ultimaEm!.getTime()) / 60_000);
+    let alertado = prev?.alertado_msg_id ?? null;
+
+    if (esperaMin >= limiteMin && alertado !== c.ultimaMsgId) {
+      if (emitidos < MAX_ALERTAS_CICLO) {
+        const semDono = (c as Partial<ConversaChat>).situacao === 'aguardando_assumir';
+        const a = await emitir({
+          origem: 'sla',
+          severidade: esperaMin >= limiteMin * 3 ? 'critico' : 'aviso',
+          titulo: `${semDono ? 'Aguardando atendente assumir' : 'Aguardando retorno'}: ${c.nome ?? 'cliente sem nome'}`,
+          texto: [
+            semDono ? '⚠️ *Transferido pela IA e ninguém assumiu*' : '⚠️ *Atendimento aguardando retorno*',
+            `Cliente: ${c.nome ?? 'sem nome no WhatsApp'}`,
+            `Tempo de espera: ${esperaMin} minutos`,
+            `${semDono ? 'Transferido às' : 'Última mensagem'}: ${horaCurta(c.ultimaEm!)}`,
+            // Com atendente, o responsável é ela; sem, o setor padrão.
+            `${c.setor ? 'Com' : 'Setor responsável'}: ${setor}`,
+          ].join('\n'),
+          chave: `sla:${c.jid}:${c.ultimaMsgId ?? c.ultimaEm!.getTime()}`,
+          dados: { jid: c.jid, nome: c.nome, setor, esperaMin, ultimaEm: c.ultimaEm!.toISOString() },
+        });
+        if (a) emitidos++;
+      } else {
+        excedentes++;
+      }
+      alertado = c.ultimaMsgId;
+    }
+
+    salvar.run({
+      jid: c.jid, nome: c.nome, setor, ultima_msg_id: c.ultimaMsgId,
+      ultima_msg_cliente: c.ultimaEm!.toISOString(), aguardando_desde: c.ultimaEm!.toISOString(),
+      alertado_msg_id: alertado, atualizada_em: agora.toISOString(),
+    });
+  }
+
+  // Conversa que estava esperando e sumiu da leitura foi encerrada ou ficou
+  // parada além da janela. Sem isto, o alerta dela ficava aberto para sempre e
+  // o "aguardando agora" do resumo contava fantasma.
+  const vistas = new Set(lidas.map((c) => c.jid));
+  const pendentes = d.prepare(
+    `SELECT jid, alertado_msg_id FROM sla_conversa WHERE aguardando_desde IS NOT NULL`,
+  ).all() as Array<{ jid: string; alertado_msg_id: string | null }>;
+  const liberar = d.prepare(
+    `UPDATE sla_conversa SET aguardando_desde = NULL, alertado_msg_id = NULL, atualizada_em = ? WHERE jid = ?`,
+  );
+  let sairamDaFila = 0;
+  for (const p of pendentes) {
+    if (vistas.has(p.jid)) continue;
+    if (p.alertado_msg_id) marcarResolvido(`sla:${p.jid}:${p.alertado_msg_id}`);
+    liberar.run(agora.toISOString(), p.jid);
+    sairamDaFila++;
+  }
+
+  if (excedentes) {
+    await emitir({
+      origem: 'sla',
+      severidade: 'critico',
+      titulo: `Mais ${excedentes} conversas aguardando retorno`,
+      texto: `⚠️ *Fila de atendimento*\nAlém dos avisos acima, mais ${excedentes} conversas passaram de ${limiteMin} min sem resposta. Veja o painel.`,
+      chave: `sla:resumo:${agora.toISOString().slice(0, 16)}`,
+    });
+    emitidos++;
+  }
+
+  return {
+    alertas: emitidos,
+    detalhe: {
+      fonte: fonteAtual(), conversas_lidas: brutas, recentes: lidas.length, ignoradas,
+      aguardando, resolvidas, sairam_da_fila: sairamDaFila, limite_min: limiteMin,
+    },
+  };
+}
+
 /**
- * Diagnóstico para validar o parser na instância real antes de ligar o monitor.
- * Mostra ESTRUTURA (nomes de campos) e o que foi entendido — nunca o texto das
- * mensagens: são conversas de cliente.
+ * Diagnóstico para validar a leitura antes de ligar o monitor. Mostra como as
+ * conversas foram entendidas — nunca nome de cliente nem texto de mensagem.
  */
 export async function diagnosticoSla(): Promise<Record<string, unknown>> {
+  if (fonteAtual() === 'chat') {
+    const { conversas, ignoradas } = lerConversasDoChat();
+    const porSituacao: Record<string, number> = {};
+    for (const c of conversas) porSituacao[c.situacao] = (porSituacao[c.situacao] ?? 0) + 1;
+    return {
+      ok: true,
+      fonte: 'chat',
+      arquivo: config.chatAtendimento.dbPath,
+      abertas_recentes: conversas.length,
+      ignoradas_paradas_ha_mais_de_12h: ignoradas,
+      por_situacao: porSituacao,
+      limite_min: obter<number>('monitor.sla.minutos'),
+      esperando: conversas.filter((c) => c.ultimaDeMim === false).map((c) => ({
+        situacao: c.situacao,
+        espera_min: Math.floor((Date.now() - c.ultimaEm!.getTime()) / 60_000),
+        com_atendente: !!c.setor,
+      })).slice(0, 15),
+    };
+  }
+
   if (!evoAtendimento.disponivel) {
-    return { ok: false, erro: 'instância de atendimento não configurada (EVO_ATEND_* ou WHATSAPP_*)' };
+    return { ok: false, fonte: 'evolution', erro: 'instância de atendimento não configurada (EVO_ATEND_* ou WHATSAPP_*)' };
   }
   const brutas = await evoAtendimento.buscarConversas();
   const amostra = brutas.slice(0, 3).map((b) => {
@@ -252,6 +312,7 @@ export async function diagnosticoSla(): Promise<Record<string, unknown>> {
 
   return {
     ok: true,
+    fonte: 'evolution',
     instancia: config.evolutionAtendimento.instance,
     conversas_devolvidas: brutas.length,
     estrutura_amostra: amostra,
@@ -263,7 +324,6 @@ export async function diagnosticoSla(): Promise<Record<string, unknown>> {
       nao_encontrada: lidas.filter((l) => l.origemDaUltima === 'nenhuma').length,
     },
     aguardando_cliente: lidas.filter((l) => l.ultimaDeMim === false).map((l) => ({
-      nome: l.nome,
       espera_min: l.ultimaEm ? Math.floor((Date.now() - l.ultimaEm.getTime()) / 60_000) : null,
       setor: l.setor,
     })).slice(0, 15),

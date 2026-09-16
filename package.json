@@ -16,7 +16,8 @@
     "test:zabbix": "ts-node --transpile-only test-zabbix-falha.ts",
     "test:admin": "ts-node --transpile-only test-admin.ts",
     "test:migracao": "ts-node --transpile-only test-migracao.ts",
-    "test:resumo": "ts-node --transpile-only test-resumo.ts"
+    "test:resumo": "ts-node --transpile-only test-resumo.ts",
+    "test:sla": "ts-node --transpile-only test-sla-chat.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",
