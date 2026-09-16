@@ -260,6 +260,14 @@ export const config = {
     apiKey: opt('EVO_ATEND_API_KEY', opt('WHATSAPP_API_KEY')),
   },
 
+  // ── Banco do ura-chat — fonte padrão do monitor de SLA ──
+  // Os clientes chegam pelo número oficial da Meta, que o Evolution não enxerga.
+  // O ura-chat grava cada conversa, quem está com ela (IA ou atendente) e quem
+  // falou por último. Aberto só para leitura.
+  chatAtendimento: {
+    dbPath: opt('CHAT_DB_PATH', '/opt/ura-chat/data/atendimento.db'),
+  },
+
   // ── Ponte URA → assistente (usada pelo processo da URA) ──
   // Vazio = ponte desligada, e a URA segue exatamente como antes.
   ponteAssistente: {

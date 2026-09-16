@@ -1,8 +1,8 @@
-// Testes do monitor de SLA do atendimento (leitura pelo Evolution).
+// Testes do monitor de SLA com a fonte alternativa: leitura pelo Evolution.
 //
 // O Evolution é substituído por um dublê: nenhuma chamada sai da máquina.
 //
-//   npm run test:sla
+//   npm run test:sla-evolution
 
 import fs from 'fs';
 import os from 'os';
@@ -49,6 +49,7 @@ const alertas = () => db().prepare(`SELECT * FROM alerta WHERE origem = 'sla'`).
 const doJid = (jid: string) => alertas().find((a) => a.chave.startsWith(`sla:${jid}:`));
 
 async function main() {
+  definir('monitor.sla.fonte', 'evolution', 'teste');
   definir('monitor.sla.minutos', 15, 'teste');
   definir('monitor.sla.horario_inicio', '', 'teste');
   definir('monitor.sla.horario_fim', '', 'teste');
