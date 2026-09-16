@@ -63,6 +63,19 @@ function autorizadoApi(req: http.IncomingMessage, url: URL): boolean {
   );
 }
 
+/**
+ * Quem pode chamar uma rota /api. A URA tem chave própria (URA_EVENTS_KEY),
+ * que só entrega eventos de chamada: se a VM da URA vazar, ninguém lê
+ * consulta, cliente ou configuração com ela.
+ */
+export function acessoApi(req: http.IncomingMessage, url: URL, p: string): 200 | 401 | 403 {
+  const chaveUra = config.assistant.chaveEventosUra;
+  const ehEventoUra = req.method === 'POST' && p === '/api/eventos/ura';
+  const comChaveUra = !!chaveUra && req.headers['x-admin-key'] === chaveUra;
+  if (comChaveUra && chaveUra !== config.admin.apiKey) return ehEventoUra ? 200 : 403;
+  return autorizadoApi(req, url) ? 200 : 401;
+}
+
 /** O webhook é público na rede — valida por segredo próprio, não pela chave do painel. */
 function webhookValido(req: http.IncomingMessage, url: URL): boolean {
   const segredo = config.assistant.webhookSecret;
@@ -116,7 +129,9 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
-  if (!autorizadoApi(req, url)) return json(res, 401, { error: 'unauthorized' });
+  const acesso = acessoApi(req, url, p);
+  if (acesso === 403) return json(res, 403, { error: 'chave da URA só envia eventos de chamada' });
+  if (acesso === 401) return json(res, 401, { error: 'unauthorized' });
 
   // Health detalhado — o que o /health público mostrava antes, agora atrás da chave.
   if (req.method === 'GET' && p === '/api/health') {

@@ -239,6 +239,12 @@ export const config = {
     ttsVoice: opt('ASSISTANT_TTS_VOICE', 'nova'),
     /** Segredo que o Evolution envia no webhook; vazio = sem validação. */
     webhookSecret: opt('ASSISTANT_WEBHOOK_SECRET', '').trim(),
+    /**
+     * Chave que a URA usa para empurrar eventos de chamada. Só vale para
+     * POST /api/eventos/ura — a VM da URA não precisa (nem deve) ter a chave
+     * de administrador do assistente.
+     */
+    chaveEventosUra: opt('URA_EVENTS_KEY', '').trim(),
     /** Janela de contexto conversacional por técnico (mensagens). */
     historicoMax: optInt('ASSISTANT_HISTORICO_MAX', 12),
   },

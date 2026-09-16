@@ -21,7 +21,8 @@
     "test:sla-evolution": "ts-node --transpile-only test-sla.ts",
     "test:netflow": "ts-node --transpile-only test-netflow.ts",
     "test:relatorios": "ts-node --transpile-only test-relatorios.ts",
-    "test:equipes": "ts-node --transpile-only test-equipes.ts"
+    "test:equipes": "ts-node --transpile-only test-equipes.ts",
+    "test:acesso": "ts-node --transpile-only test-acesso.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",
