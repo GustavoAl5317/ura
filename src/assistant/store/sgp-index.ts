@@ -141,6 +141,14 @@ export function indexar(
     VALUES (?,?,?,?,?,?,?,?)
   `);
 
+  const statusAnterior = d.prepare(`SELECT status FROM sgp_contrato WHERE contrato_id = ?`);
+  const insEvento = d.prepare(
+    `INSERT INTO sgp_contrato_evento (contrato_id, cliente_id, de, para, motivo, detectado_em)
+     VALUES (?,?,?,?,?,?)`,
+  );
+  // No primeiro sync tudo é "novo": não há com o que comparar.
+  const primeiroSync = (d.prepare(`SELECT COUNT(*) n FROM sgp_contrato`).get() as { n: number }).n === 0;
+
   let nCli = 0;
   let nSrv = 0;
 
@@ -168,6 +176,11 @@ export function indexar(
 
       for (const ct of c.contratos ?? []) {
         if (!ct?.id) continue;
+        const antes = statusAnterior.get(ct.id) as { status: string | null } | undefined;
+        const agoraStatus = txt(ct.status);
+        if (antes ? antes.status !== agoraStatus : !primeiroSync) {
+          insEvento.run(ct.id, c.id, antes?.status ?? null, agoraStatus, txt(ct.motivo_status), agora);
+        }
         insContrato.run({
           contrato_id: ct.id,
           cliente_id: c.id,

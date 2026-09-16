@@ -193,6 +193,9 @@ export async function buscarItens(opts: {
   const params: Record<string, unknown> = {
     output: SAIDA_ITEM,
     selectHosts: ['hostid', 'name'],
+    // Item de TEMPLATE não tem coleta: aparecia como "sem_coleta" ao lado do
+    // item real do host (ex.: "MW - HUAWEI - PPPOE - SNMP | pppoeTotal").
+    templated: false,
     limit: Math.min(opts.limite ?? 50, 5000),
     sortfield: 'name',
   };
@@ -213,6 +216,37 @@ export async function buscarItens(opts: {
 
   const itens = await zabbix.api<ItemBruto[]>('item.get', params) ?? [];
   return itens.map(paraMetrica);
+}
+
+/**
+ * Valor do item mais próximo de um instante (± tolerância). null = não havia
+ * coleta naquela hora — não confundir com valor zero.
+ */
+export async function valorEm(
+  item: Pick<ItemMetrica, 'itemid' | 'valueType'>,
+  instanteSeg: number,
+  toleranciaSeg = 600,
+): Promise<{ valor: number; em: string } | null> {
+  if (item.valueType !== 0 && item.valueType !== 3) return null;
+  const h = await zabbix.api<Array<{ clock: string; value: string }>>('history.get', {
+    output: ['clock', 'value'],
+    history: item.valueType,
+    itemids: [item.itemid],
+    time_from: instanteSeg - toleranciaSeg,
+    time_till: instanteSeg + toleranciaSeg,
+    sortfield: 'clock',
+    sortorder: 'ASC',
+    limit: 200,
+  }) ?? [];
+  let melhor: { valor: number; em: string; d: number } | null = null;
+  for (const p of h) {
+    const v = parseFloat(p.value);
+    const t = parseInt(p.clock, 10);
+    if (!Number.isFinite(v)) continue;
+    const dist = Math.abs(t - instanteSeg);
+    if (!melhor || dist < melhor.d) melhor = { valor: v, em: new Date(t * 1000).toISOString(), d: dist };
+  }
+  return melhor ? { valor: melhor.valor, em: melhor.em } : null;
 }
 
 export interface ResumoSerie {

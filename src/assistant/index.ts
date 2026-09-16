@@ -15,6 +15,7 @@ import { registrarFerramentas } from './tools/consultas';
 import { registrarFerramentasMetricas } from './tools/metricas';
 import { registrarFerramentasCausais } from './tools/causal';
 import { registrarFerramentasNetflow } from './tools/netflow';
+import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
 import { parseWebhook } from '../integrations/evolution';
 import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
@@ -274,6 +275,7 @@ async function main(): Promise<void> {
   registrarFerramentasMetricas();
   registrarFerramentasCausais();
   registrarFerramentasNetflow();
+  registrarFerramentasRelatorios();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;

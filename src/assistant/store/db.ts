@@ -258,6 +258,20 @@ function migrar(d: Database.Database): void {
       alertado_msg_id    TEXT,             -- evita alertar duas vezes a mesma espera
       atualizada_em      TEXT NOT NULL
     );
+
+    -- ═══ Mudança de situação de contrato vista pelo sync ═════════════════
+    -- A API do SGP não informa QUANDO um contrato foi cancelado. O espelho
+    -- compara com o sync anterior e registra o dia em que viu a mudança.
+    CREATE TABLE IF NOT EXISTS sgp_contrato_evento (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      contrato_id  INTEGER NOT NULL,
+      cliente_id   INTEGER,
+      de           TEXT,                   -- NULL = contrato novo
+      para         TEXT,
+      motivo       TEXT,
+      detectado_em TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_contrato_evento_em ON sgp_contrato_evento(detectado_em);
   `);
 
   // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────

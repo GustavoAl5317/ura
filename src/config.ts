@@ -193,6 +193,10 @@ export const config = {
     username: opt('ZABBIX_USER', ''),
     password: opt('ZABBIX_PASSWORD', ''),
     timeoutMs: optInt('ZABBIX_TIMEOUT_MS', 12_000),
+    /** Sessões PPPoE = clientes online agora. Soma de todos os concentradores. */
+    itemSessoesTotal: opt('ZABBIX_ITEM_SESSOES_TOTAL', 'grpsum["CONCENTRADORES","pppoeTotal",last]'),
+    /** Chave do item de sessões em cada concentrador. */
+    itemSessoesHost: opt('ZABBIX_ITEM_SESSOES_HOST', 'pppoeTotal'),
     problemLimit: optInt('ZABBIX_PROBLEM_LIMIT', 30),
     /** Padrões de busca em problem.get (nome do trigger), separados por | */
     searchPatterns: opt(

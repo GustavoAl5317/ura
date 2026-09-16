@@ -342,7 +342,8 @@ const panoramaRede: Ferramenta = {
   descricao:
     'Contagem de clientes por status de conexão e de contratos por situação, a partir do espelho ' +
     'local. IMPORTANTE: é a foto do último sync, não é tempo real — sempre informe a idade do dado ' +
-    'ao responder. Para o estado AGORA de um cliente específico, use revisao_cliente.',
+    'ao responder. Para quantos estão online AGORA, use clientes_online. Para o estado agora de um ' +
+    'cliente específico, use revisao_cliente.',
   parametros: { type: 'object', properties: {}, required: [] },
   async executar(_args, ctx) {
     return [

@@ -1086,7 +1086,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', resumo: 'Resumo diário', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1108,6 +1108,10 @@ function itemConfig(i, modelos) {
     controle = el('label', { class: 'interruptor' }, c, el('span', { text: i.valor ? 'Ligado' : 'Desligado' }));
     c.addEventListener('change', () => { controle.lastChild.textContent = c.checked ? 'Ligado' : 'Desligado'; });
     ler = () => c.checked;
+  } else if (i.tipo === 'lista' && !(i.opcoes || []).length) {
+    // Lista livre (palavras-chave): texto separado por vírgula.
+    controle = el('input', { type: 'text', value: (i.valor || []).join(', ') });
+    ler = () => controle.value;
   } else if (i.tipo === 'lista') {
     const sel = new Set(i.valor || []);
     const caixas = (i.opcoes || []).map((o) => { const c = el('input', { type: 'checkbox', value: o, checked: sel.has(o) }); return el('label', {}, c, ROTULO_FONTE[o] || o); });

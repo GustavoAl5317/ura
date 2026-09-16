@@ -56,7 +56,8 @@ function colunas(d: Database.Database, t: string): string[] {
 }
 
 const ESPERADAS = ['sgp_cliente', 'sgp_contrato', 'sgp_servico', 'sgp_busca', 'sgp_sync', 'conversa', 'mensagem',
-  'consulta', 'evidencia', 'prompt', 'permissao', 'auditoria', 'configuracao', 'alerta', 'chamada_ura', 'sla_conversa'];
+  'consulta', 'evidencia', 'prompt', 'permissao', 'auditoria', 'configuracao', 'alerta', 'chamada_ura', 'sla_conversa',
+  'sgp_contrato_evento'];
 
 function tmp(nome: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `aq-migra-${nome}-`));

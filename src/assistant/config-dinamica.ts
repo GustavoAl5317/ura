@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'resumo' | 'fontes';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'resumo' | 'relatorios' | 'fontes';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -163,6 +163,20 @@ export const DEFINICOES = {
     padrao: () => ['rede', 'os', 'ura', 'atendimento', 'assistente'],
     opcoes: ['rede', 'os', 'ura', 'atendimento', 'assistente'],
     descricao: 'O que entra no resumo.',
+  },
+
+  // ── Relatórios do SGP ───────────────────────────────────────────────────
+  'relatorios.motivos_instalacao': {
+    tipo: 'lista', grupo: 'relatorios',
+    // "ADESÃO" no SGP é categoria: agrupa instalação, retirada e mudança de
+    // endereço. Por isso o critério usa o motivo específico, não a categoria.
+    padrao: () => ['instalacao de kit', 'reativacao'],
+    descricao: 'Trechos do motivo da O.S. que contam como instalação de cliente (sem acento, separados por vírgula). Ex.: "instalacao de kit".',
+  },
+  'relatorios.motivos_cancelamento': {
+    tipo: 'lista', grupo: 'relatorios',
+    padrao: () => ['retirada', 'cancel', 'recolh', 'desinstala'],
+    descricao: 'Trechos do motivo da O.S. que contam como cancelamento ou retirada de equipamento (ex.: "ADESÃO - Retirada").',
   },
 
   // ── Fontes ──────────────────────────────────────────────────────────────

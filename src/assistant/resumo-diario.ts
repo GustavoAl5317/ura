@@ -20,6 +20,7 @@ import { estadoMonitores, iniciarMonitor } from './monitors/base';
 import { ROTULO_TIPO } from './monitors/zabbix';
 import { sgp, osEstaAberta, SgpOrdemServico } from '../integrations/sgp';
 import type { ZabbixEventoTipo } from '../integrations/zabbix';
+import { diaLocal, horaLocal, rotuloData, instanteSgp } from './datas';
 
 export const SECOES = ['rede', 'os', 'ura', 'atendimento', 'assistente'] as const;
 export type Secao = (typeof SECOES)[number];
@@ -93,59 +94,14 @@ export interface Resumo {
 
 // ─── Tempo local ──────────────────────────────────────────────────────────────
 
-function partesLocais(d: Date): Record<string, string> {
-  const f = new Intl.DateTimeFormat('en-GB', {
-    timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  });
-  const p: Record<string, string> = {};
-  for (const x of f.formatToParts(d)) p[x.type] = x.value;
-  if (p.hour === '24') p.hour = '00';
-  return p;
-}
-
-/** AAAA-MM-DD no fuso da operação. */
-export function diaLocal(d: Date): string {
-  const p = partesLocais(d);
-  return `${p.year}-${p.month}-${p.day}`;
-}
-
-/** HH:MM no fuso da operação. */
-export function horaLocal(d: Date): string {
-  const p = partesLocais(d);
-  return `${p.hour}:${p.minute}`;
-}
-
-function rotuloData(d: Date): string {
-  const p = partesLocais(d);
-  return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
-}
-
-/** Instante UTC de um horário de parede no fuso da operação. */
-function localParaUtc(ano: number, mes: number, dia: number, h: number, mi: number, s: number): Date {
-  const palpite = Date.UTC(ano, mes - 1, dia, h, mi, s);
-  const p = partesLocais(new Date(palpite));
-  const comoUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
-  return new Date(palpite - (comoUtc - palpite));
-}
+export { diaLocal, horaLocal };
 
 /**
- * Quando a O.S. foi cadastrada. O SGP devolve a data em AAAA-MM-DD ou
- * DD/MM/AAAA, com a hora às vezes no mesmo campo e às vezes em hora_cadastro.
- * Sem hora, devolve só o dia — quem chama decide o que fazer com isso.
+ * Quando a O.S. foi cadastrada. Sem hora, devolve só o dia — quem chama decide
+ * o que fazer com isso.
  */
 export function cadastroDaOs(o: Pick<SgpOrdemServico, 'data_cadastro' | 'hora_cadastro'>): { instante: Date | null; dia: string | null } {
-  const bruto = String(o.data_cadastro ?? '').trim();
-  let ano: number, mes: number, dia: number;
-  let m = bruto.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) { ano = +m[1]; mes = +m[2]; dia = +m[3]; }
-  else if ((m = bruto.match(/^(\d{2})\/(\d{2})\/(\d{4})/))) { ano = +m[3]; mes = +m[2]; dia = +m[1]; }
-  else return { instante: null, dia: null };
-
-  const diaIso = `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-  const hora = bruto.match(/[ T](\d{2}):(\d{2})(?::(\d{2}))?/) ?? String(o.hora_cadastro ?? '').match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!hora) return { instante: null, dia: diaIso };
-  return { instante: localParaUtc(ano, mes, dia, +hora[1], +hora[2], +(hora[3] ?? 0)), dia: diaIso };
+  return instanteSgp(o.data_cadastro, o.hora_cadastro);
 }
 
 function minutosDoDia(hhmm: string): number {
