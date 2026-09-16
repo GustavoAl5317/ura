@@ -43,6 +43,7 @@ const estado = {
   ontemTemDado: true,
   outrosDiasTemDado: false,
   ataqueSeveridade: 'critical',
+  rotaInterfaces: true,
 };
 
 const AGORA = Math.floor(Date.now() / 1000);
@@ -104,6 +105,21 @@ function responder(url: URL): unknown {
         top_sources: [{ ip: '203.0.113.9', cnt: 11, bytes: 660030 }],
         top_asns: [{ asn: 36040, cnt: 95, bytes: 849799 }],
       }] };
+    case '/api/netflow/interfaces-trafego':
+      if (!estado.rotaInterfaces) return null;
+      return { records: [
+        { in_if: 156, out_if: 500, bytes: 60_000_000, packets: 1, flows: 10 },
+        { in_if: 488, out_if: 500, bytes: 20_000_000, packets: 1, flows: 10 },
+        { in_if: 500, out_if: 156, bytes: 5_000_000, packets: 1, flows: 10 },
+        { in_if: 999, out_if: 0, bytes: 1_000, packets: 1, flows: 1 },
+      ] };
+    case '/api/netflow/interface-timeseries': {
+      if (!estado.rotaInterfaces) return null;
+      return { records: [
+        { bucket: ini, in_bytes: 10_000_000, out_bytes: 1_000_000, flows: 5 },
+        { bucket: ini + 150, in_bytes: 30_000_000, out_bytes: 2_000_000, flows: 5 },
+      ] };
+    }
     default:
       return null;
   }
@@ -157,7 +173,7 @@ async function main() {
   const dados = (e: { dados?: unknown }) => e.dados as Record<string, any>;
 
   console.log('\n─── Registro ───');
-  checa('seis ferramentas de NetFlow registradas', ferramentas.disponiveis(['netflow']).length === 6,
+  checa('sete ferramentas de NetFlow registradas', ferramentas.disponiveis(['netflow']).length === 7,
     ferramentas.disponiveis(['netflow']).map((f) => f.nome));
 
   console.log('\n─── Tráfego geral e amostragem ───');
@@ -251,6 +267,48 @@ async function main() {
   e = await rodar('netflow_variacao', {});
   checa('sem nenhum dia de referência: diz que não há base', dados(e).leitura === 'sem base de comparação' && typeof dados(e).ontem_mesmo_horario === 'string', dados(e));
   estado.ontemTemDado = true;
+
+  console.log('\n─── Tráfego por link ───');
+  const zmMut = require(path.join(RAIZ, 'src', 'integrations', 'zabbix-metricas')) as Record<string, unknown>;
+  let zabbixNomesFalha = false;
+  zmMut.nomesDeInterfacePorIndice = async () => {
+    if (zabbixNomesFalha) throw new Error('Zabbix fora');
+    return new Map([
+      [156, { nome: 'Eth-Trunk4.1441 (IX-CE-ATM-V4 - PIX RNP)', capacidadeBps: null }],
+      [488, { nome: 'Eth-Trunk4.3358 (OPER_ANGOLA_BILATERAL)', capacidadeBps: 1_000_000_000 }],
+    ]);
+  };
+  process.env.NETFLOW_INTERFACES = '500=Trunk para o BNG';
+  (require(path.join(RAIZ, 'src', 'config')).config.netflow as { nomesInterfaces: string }).nomesInterfaces = '500=Trunk para o BNG';
+
+  e = await rodar('netflow_links', { minutos: 60 });
+  const lk = dados(e).links as Array<Record<string, any>>;
+  checa('responde com os links', e.ok && lk.length >= 4, e);
+  checa('maior link primeiro: a saída para o BNG (80 MB amostrados = soma de IX + Angola)', lk[0].ifindex === 500 && lk[0].link === 'Trunk para o BNG', lk[0]);
+  const ix = lk.find((l) => l.ifindex === 156)!;
+  checa('nome do IX vem do Zabbix e entrada é estimada (×1024)', /PIX RNP/.test(ix.link) && ix.entrada === '137 Mbps', ix);
+  checa('para onde vai o que entra pelo IX', ix.para_onde_vai_o_que_entra[0].link === 'Trunk para o BNG');
+  const ang = lk.find((l) => l.ifindex === 488)!;
+  checa('com capacidade no Zabbix: ocupação calculada', ang.capacidade === '1,00 Gbps' && ang.ocupacao_media_pct === 4.6, ang);
+  checa('índice sem nome aparece como ifIndex', lk.some((l) => l.link === 'ifIndex 999 (sem nome no Zabbix)'));
+  checa('interface 0 é identificada, não vira link', lk.some((l) => l.ifindex === 0 && /sem interface/.test(l.link)));
+
+  e = await rodar('netflow_links', { interface: 'angola' });
+  const det = dados(e).detalhe_do_link;
+  checa('detalha o link pelo nome, sem acento/maiúscula importar', det.ifindex === 488 && det.pontos.length === 2, det);
+  checa('pico do link com horário local', !!det.pico && /-03:00$/.test(det.pico.em) && det.pico.entrada === '1,37 Gbps', det.pico);
+  e = await rodar('netflow_links', { interface: 'marte' });
+  checa('link inexistente: diz quais existem', /nenhum link/.test(dados(e).detalhe_do_link.erro) && dados(e).detalhe_do_link.links_disponiveis.length > 0);
+
+  zabbixNomesFalha = true;
+  e = await rodar('netflow_links', {});
+  checa('Zabbix fora: ainda mostra os links por ifIndex e avisa', e.ok && /nomes dos links indisponíveis/.test(dados(e).aviso) && dados(e).links.some((l: any) => l.link === 'ifIndex 156 (sem nome no Zabbix)'), dados(e).aviso);
+  zabbixNomesFalha = false;
+
+  estado.rotaInterfaces = false;
+  e = await rodar('netflow_links', {});
+  checa('Flow Guard sem a rota nova: erro claro (atualização pendente)', !e.ok && /atualização pendente/.test(e.erro ?? ''), e.erro);
+  estado.rotaInterfaces = true;
 
   console.log('\n─── Monitor de NetFlow ───');
   const { cicloNetflow } = require(path.join(RAIZ, 'src', 'assistant', 'monitors', 'netflow')) as typeof import('./src/assistant/monitors/netflow');

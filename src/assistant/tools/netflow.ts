@@ -12,6 +12,7 @@ import {
   Janela, PontoSerie, TalkerNetflow,
 } from '../../integrations/netflow';
 import { obter } from '../config-dinamica';
+import { nomesDeInterfacePorIndice } from '../../integrations/zabbix-metricas';
 import { clientesPorIps, ipsDoContrato, statusIndice } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas } from './base';
 
@@ -120,7 +121,7 @@ const trafego: Ferramenta = {
     'Tráfego total da rede pelo NetFlow numa janela: média, pico e série no tempo, em Mbps estimados. ' +
     'Responde "como está o tráfego agora", "teve pico hoje?", "o tráfego caiu?". ' +
     'Os valores são ESTIMADOS por amostragem. Vem de um único roteador exportador — não é o tráfego de ' +
-    'cada link (para link, use zabbix_links). Se a coleta estiver parada, a ferramenta falha em vez de mostrar zero.',
+    'cada link (para link, use netflow_links ou zabbix_links). Se a coleta estiver parada, a ferramenta falha em vez de mostrar zero.',
   parametros: {
     type: 'object',
     properties: {
@@ -487,9 +488,142 @@ const variacao: Ferramenta = {
   },
 };
 
+// ─── Tráfego por link (interface do roteador exportador) ──────────────────
+
+function nomesManuais(): Map<number, string> {
+  const m = new Map<number, string>();
+  for (const par of config.netflow.nomesInterfaces.split(',')) {
+    const [k, ...v] = par.split('=');
+    const idx = Number(k?.trim());
+    if (Number.isInteger(idx) && v.length) m.set(idx, v.join('=').trim());
+  }
+  return m;
+}
+
+const links: Ferramenta = {
+  nome: 'netflow_links',
+  fonte: 'netflow',
+  descricao:
+    'Tráfego por LINK (interface do roteador que exporta o NetFlow): quanto entra e sai por cada ' +
+    'trânsito/IX/operadora, estimado, e a série de um link específico. Responde "como está o link da ' +
+    'Angola?", "quanto está passando pelo IX?", "qual link está mais cheio?". Útil quando o Zabbix não ' +
+    'tem o link (o roteador exportador está com SNMP fora). Nome do link vem do cadastro do Zabbix; ' +
+    'índice sem nome aparece como ifIndex.',
+  parametros: {
+    type: 'object',
+    properties: {
+      minutos: { type: 'number', description: 'Janela até agora, em minutos (padrão 60, máx 1440)' },
+      interface: { type: 'string', description: 'Link para detalhar no tempo: ifIndex (ex.: 488) ou parte do nome (ex.: "angola")' },
+      inicio: { type: 'string', description: 'Início em ISO 8601' },
+      fim: { type: 'string', description: 'Fim em ISO 8601' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    return [await medir<Record<string, unknown>>(ctx, 'netflow', 'netflow.links', args, async () => {
+      const j = janelaDe({ ...args, minutos: Math.min(1440, Number(args.minutos) || 60) }, 60);
+      await netflow.exigirColetaViva(j);
+      const pares = await netflow.trafegoPorInterface(j, 300);
+
+      let nomes = new Map<number, { nome: string; capacidadeBps: number | null }>();
+      let avisoNomes: string | null = null;
+      try {
+        nomes = await nomesDeInterfacePorIndice(config.netflow.zabbixHost);
+      } catch (err) {
+        avisoNomes = `nomes dos links indisponíveis (${err instanceof Error ? err.message : String(err)}); mostrando só o ifIndex`;
+      }
+      const manuais = nomesManuais();
+      const nomeDe = (idx: number) => manuais.get(idx) ?? nomes.get(idx)?.nome ?? null;
+
+      const seg = j.fim - j.inicio;
+      const porIf = new Map<number, { entrada: number; saida: number; destinos: Map<number, number> }>();
+      const pega = (idx: number) => {
+        let x = porIf.get(idx);
+        if (!x) { x = { entrada: 0, saida: 0, destinos: new Map() }; porIf.set(idx, x); }
+        return x;
+      };
+      for (const p of pares) {
+        const bytes = estimar(p.bytes);
+        const ent = Number(p.in_if ?? 0);
+        const sai = Number(p.out_if ?? 0);
+        const e = pega(ent);
+        e.entrada += bytes;
+        e.destinos.set(sai, (e.destinos.get(sai) ?? 0) + bytes);
+        pega(sai).saida += bytes;
+      }
+      const totalEntrada = [...porIf.values()].reduce((s, x) => s + x.entrada, 0);
+
+      const lista = [...porIf.entries()]
+        .sort((a, b) => Math.max(b[1].entrada, b[1].saida) - Math.max(a[1].entrada, a[1].saida))
+        .map(([idx, v]) => {
+          const cap = nomes.get(idx)?.capacidadeBps ?? null;
+          const picoMedio = Math.max(mbpsMedio(v.entrada, seg), mbpsMedio(v.saida, seg)) * 1_000_000;
+          return {
+            ifindex: idx,
+            link: idx === 0 ? '(fluxo sem interface informada)' : (nomeDe(idx) ?? `ifIndex ${idx} (sem nome no Zabbix)`),
+            entrada: formatarMbps(mbpsMedio(v.entrada, seg)),
+            saida: formatarMbps(mbpsMedio(v.saida, seg)),
+            participacao_na_entrada_pct: totalEntrada ? Math.round((v.entrada / totalEntrada) * 1000) / 10 : null,
+            capacidade: cap ? formatarMbps(cap / 1_000_000) : null,
+            ocupacao_media_pct: cap ? Math.round((picoMedio / cap) * 1000) / 10 : null,
+            para_onde_vai_o_que_entra: [...v.destinos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+              .map(([d, b]) => ({ link: d === 0 ? '(sem interface)' : (nomeDe(d) ?? `ifIndex ${d}`), media: formatarMbps(mbpsMedio(b, seg)) })),
+          };
+        });
+
+      // Detalhe no tempo de um link, se pedido.
+      let detalhe: Record<string, unknown> | null = null;
+      if (typeof args.interface === 'string' && args.interface.trim()) {
+        const termo = args.interface.trim();
+        const alvo = /^\d+$/.test(termo)
+          ? Number(termo)
+          : lista.find((l) => normalizarTexto(l.link).includes(normalizarTexto(termo)))?.ifindex;
+        if (alvo === undefined) {
+          detalhe = { erro: `nenhum link com "${termo}" no tráfego da janela`, links_disponiveis: lista.map((l) => l.link) };
+        } else {
+          const bucket = bucketPara(j);
+          const serie = await netflow.serieDaInterface(alvo, j, bucket);
+          const pontos = serie.map((p) => ({
+            inicio: iso(p.bucket),
+            entrada_mbps: Math.round(mbpsMedio(estimar(p.in_bytes), bucket) * 10) / 10,
+            saida_mbps: Math.round(mbpsMedio(estimar(p.out_bytes), bucket) * 10) / 10,
+          }));
+          const pico = pontos.reduce<(typeof pontos)[number] | null>((m, p) =>
+            (!m || Math.max(p.entrada_mbps, p.saida_mbps) > Math.max(m.entrada_mbps, m.saida_mbps) ? p : m), null);
+          detalhe = {
+            ifindex: alvo,
+            link: nomeDe(alvo) ?? `ifIndex ${alvo}`,
+            pico: pico ? { em: pico.inicio, entrada: formatarMbps(pico.entrada_mbps), saida: formatarMbps(pico.saida_mbps) } : null,
+            intervalo_seg: bucket,
+            pontos,
+            sem_trafego: pontos.length === 0,
+          };
+        }
+      }
+
+      return {
+        vazio: lista.length === 0,
+        dados: {
+          janela: janelaInfo(j),
+          amostragem: amostragem(),
+          roteador: config.netflow.zabbixHost,
+          observacao: 'Entrada = tráfego que chega pelo link; saída = tráfego que sai por ele. Médias da janela, estimadas.',
+          ...(avisoNomes ? { aviso: avisoNomes } : {}),
+          links: lista,
+          detalhe_do_link: detalhe,
+        },
+      };
+    })];
+  },
+};
+
+function normalizarTexto(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
 export function registrarFerramentasNetflow(): void {
   // Sem configuração, as ferramentas nem aparecem para o modelo: oferecer
   // ferramenta que sempre falha só gera resposta "fonte indisponível" à toa.
   if (!config.netflow.enabled) return;
-  ferramentas.registrar(trafego, consumoClientes, trafegoIp, ataques, topAsn, variacao);
+  ferramentas.registrar(trafego, consumoClientes, trafegoIp, ataques, topAsn, variacao, links);
 }

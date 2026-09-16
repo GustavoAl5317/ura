@@ -84,6 +84,21 @@ export interface AtaqueNetflow {
   top_asns?: Array<{ asn: number; cnt: number; bytes: number }>;
 }
 
+export interface ParInterface {
+  in_if: number | null;
+  out_if: number | null;
+  bytes: number;
+  packets: number;
+  flows: number;
+}
+
+export interface PontoInterface {
+  bucket: number;
+  in_bytes: number;
+  out_bytes: number;
+  flows: number;
+}
+
 export interface Janela {
   /** epoch em segundos */
   inicio: number;
@@ -121,17 +136,25 @@ export class NetflowClient {
     return this.http;
   }
 
-  private async get<T>(caminho: string, params: Record<string, unknown>): Promise<T> {
+  private async get<T>(caminho: string, params: Record<string, unknown>, opts: { longa?: boolean } = {}): Promise<T> {
     if (!this.disponivel) throw new Error('NetFlow não configurado (NETFLOW_ENABLED, NETFLOW_URL, NETFLOW_API_KEY)');
     const limpos = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+    // Janela longa (horas) agrega milhões de fluxos no SQLite da flow-vm.
+    const longa = opts.longa || (Number(params.epoch_end) - Number(params.epoch_begin)) > 6 * 3600;
     try {
-      const r = await this.client.get<T>(caminho, { params: limpos });
+      const r = await this.client.get<T>(caminho, {
+        params: limpos,
+        ...(longa ? { timeout: config.netflow.timeoutLongoMs } : {}),
+      });
       return r.data;
     } catch (err) {
       const ax = err as AxiosError<{ detail?: unknown }>;
       const status = ax.response?.status;
       const detalhe = typeof ax.response?.data?.detail === 'string' ? ` — ${ax.response.data.detail}` : '';
       if (status === 401 || status === 403) throw new Error(`NetFlow recusou a chave (HTTP ${status})${detalhe}`);
+      if (status === 404 && caminho.includes('interface')) {
+        throw new Error('a Flow Guard ainda não tem a rota de tráfego por interface (atualização pendente na flow-vm)');
+      }
       throw new Error(`NetFlow: ${status ? `HTTP ${status}` : ax.message}${detalhe}`);
     }
   }
@@ -229,6 +252,18 @@ export class NetflowClient {
     return NetflowClient.registros<AtaqueNetflow>(await this.get('/api/correlation/attacks', {
       epoch_begin: j.inicio, epoch_end: j.fim, limit: limite,
     }), 'attacks');
+  }
+
+  async trafegoPorInterface(j: Janela, limite: number): Promise<ParInterface[]> {
+    return NetflowClient.registros<ParInterface>(await this.get('/api/netflow/interfaces-trafego', {
+      epoch_begin: j.inicio, epoch_end: j.fim, limit: limite,
+    }, { longa: true }));
+  }
+
+  async serieDaInterface(ifindex: number, j: Janela, bucketSeg: number): Promise<PontoInterface[]> {
+    return NetflowClient.registros<PontoInterface>(await this.get('/api/netflow/interface-timeseries', {
+      ifindex, epoch_begin: j.inicio, epoch_end: j.fim, bucket_seconds: bucketSeg,
+    }, { longa: true }));
   }
 
   /** Para teste: esquece a checagem de frescor em cache. */

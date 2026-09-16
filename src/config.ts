@@ -304,6 +304,12 @@ export const config = {
     fatorAmostragem: optInt('NETFLOW_FATOR_AMOSTRAGEM', 1),
     /** Sem fluxo nenhum nesta janela = coleta parada, não "rede sem tráfego". */
     silencioMaxMin: optInt('NETFLOW_SILENCIO_MAX_MIN', 10),
+    /** Host do Zabbix do roteador exportador: dá nome aos ifIndex dos fluxos. */
+    zabbixHost: opt('NETFLOW_ZABBIX_HOST', 'NE20E-AQUI-VS-BGP'),
+    /** Nomes manuais para ifIndex que o Zabbix não conhece. Ex.: "500=Trunk p/ BNG,501=Trunk p/ BNG 2". */
+    nomesInterfaces: opt('NETFLOW_INTERFACES', ''),
+    /** Consultas longas (24 h, por interface) varrem milhões de fluxos. */
+    timeoutLongoMs: optInt('NETFLOW_TIMEOUT_LONGO_MS', 90_000),
   },
 
   /** Espelho local da base do SGP — habilita busca por nome, SN, login, CTO. */

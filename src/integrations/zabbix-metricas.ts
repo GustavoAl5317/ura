@@ -372,6 +372,47 @@ export function interfaceDoItem(nome: string, chave: string): string {
   return (m?.[1] ?? nome).trim();
 }
 
+export interface NomeInterface {
+  nome: string;
+  /** Capacidade (Velocidade) quando o Zabbix está coletando. */
+  capacidadeBps: number | null;
+}
+
+let cacheNomesIf: { host: string; em: number; mapa: Map<number, NomeInterface> } | null = null;
+
+/**
+ * ifIndex → nome da interface num host, pelo OID SNMP dos itens de tráfego.
+ * Funciona mesmo com o SNMP do host fora: o nome está no cadastro do item.
+ * Cache de 1 h — o cadastro de interface quase nunca muda.
+ */
+export async function nomesDeInterfacePorIndice(host: string): Promise<Map<number, NomeInterface>> {
+  if (cacheNomesIf && cacheNomesIf.host === host && Date.now() - cacheNomesIf.em < 3600_000) return cacheNomesIf.mapa;
+  const hs = await zabbix.api<Array<{ hostid: string }>>('host.get', { output: ['hostid'], filter: { host: [host] } }) ?? [];
+  const alvo = hs.length ? hs : (await zabbix.api<Array<{ hostid: string }>>('host.get', { output: ['hostid'], search: { name: host } }) ?? []);
+  const mapa = new Map<number, NomeInterface>();
+  if (!alvo.length) throw new Error(`host "${host}" não encontrado no Zabbix`);
+  const itens = await zabbix.api<Array<ItemBruto & { snmp_oid?: string }>>('item.get', {
+    output: [...SAIDA_ITEM, 'snmp_oid'],
+    selectHosts: ['hostid', 'name'],
+    hostids: alvo.map((h) => h.hostid),
+    filter: { units: 'bps' },
+    templated: false,
+  }) ?? [];
+  for (const it of itens) {
+    const idx = Number(String(it.snmp_oid ?? '').split('.').pop());
+    if (!Number.isInteger(idx) || idx <= 0) continue;
+    const nome = (it.name.match(/^interface\s+(.+?):\s/i)?.[1] ?? interfaceDoItem(it.name, it.key_)).trim();
+    const atual = mapa.get(idx) ?? { nome, capacidadeBps: null };
+    if (sentidoDoItem(it.name) === 'velocidade') {
+      const m = paraMetrica(it);
+      if (m.coleta === 'viva' && m.valorNumerico) atual.capacidadeBps = m.valorNumerico;
+    }
+    mapa.set(idx, atual);
+  }
+  cacheNomesIf = { host, em: Date.now(), mapa };
+  return mapa;
+}
+
 export async function interfaces(opts: { host?: string; limite?: number } = {}): Promise<Interface[]> {
   const itens = await buscarItens({ host: opts.host, unidade: 'bps', limite: 10000 });
 
