@@ -95,12 +95,15 @@ export const PROMPT_FONTE_SGP = `Sobre o SGP: dados do espelho local são do úl
 
 export const PROMPT_FONTE_URA = `Sobre a URA: a intenção de uma chamada é derivada das ferramentas que a URA usou, não do conteúdo da conversa. Chamada sem intenção identificada é chamada em que a URA não chegou a consultar nada — não presuma o motivo.`;
 
+export const PROMPT_FONTE_NETFLOW = `Sobre o NetFlow: os volumes são ESTIMADOS por amostragem (a ferramenta diz o fator). Diga "cerca de" e não apresente como medição exata; para capacidade e ocupação de um link, o Zabbix é a fonte. Se a ferramenta falhar dizendo que a coleta está parada, a resposta é que não há dado de tráfego — nunca que "não há tráfego". Cliente associado a um IP vem do cadastro no último sync e pode ter mudado: para afirmar que o consumo é de um cliente, confirme o IP atual com revisao_cliente. Ataque do Flow Guard é suspeita por heurística: fale em "suspeita de ataque" e mostre a evidência (origens, protocolos, duração), sem afirmar que é ataque.`;
+
 const SEMENTES: Record<string, string> = {
   principal: PROMPT_PRINCIPAL_PADRAO,
   revisao: PROMPT_REVISAO_PADRAO,
   'fonte:zabbix': PROMPT_FONTE_ZABBIX,
   'fonte:sgp': PROMPT_FONTE_SGP,
   'fonte:ura': PROMPT_FONTE_URA,
+  'fonte:netflow': PROMPT_FONTE_NETFLOW,
 };
 
 /**

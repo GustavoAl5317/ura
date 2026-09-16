@@ -18,7 +18,8 @@
     "test:migracao": "ts-node --transpile-only test-migracao.ts",
     "test:resumo": "ts-node --transpile-only test-resumo.ts",
     "test:sla": "ts-node --transpile-only test-sla-chat.ts",
-    "test:sla-evolution": "ts-node --transpile-only test-sla.ts"
+    "test:sla-evolution": "ts-node --transpile-only test-sla.ts",
+    "test:netflow": "ts-node --transpile-only test-netflow.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

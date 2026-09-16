@@ -624,6 +624,56 @@ export function servicosPorSns(sns: string[]): ResultadoBusca[] {
   return saida;
 }
 
+export interface ClientePorIp {
+  ip: string;
+  nome: string;
+  contrato_id: number;
+  login: string | null;
+  plano: string | null;
+  /** Quando o SGP registrou a conexão com esse IP. */
+  conectado_desde: string | null;
+  /** Idade do espelho: o IP é o que estava no cadastro no último sync. */
+  espelho_em: string;
+}
+
+/**
+ * Quem estava com cada IP no último sync. Ponte NetFlow (IP) → SGP (cliente).
+ *
+ * É FOTO: IP de CGNAT/dinâmico troca a cada reconexão, então a associação vale
+ * para o momento do sync. Quem usa precisa dizer isso. IP que aparece em mais
+ * de um serviço fica de fora — associação ambígua é pior que nenhuma.
+ */
+export function clientesPorIps(ips: string[]): Map<string, ClientePorIp> {
+  const unicos = [...new Set(ips.map((s) => s.trim()).filter((s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s)))];
+  const saida = new Map<string, ClientePorIp>();
+  const repetidos = new Set<string>();
+  for (let i = 0; i < unicos.length; i += 400) {
+    const lote = unicos.slice(i, i + 400);
+    const linhas = db().prepare(
+      `SELECT s.conexao_ip AS ip, c.nome, ct.contrato_id, s.login, s.plano_desc AS plano,
+              s.conexao_desde AS conectado_desde, s.atualizado_em AS espelho_em
+       FROM sgp_servico s
+       JOIN sgp_contrato ct ON ct.contrato_id = s.contrato_id
+       JOIN sgp_cliente c ON c.cliente_id = ct.cliente_id
+       WHERE s.conexao_ip IN (${lote.map(() => '?').join(',')})`,
+    ).all(...lote) as ClientePorIp[];
+    for (const l of linhas) {
+      if (saida.has(l.ip)) repetidos.add(l.ip);
+      saida.set(l.ip, l);
+    }
+  }
+  for (const ip of repetidos) saida.delete(ip);
+  return saida;
+}
+
+/** IPs de conexão dos serviços de um contrato, como estavam no último sync. */
+export function ipsDoContrato(contratoId: number): Array<{ ip: string; login: string | null; espelho_em: string }> {
+  return db().prepare(
+    `SELECT conexao_ip AS ip, login, atualizado_em AS espelho_em FROM sgp_servico
+     WHERE contrato_id = ? AND conexao_ip IS NOT NULL AND conexao_ip <> ''`,
+  ).all(contratoId) as Array<{ ip: string; login: string | null; espelho_em: string }>;
+}
+
 /**
  * Clientes de uma PON pelo CADASTRO do SGP. Usado quando o Zabbix não monitora
  * ONU nessa OLT (OLT-1 e OLT-2). Menos confiável que a lista do Zabbix: o SGP

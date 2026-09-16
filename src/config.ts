@@ -292,6 +292,14 @@ export const config = {
     baseUrl: opt('NETFLOW_URL', ''),
     apiKey: opt('NETFLOW_API_KEY', ''),
     timeoutMs: optInt('NETFLOW_TIMEOUT_MS', 15_000),
+    /**
+     * O roteador exporta 1 fluxo a cada N (sampling_rate do NetFlow v9; 1024 no
+     * 10.11.0.254 em 16/09/2026). A Flow Guard API devolve o volume AMOSTRADO,
+     * sem multiplicar — sem este fator, 600 Mbps viram 0,6 Mbps.
+     */
+    fatorAmostragem: optInt('NETFLOW_FATOR_AMOSTRAGEM', 1),
+    /** Sem fluxo nenhum nesta janela = coleta parada, não "rede sem tráfego". */
+    silencioMaxMin: optInt('NETFLOW_SILENCIO_MAX_MIN', 10),
   },
 
   /** Espelho local da base do SGP — habilita busca por nome, SN, login, CTO. */
