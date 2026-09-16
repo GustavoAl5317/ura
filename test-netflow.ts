@@ -37,6 +37,12 @@ const estado = {
   chamadasResumo: 0,
   cabecalhos: [] as string[],
   ipSerieFormato: 'total_bytes' as 'total_bytes' | 'bytes' | 'sem_tempo',
+  bytesAgora: 136398827,
+  bytesOntem: 136398827,
+  bytesHoraAntes: 136398827,
+  ontemTemDado: true,
+  outrosDiasTemDado: false,
+  ataqueSeveridade: 'critical',
 };
 
 const AGORA = Math.floor(Date.now() / 1000);
@@ -47,10 +53,16 @@ function responder(url: URL): unknown {
   switch (url.pathname) {
     case '/api/netflow/summary': {
       estado.chamadasResumo++;
-      // Janela curta que termina agora = checagem de frescor.
-      const ehFrescor = fim - ini <= 15 * 60 && fim >= AGORA - 5;
-      if (ehFrescor && !estado.coletaViva) return { total_flows: 0, total_bytes: 0, total_packets: 0, peak_mbps: 0, avg_mbps: 0, current_mbps: 0 };
-      return { total_flows: 42700, total_bytes: 136398827, total_packets: 129800, peak_mbps: 0.677, avg_mbps: 0.587, current_mbps: 0.093 };
+      const vazio = { total_flows: 0, total_bytes: 0, total_packets: 0, peak_mbps: 0, avg_mbps: 0, current_mbps: 0 };
+      const cheio = (bytes: number) => ({ total_flows: 42700, total_bytes: bytes, total_packets: 129800, peak_mbps: 0.677, avg_mbps: 0.587, current_mbps: 0.093 });
+      const agoraSeg = Math.floor(Date.now() / 1000);
+      const atras = agoraSeg - fim;
+      // Janela que termina agora: coleta parada zera tudo.
+      if (atras < 120) return estado.coletaViva ? cheio(estado.bytesAgora) : vazio;
+      if (Math.abs(atras - 3600) < 120) return cheio(estado.bytesHoraAntes);
+      if (Math.abs(atras - 86400) < 300) return estado.ontemTemDado ? cheio(estado.bytesOntem) : vazio;
+      if (atras > 86400 + 300 && atras < 7 * 86400 + 300 && fim - ini < 86400) return estado.outrosDiasTemDado ? cheio(estado.bytesOntem) : vazio;
+      return cheio(136398827);
     }
     case '/api/netflow/timeseries': {
       const b = Number(url.searchParams.get('bucket_seconds'));
@@ -72,18 +84,22 @@ function responder(url: URL): unknown {
       if (estado.ipSerieFormato === 'sem_tempo') return { records: [{ bytes: 2048 }] };
       return { records: [{ bucket: ini, total_bytes: 1048576, in_bytes: 0, out_bytes: 0 }] };
     }
-    case '/api/netflow/top-asn':
+    case '/api/netflow/top-asn': {
+      const ontem = Math.floor(Date.now() / 1000) - fim > 3600;
       return { records: [
-        { asn: 32934, total_bytes: 34168560, total_packets: 27744, flows: 6486 },
+        // Meta cai de ontem para hoje; Netflix sobe.
+        { asn: 32934, total_bytes: ontem ? 68337120 : 34168560, total_packets: 27744, flows: 6486 },
+        { asn: 2906, total_bytes: ontem ? 1000000 : 9000000, total_packets: 100, flows: 10 },
         { asn: 65001, total_bytes: 1000, total_packets: 2, flows: 1 },
       ] };
+    }
     case '/api/netflow/incidents':
       return { records: [{ id: 1, tstamp: AGORA - 60, severity: 'critical', score: 95, proto: 'UDP', ip: '100.64.10.20', cli_ip: '8.8.8.8', src_port: 53, dst_port: 50223, bytes: 398, packets: 1, duration: 0 }] };
     case '/api/correlation/attacks':
       return { attacks: [{
         victim_ip: '100.64.10.20', total_bytes: 2001070, total_packets: 1521,
         first_seen: AGORA - 1800, last_seen: AGORA - 10, unique_sources: 96, protocol_count: 3,
-        event_count: 274, duration_s: 1790, max_severity: 'critical',
+        event_count: 274, duration_s: 1790, max_severity: estado.ataqueSeveridade,
         protocols: [{ proto: 'UDP', cnt: 213, bytes: 1262345 }],
         top_sources: [{ ip: '203.0.113.9', cnt: 11, bytes: 660030 }],
         top_asns: [{ asn: 36040, cnt: 95, bytes: 849799 }],
@@ -141,7 +157,7 @@ async function main() {
   const dados = (e: { dados?: unknown }) => e.dados as Record<string, any>;
 
   console.log('\n─── Registro ───');
-  checa('cinco ferramentas de NetFlow registradas', ferramentas.disponiveis(['netflow']).length === 5,
+  checa('seis ferramentas de NetFlow registradas', ferramentas.disponiveis(['netflow']).length === 6,
     ferramentas.disponiveis(['netflow']).map((f) => f.nome));
 
   console.log('\n─── Tráfego geral e amostragem ───');
@@ -218,7 +234,80 @@ async function main() {
 
   console.log('\n─── ASN ───');
   e = await rodar('netflow_top_asn', {});
-  checa('ASN conhecido com nome, desconhecido sem inventar', dados(e).asns[0].nome === 'Meta (Facebook/Instagram/WhatsApp)' && dados(e).asns[1].nome === null, dados(e).asns);
+  checa('ASN conhecido com nome, desconhecido sem inventar', dados(e).asns[0].nome === 'Meta (Facebook/Instagram/WhatsApp)' && dados(e).asns[2].nome === null, dados(e).asns);
+
+  console.log('\n─── Variação em relação ao normal ───');
+  estado.bytesOntem = estado.bytesAgora * 2;          // hoje é metade de ontem
+  e = await rodar('netflow_variacao', { minutos: 60 });
+  checa('compara com ontem: -50%', dados(e).ontem_mesmo_horario.variacao_pct === -50, dados(e).ontem_mesmo_horario);
+  checa('acima do limiar vira "alteração relevante"', /alteração relevante/.test(dados(e).leitura), dados(e).leitura);
+  checa('dias sem coleta são listados, não viram zero', dados(e).dias_sem_coleta.join(',') === '2,3,4,5,6', dados(e).dias_sem_coleta);
+  checa('mostra o ASN que mais caiu (Meta) e o que mais subiu (Netflix)',
+    dados(e).mudancas_por_asn.mais_cairam[0].asn === 32934 && dados(e).mudancas_por_asn.mais_cresceram[0].asn === 2906, dados(e).mudancas_por_asn);
+  estado.bytesOntem = estado.bytesAgora;
+  e = await rodar('netflow_variacao', {});
+  checa('igual a ontem: dentro do normal', /dentro do normal/.test(dados(e).leitura), dados(e).leitura);
+  estado.ontemTemDado = false;
+  e = await rodar('netflow_variacao', {});
+  checa('sem nenhum dia de referência: diz que não há base', dados(e).leitura === 'sem base de comparação' && typeof dados(e).ontem_mesmo_horario === 'string', dados(e));
+  estado.ontemTemDado = true;
+
+  console.log('\n─── Monitor de NetFlow ───');
+  const { cicloNetflow } = require(path.join(RAIZ, 'src', 'assistant', 'monitors', 'netflow')) as typeof import('./src/assistant/monitors/netflow');
+  const { definir } = require(path.join(RAIZ, 'src', 'assistant', 'config-dinamica')) as typeof import('./src/assistant/config-dinamica');
+  const alertasNf = () => d.prepare(`SELECT chave, severidade, titulo, texto, resolvido_em FROM alerta WHERE origem = 'netflow' ORDER BY rowid`).all() as Array<{ chave: string; severidade: string; titulo: string; texto: string; resolvido_em: string | null }>;
+  estado.ataqueSeveridade = 'warning';               // isola os testes de coleta e queda
+
+  estado.coletaViva = false;
+  let m = await cicloNetflow();
+  checa('coleta parada → alerta crítico', m.alertas === 1 && alertasNf()[0].severidade === 'critico' && /sem dados/.test(alertasNf()[0].titulo), alertasNf());
+  m = await cicloNetflow();
+  checa('ciclo seguinte não repete o alerta', m.alertas === 0 && alertasNf().length === 1);
+  estado.coletaViva = true;
+  m = await cicloNetflow();
+  const nf = alertasNf();
+  checa('coleta volta → resolve e avisa', !!nf[0].resolvido_em && nf.some((a) => /voltou/.test(a.titulo)), nf.map((a) => a.titulo));
+
+  const antesQ = alertasNf().length;
+  estado.bytesAgora = 13639882;                     // 10% de ontem
+  m = await cicloNetflow();
+  const queda = alertasNf().slice(antesQ);
+  checa('queda de 90% em relação a ontem → alerta crítico', queda.length === 1 && queda[0].severidade === 'critico' && /90%/.test(queda[0].titulo), queda);
+  checa('o texto diz com o que comparou', /mesmo horário de ontem/.test(queda[0]?.texto ?? ''));
+  m = await cicloNetflow();
+  checa("queda continua: não repete", alertasNf().length === antesQ + 1);
+  estado.bytesAgora = 136398827;
+  m = await cicloNetflow();
+  checa('tráfego volta: resolve e avisa', !!alertasNf()[antesQ].resolvido_em && alertasNf().some((a) => /normalizado/.test(a.titulo)));
+
+  const antes2 = alertasNf().length;
+  estado.ontemTemDado = false;
+  estado.bytesAgora = 13639882;
+  m = await cicloNetflow();
+  checa('sem ontem: compara com uma hora atrás e diz isso', /uma hora atrás/.test(String((m.detalhe.trafego as any).referencia_de)) && alertasNf().length === antes2 + 1, m.detalhe);
+  estado.ontemTemDado = true;
+  estado.bytesAgora = 136398827;
+  await cicloNetflow();
+
+  const antes3 = alertasNf().length;
+  definir('monitor.netflow.minimo_mbps', 100000, 'teste');
+  estado.bytesAgora = 13639882;
+  await cicloNetflow();
+  checa('referência abaixo do mínimo (madrugada): não alerta queda', alertasNf().length === antes3, alertasNf().slice(antes3));
+  definir('monitor.netflow.minimo_mbps', 100, 'teste');
+  estado.bytesAgora = 136398827;
+
+  const antes4 = alertasNf().length;
+  estado.ataqueSeveridade = 'critical';
+  await cicloNetflow();
+  const atq = alertasNf().slice(antes4);
+  checa('suspeita crítica → alerta com o cliente do cadastro', atq.length === 1 && /MARIA DA SILVA/.test(atq[0].texto) && /confirmar antes de agir/.test(atq[0].texto), atq);
+  await cicloNetflow();
+  checa('mesmo alvo na mesma hora: não repete', alertasNf().length === antes4 + 1);
+  definir('monitor.netflow.alertar_ataques', false, 'teste');
+  estado.ataqueSeveridade = 'critical';
+  const m5 = await cicloNetflow();
+  checa('aviso de ataque desligado no painel: não consulta', !('suspeitas_criticas' in m5.detalhe));
 
   console.log('\n─── Frescor em cache ───');
   netflow.limparCache();

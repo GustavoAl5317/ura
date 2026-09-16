@@ -21,8 +21,10 @@ import { ROTULO_TIPO } from './monitors/zabbix';
 import { sgp, osEstaAberta, SgpOrdemServico } from '../integrations/sgp';
 import type { ZabbixEventoTipo } from '../integrations/zabbix';
 import { diaLocal, horaLocal, rotuloData, instanteSgp } from './datas';
+import { netflow, formatarMbps, mbpsMedio, estimar } from '../integrations/netflow';
+import { lerSessoesOnline, casaMotivo } from './tools/relatorios';
 
-export const SECOES = ['rede', 'os', 'ura', 'atendimento', 'assistente'] as const;
+export const SECOES = ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'] as const;
 export type Secao = (typeof SECOES)[number];
 
 /** Se o serviço estava fora no horário, ainda manda até este tanto depois. Mais que isso, o resumo "de hoje cedo" já perdeu o sentido. */
@@ -79,12 +81,34 @@ export interface ResumoAssistente {
   porCanal: Record<string, number>;
 }
 
+export interface ResumoTrafego {
+  disponivel: true;
+  mediaMbps: number;
+  pico: { mbps: number; em: string } | null;
+  principaisAsns: Array<{ nome: string; pct: number }>;
+  suspeitasCriticas: number;
+  coletaAgora: boolean;
+}
+
+export interface ResumoClientes {
+  disponivel: true;
+  online: { agora: number; ontem: number | null } | { erro: string };
+  instalacoesConcluidas: number | null;
+  retiradas: number | null;
+  contratosCancelados: number;
+  sgpErro: string | null;
+  sinalRuim: { abaixo27: number; abaixo30: number; ctos: Array<{ cto: string; n: number }>; espelhoEm: string | null };
+  reincidentes: Array<{ cliente: string; contrato: number; os: number }> | null;
+}
+
 export interface Resumo {
   inicio: string;
   fim: string;
   secoes: Partial<{
     rede: ResumoRede | Indisponivel;
+    trafego: ResumoTrafego | Indisponivel;
     os: ResumoOs | Indisponivel;
+    clientes: ResumoClientes | Indisponivel;
     ura: ResumoUra | Indisponivel;
     atendimento: ResumoAtendimento | Indisponivel;
     assistente: ResumoAssistente | Indisponivel;
@@ -295,6 +319,110 @@ export function coletarAssistente(inicio: Date, fim: Date): ResumoAssistente {
   };
 }
 
+const NOME_ASN_CURTO: Record<number, string> = {
+  36040: 'YouTube', 15169: 'Google', 32934: 'Meta', 2906: 'Netflix', 40027: 'Netflix',
+  20940: 'Akamai', 16509: 'Amazon', 13335: 'Cloudflare', 138699: 'TikTok', 396986: 'ByteDance',
+};
+
+export async function coletarTrafego(inicio: Date, fim: Date): Promise<ResumoTrafego | Indisponivel> {
+  if (!netflow.disponivel) return { disponivel: false, motivo: 'NetFlow não configurado' };
+  const j = { inicio: Math.floor(inicio.getTime() / 1000), fim: Math.floor(fim.getTime() / 1000) };
+  try {
+    const [r, serie, asns, ataques, frescor] = await Promise.all([
+      netflow.resumo(j),
+      netflow.serie(j, 300),
+      netflow.topAsn(j, 4),
+      netflow.ataques(j, 30),
+      netflow.frescor(),
+    ]);
+    if (!r.total_flows) return { disponivel: false, motivo: 'NetFlow sem nenhum fluxo no período (coleta parada)' };
+    const bytes = estimar(r.total_bytes);
+    const pico = serie.reduce<{ mbps: number; em: string } | null>((m, p) => {
+      const mbps = mbpsMedio(estimar(p.total_bytes), 300);
+      return !m || mbps > m.mbps ? { mbps, em: new Date(p.bucket * 1000).toISOString() } : m;
+    }, null);
+    return {
+      disponivel: true,
+      mediaMbps: mbpsMedio(bytes, j.fim - j.inicio),
+      pico,
+      principaisAsns: asns.slice(0, 3).map((x) => ({
+        nome: NOME_ASN_CURTO[x.asn] ?? `AS${x.asn}`,
+        pct: bytes ? Math.round((estimar(x.total_bytes) / bytes) * 100) : 0,
+      })),
+      suspeitasCriticas: ataques.filter((x) => String(x.max_severity).toLowerCase() === 'critical').length,
+      coletaAgora: frescor.viva,
+    };
+  } catch (err) {
+    return { disponivel: false, motivo: `NetFlow não respondeu (${erroTexto(err)})` };
+  }
+}
+
+export async function coletarClientes(inicio: Date, fim: Date): Promise<ResumoClientes | Indisponivel> {
+  const d = db();
+  let online: ResumoClientes['online'];
+  try {
+    const s = await lerSessoesOnline();
+    const o = s.ontem_mesmo_horario as { valor?: number | null } | null;
+    online = { agora: s.online_agora, ontem: o?.valor ?? null };
+  } catch (err) {
+    online = { erro: erroTexto(err) };
+  }
+
+  // O.S. dos últimos 30 dias: instalação/retirada nas 24 h e reincidência de suporte.
+  let instalacoesConcluidas: number | null = null;
+  let retiradas: number | null = null;
+  let reincidentes: ResumoClientes['reincidentes'] = null;
+  let sgpErro: string | null = null;
+  try {
+    const r = await sgp.ordensServicoPorCadastro(diaLocal(new Date(fim.getTime() - 30 * 86_400_000)), diaLocal(fim), 500, 10);
+    const inst = obter<string[]>('relatorios.motivos_instalacao');
+    const canc = obter<string[]>('relatorios.motivos_cancelamento');
+    const naJanela = (data: unknown, hora: unknown) => {
+      const x = instanteSgp(data, hora);
+      if (x.instante) return x.instante >= inicio && x.instante < fim;
+      return !!x.dia && x.dia >= diaLocal(inicio) && x.dia <= diaLocal(fim);
+    };
+    instalacoesConcluidas = r.ordens.filter((o) =>
+      casaMotivo(o, inst) && !osEstaAberta(o) && naJanela(o.data_finalizacao, o.hora_finalizacao)).length;
+    retiradas = r.ordens.filter((o) => casaMotivo(o, canc) && naJanela(o.data_cadastro, o.hora_cadastro)).length;
+    // Reincidência: O.S. que não são instalação nem retirada (suporte, troca, config.).
+    const porContrato = new Map<number, { cliente: string; n: number }>();
+    for (const o of r.ordens) {
+      if (casaMotivo(o, inst) || casaMotivo(o, canc) || !o.contrato) continue;
+      const atual = porContrato.get(o.contrato) ?? { cliente: o.cliente, n: 0 };
+      atual.n++;
+      porContrato.set(o.contrato, atual);
+    }
+    reincidentes = [...porContrato.entries()].filter(([, v]) => v.n >= 2)
+      .sort((x, y) => y[1].n - x[1].n).slice(0, 5)
+      .map(([contrato, v]) => ({ cliente: v.cliente, contrato, os: v.n }));
+  } catch (err) {
+    sgpErro = `SGP não respondeu (${erroTexto(err)})`;
+  }
+
+  const contratosCancelados = (d.prepare(
+    `SELECT COUNT(*) n FROM sgp_contrato_evento WHERE para LIKE 'Cancel%' AND detectado_em >= ? AND detectado_em < ?`,
+  ).get(inicio.toISOString(), fim.toISOString()) as { n: number }).n;
+  const sinal = d.prepare(
+    `SELECT SUM(rx < -27) a27, SUM(rx < -30) a30, MAX(atualizado_em) em FROM sgp_servico WHERE rx IS NOT NULL`,
+  ).get() as { a27: number | null; a30: number | null; em: string | null };
+  const ctos = d.prepare(
+    `SELECT cto_nome cto, COUNT(*) n FROM sgp_servico WHERE rx < -27 AND cto_nome IS NOT NULL
+     GROUP BY cto_nome ORDER BY n DESC LIMIT 3`,
+  ).all() as Array<{ cto: string; n: number }>;
+
+  return {
+    disponivel: true,
+    online,
+    instalacoesConcluidas,
+    retiradas,
+    contratosCancelados,
+    sgpErro,
+    sinalRuim: { abaixo27: sinal.a27 ?? 0, abaixo30: sinal.a30 ?? 0, ctos, espelhoEm: sinal.em },
+    reincidentes,
+  };
+}
+
 // ─── Texto ────────────────────────────────────────────────────────────────────
 
 const plural = (n: number, um: string, varios: string) => `${n.toLocaleString('pt-BR')} ${n === 1 ? um : varios}`;
@@ -305,7 +433,7 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
   const fim = new Date(r.fim);
   const partes: string[] = [`📋 *Resumo das últimas 24 horas*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
 
-  const { rede, os, ura, atendimento, assistente } = r.secoes;
+  const { rede, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
 
   if (rede) {
     const l = ['', '*Rede (Zabbix)*'];
@@ -320,6 +448,21 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
     partes.push(...l);
   }
 
+  if (trafego) {
+    const l = ['', '*Tráfego (NetFlow, estimado)*'];
+    if (!trafego.disponivel) l.push(naoDisponivel(trafego));
+    else {
+      const pico = trafego.pico ? ` · pico ${formatarMbps(trafego.pico.mbps)} às ${horaLocal(new Date(trafego.pico.em))}` : '';
+      l.push(`• Média ${formatarMbps(trafego.mediaMbps)}${pico}`);
+      if (trafego.principaisAsns.length) l.push(`• ${trafego.principaisAsns.map((x) => `${x.nome} ${x.pct}%`).join(' · ')}`);
+      if (trafego.suspeitasCriticas) {
+        l.push(`• ⚠️ ${plural(trafego.suspeitasCriticas, 'suspeita crítica', 'suspeitas críticas')} de ataque (Flow Guard)`);
+      }
+      if (!trafego.coletaAgora) l.push('• ⚠️ _Coleta do NetFlow parada agora._');
+    }
+    partes.push(...l);
+  }
+
   if (os) {
     const l = ['', '*Ordens de serviço (SGP)*'];
     if (!os.disponivel) l.push(naoDisponivel(os));
@@ -330,6 +473,37 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
       if (os.semHorario) l.push(`• _${plural(os.semHorario, 'O.S. veio', 'O.S. vieram')} sem horário e ${os.semHorario === 1 ? 'foi contada' : 'foram contadas'} pelo dia._`);
       if (os.emAbertoNaRede) {
         l.push(`• Em aberto na operação: ${os.emAbertoNaRede.total.toLocaleString('pt-BR')}${os.emAbertoNaRede.completa ? '' : ' ou mais'} (cadastradas nos últimos 90 dias)`);
+      }
+    }
+    partes.push(...l);
+  }
+
+  if (clientes) {
+    const l = ['', '*Clientes*'];
+    if (!clientes.disponivel) l.push(naoDisponivel(clientes));
+    else {
+      const on = clientes.online;
+      if ('erro' in on) {
+        l.push(`• _Online agora: sem dado (${on.erro})._`);
+      } else {
+        const ontem = on.ontem !== null ? ` (ontem neste horário: ${on.ontem.toLocaleString('pt-BR')})` : '';
+        l.push(`• Online agora: ${on.agora.toLocaleString('pt-BR')}${ontem}`);
+      }
+      if (clientes.sgpErro) {
+        l.push(`• _Instalações e retiradas: ${clientes.sgpErro}._`);
+      } else {
+        l.push(`• ${plural(clientes.instalacoesConcluidas ?? 0, 'instalação concluída', 'instalações concluídas')} · ${plural(clientes.retiradas ?? 0, 'O.S. de retirada', 'O.S. de retirada')}`);
+      }
+      if (clientes.contratosCancelados) {
+        l.push(`• ${plural(clientes.contratosCancelados, 'contrato passou', 'contratos passaram')} a Cancelado no cadastro`);
+      }
+      const s = clientes.sinalRuim;
+      if (s.abaixo27) {
+        const ctos = s.ctos.length ? ` — ${s.ctos.map((c) => `${c.cto} (${c.n})`).join(', ')}` : '';
+        l.push(`• Sinal ruim no cadastro: ${s.abaixo27} abaixo de -27 dBm (${s.abaixo30} abaixo de -30)${ctos}`);
+      }
+      if (clientes.reincidentes?.length) {
+        l.push(`• Reincidência (2+ O.S. em 30 dias): ${clientes.reincidentes.map((c) => `${c.cliente} (${c.os})`).join(', ')}`);
       }
     }
     partes.push(...l);
@@ -396,7 +570,12 @@ export async function montarResumo(fim = new Date(), secoes: readonly string[] =
   };
 
   if (quer.has('rede')) base.secoes.rede = seguro(() => coletarRede(inicio, fim));
+  if (quer.has('trafego')) base.secoes.trafego = await coletarTrafego(inicio, fim);
   if (quer.has('os')) base.secoes.os = await coletarOs(inicio, fim);
+  if (quer.has('clientes')) {
+    base.secoes.clientes = await coletarClientes(inicio, fim)
+      .catch((err): Indisponivel => ({ disponivel: false, motivo: `erro ao montar a seção (${erroTexto(err)})` }));
+  }
   if (quer.has('ura')) base.secoes.ura = seguro(() => coletarUra(inicio, fim));
   if (quer.has('atendimento')) base.secoes.atendimento = seguro(() => coletarAtendimento(inicio, fim));
   if (quer.has('assistente')) base.secoes.assistente = seguro(() => coletarAssistente(inicio, fim));

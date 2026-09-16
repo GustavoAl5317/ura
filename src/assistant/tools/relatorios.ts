@@ -21,6 +21,73 @@ function viva(i: ItemMetrica | undefined): boolean {
   return !!i && i.coleta === 'viva' && i.valorNumerico !== null;
 }
 
+/**
+ * Sessões PPPoE ativas agora, pelo Zabbix. LANÇA se nenhum item coleta:
+ * "não sei quantos estão online" nunca pode virar "0 online".
+ */
+export async function lerSessoesOnline(): Promise<Record<string, unknown> & { online_agora: number }> {
+  if (!config.zabbix.enabled) throw new Error('Zabbix desabilitado na configuração');
+  const [totais, porHost] = await Promise.all([
+    zm.buscarItens({ chave: config.zabbix.itemSessoesTotal, limite: 5 }),
+    zm.buscarItens({ chave: config.zabbix.itemSessoesHost, limite: 50 }),
+  ]);
+  const concentradores = porHost.filter((i) => i.chave === config.zabbix.itemSessoesHost);
+  const total = totais.find((i) => i.chave === config.zabbix.itemSessoesTotal);
+
+  const vivos = concentradores.filter(viva);
+  const somaVivos = vivos.reduce((s, i) => s + (i.valorNumerico ?? 0), 0);
+
+  // Total agregado do Zabbix quando está coletando; senão, a soma dos
+  // concentradores que responderam — e isso é dito.
+  let agora: number;
+  let origemTotal: string;
+  let serieDe: ItemMetrica | undefined;
+  if (total && viva(total)) {
+    agora = total.valorNumerico!;
+    origemTotal = 'item agregado do Zabbix (soma dos concentradores)';
+    serieDe = total;
+  } else if (vivos.length) {
+    agora = somaVivos;
+    origemTotal = `soma de ${vivos.length} concentrador(es) com coleta viva` +
+      (total ? ' — o item agregado do Zabbix está sem coleta' : '');
+    serieDe = vivos.length === 1 ? vivos[0] : undefined;
+  } else {
+    throw new Error('nenhum item de sessões PPPoE com coleta viva no Zabbix: não há como contar clientes online agora');
+  }
+
+  const semColeta = concentradores.filter((i) => !viva(i));
+  const agoraSeg = Math.floor(Date.now() / 1000);
+  let ultimaHora: Record<string, unknown> | null = null;
+  let ontem: Record<string, unknown> | null = null;
+  if (serieDe) {
+    const [h, o] = await Promise.all([
+      zm.resumoSerie(serieDe, 1),
+      zm.valorEm(serieDe, agoraSeg - 86400),
+    ]);
+    if (h.amostras) {
+      ultimaHora = {
+        minimo: h.minimo, maximo: h.maximo,
+        queda_desde_o_maximo: h.maximo !== null ? Math.round(h.maximo - agora) : null,
+        queda_pct: h.maximo ? Math.round(((h.maximo - agora) / h.maximo) * 1000) / 10 : null,
+      };
+    }
+    ontem = o
+      ? { valor: o.valor, em: o.em, diferenca: Math.round(agora - o.valor), diferenca_pct: o.valor ? Math.round(((agora - o.valor) / o.valor) * 1000) / 10 : null }
+      : { valor: null, observacao: 'sem coleta nesse horário ontem' };
+  }
+
+  return {
+    online_agora: Math.round(agora),
+    origem: origemTotal,
+    medido_em: serieDe?.coletadoEm ?? null,
+    ultima_hora: ultimaHora,
+    ontem_mesmo_horario: ontem,
+    por_concentrador: vivos.map((i) => ({ concentrador: i.host, sessoes: i.valorNumerico, medido_em: i.coletadoEm })),
+    concentradores_sem_coleta: semColeta.map((i) => ({ concentrador: i.host, coleta: i.coleta })),
+    observacao: 'Sessão PPPoE ativa = serviço conectado agora. Cliente com mais de um serviço conta mais de uma vez.',
+  };
+}
+
 const clientesOnline: Ferramenta = {
   nome: 'clientes_online',
   fonte: 'zabbix',
@@ -32,68 +99,7 @@ const clientesOnline: Ferramenta = {
   parametros: { type: 'object', properties: {}, required: [] },
   async executar(_args, ctx) {
     return [await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.clientes_online', {}, async () => {
-      if (!config.zabbix.enabled) throw new Error('Zabbix desabilitado na configuração');
-      const [totais, porHost] = await Promise.all([
-        zm.buscarItens({ chave: config.zabbix.itemSessoesTotal, limite: 5 }),
-        zm.buscarItens({ chave: config.zabbix.itemSessoesHost, limite: 50 }),
-      ]);
-      const concentradores = porHost.filter((i) => i.chave === config.zabbix.itemSessoesHost);
-      const total = totais.find((i) => i.chave === config.zabbix.itemSessoesTotal);
-
-      const vivos = concentradores.filter(viva);
-      const somaVivos = vivos.reduce((s, i) => s + (i.valorNumerico ?? 0), 0);
-
-      // Total agregado do Zabbix quando está coletando; senão, a soma dos
-      // concentradores que responderam — e isso é dito.
-      let agora: number;
-      let origemTotal: string;
-      let serieDe: ItemMetrica | undefined;
-      if (total && viva(total)) {
-        agora = total.valorNumerico!;
-        origemTotal = 'item agregado do Zabbix (soma dos concentradores)';
-        serieDe = total;
-      } else if (vivos.length) {
-        agora = somaVivos;
-        origemTotal = `soma de ${vivos.length} concentrador(es) com coleta viva` +
-          (total ? ' — o item agregado do Zabbix está sem coleta' : '');
-        serieDe = vivos.length === 1 ? vivos[0] : undefined;
-      } else {
-        throw new Error('nenhum item de sessões PPPoE com coleta viva no Zabbix: não há como contar clientes online agora');
-      }
-
-      const semColeta = concentradores.filter((i) => !viva(i));
-      const agoraSeg = Math.floor(Date.now() / 1000);
-      let ultimaHora: Record<string, unknown> | null = null;
-      let ontem: Record<string, unknown> | null = null;
-      if (serieDe) {
-        const [h, o] = await Promise.all([
-          zm.resumoSerie(serieDe, 1),
-          zm.valorEm(serieDe, agoraSeg - 86400),
-        ]);
-        if (h.amostras) {
-          ultimaHora = {
-            minimo: h.minimo, maximo: h.maximo,
-            queda_desde_o_maximo: h.maximo !== null ? Math.round(h.maximo - agora) : null,
-            queda_pct: h.maximo ? Math.round(((h.maximo - agora) / h.maximo) * 1000) / 10 : null,
-          };
-        }
-        ontem = o
-          ? { valor: o.valor, em: o.em, diferenca: Math.round(agora - o.valor), diferenca_pct: o.valor ? Math.round(((agora - o.valor) / o.valor) * 1000) / 10 : null }
-          : { valor: null, observacao: 'sem coleta nesse horário ontem' };
-      }
-
-      return {
-        dados: {
-          online_agora: Math.round(agora),
-          origem: origemTotal,
-          medido_em: serieDe?.coletadoEm ?? null,
-          ultima_hora: ultimaHora,
-          ontem_mesmo_horario: ontem,
-          por_concentrador: vivos.map((i) => ({ concentrador: i.host, sessoes: i.valorNumerico, medido_em: i.coletadoEm })),
-          concentradores_sem_coleta: semColeta.map((i) => ({ concentrador: i.host, coleta: i.coleta })),
-          observacao: 'Sessão PPPoE ativa = serviço conectado agora. Cliente com mais de um serviço conta mais de uma vez.',
-        },
-      };
+      return { dados: await lerSessoesOnline() };
     })];
   },
 };
@@ -107,7 +113,7 @@ function janelaDias(args: Record<string, unknown>, padrao: number) {
   return { dias, inicio, fim };
 }
 
-function casa(o: SgpOrdemServico, palavras: string[]): boolean {
+export function casaMotivo(o: SgpOrdemServico, palavras: string[]): boolean {
   const texto = normalizar(`${o.motivo ?? ''} ${o.tipo ?? ''}`);
   return palavras.some((p) => p && texto.includes(normalizar(p)));
 }
@@ -129,8 +135,8 @@ async function osDaJanela(inicio: Date, fim: Date, palavras: string[]) {
     const dia = c.dia;
     return !!dia && dia >= diaLocal(inicio) && dia <= diaLocal(fim);
   });
-  const casadas = naJanela.filter((o) => casa(o, palavras));
-  const outras = naJanela.filter((o) => !casa(o, palavras));
+  const casadas = naJanela.filter((o) => casaMotivo(o, palavras));
+  const outras = naJanela.filter((o) => !casaMotivo(o, palavras));
   return { casadas, outras, examinadas: naJanela.length, completa: r.janelaCompleta };
 }
 

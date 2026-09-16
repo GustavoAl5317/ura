@@ -149,6 +149,28 @@ export const DEFINICOES = {
     descricao: 'Setor mostrado quando a conversa não tem etiqueta.',
   },
 
+  // ── Monitor NetFlow ─────────────────────────────────────────────────────
+  'monitor.netflow.ativo': {
+    tipo: 'booleano', grupo: 'monitor_netflow', padrao: () => config.netflow.enabled,
+    descricao: 'Avisa quando a coleta do NetFlow para, quando o tráfego cai de forma brusca e quando há suspeita de ataque.',
+  },
+  'monitor.netflow.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'monitor_netflow', padrao: () => 300, min: 60, max: 3600,
+    descricao: 'De quanto em quanto tempo verifica o tráfego.',
+  },
+  'monitor.netflow.variacao_pct': {
+    tipo: 'inteiro', grupo: 'monitor_netflow', padrao: () => 40, min: 5, max: 95,
+    descricao: 'Queda de tráfego (em %) em relação ao mesmo horário de ontem que gera alerta. Também é o limiar de "alteração relevante" nas consultas.',
+  },
+  'monitor.netflow.minimo_mbps': {
+    tipo: 'inteiro', grupo: 'monitor_netflow', padrao: () => 100, min: 1, max: 100000,
+    descricao: 'Só avalia queda quando o tráfego de referência passa deste valor (madrugada com pouco tráfego não alerta).',
+  },
+  'monitor.netflow.alertar_ataques': {
+    tipo: 'booleano', grupo: 'monitor_netflow', padrao: () => true,
+    descricao: 'Avisa suspeitas de ataque de severidade crítica detectadas pelo Flow Guard.',
+  },
+
   // ── Resumo diário ───────────────────────────────────────────────────────
   'resumo.ativo': {
     tipo: 'booleano', grupo: 'resumo', padrao: () => true,
@@ -160,8 +182,8 @@ export const DEFINICOES = {
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
-    padrao: () => ['rede', 'os', 'ura', 'atendimento', 'assistente'],
-    opcoes: ['rede', 'os', 'ura', 'atendimento', 'assistente'],
+    padrao: () => ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    opcoes: ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
     descricao: 'O que entra no resumo.',
   },
 

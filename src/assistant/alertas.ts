@@ -14,7 +14,7 @@ import { obter, dentroDaJanela } from './config-dinamica';
 import { publicar } from './eventos';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 
-export type Origem = 'zabbix' | 'ura' | 'sla' | 'sistema';
+export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
 
 export interface Alerta {

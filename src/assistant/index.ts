@@ -28,6 +28,7 @@ import { ErroHttp } from './http-util';
 import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
 import { iniciarMonitorResumo } from './resumo-diario';
+import { iniciarMonitorNetflow } from './monitors/netflow';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -302,6 +303,7 @@ async function main(): Promise<void> {
   iniciarMonitorZabbix();
   iniciarMonitorSla();
   iniciarMonitorResumo();
+  iniciarMonitorNetflow();
 
   const server = http.createServer((req, res) => {
     rotear(req, res).catch((err) => {

@@ -263,3 +263,13 @@ export function formatarMbps(mbps: number): string {
 export function mbpsMedio(bytes: number, segundos: number): number {
   return segundos > 0 ? (bytes * 8) / segundos / 1_000_000 : 0;
 }
+
+/**
+ * Volume estimado de uma janela. `fluxos === 0` = não houve coleta naquela
+ * janela (em rede de provedor, zero fluxo é coleta parada, não silêncio).
+ */
+export async function volumeDaJanela(j: Janela): Promise<{ bytes: number; mbps: number; fluxos: number }> {
+  const r = await netflow.resumo(j);
+  const bytes = estimar(r?.total_bytes);
+  return { bytes, mbps: mbpsMedio(bytes, j.fim - j.inicio), fluxos: r?.total_flows ?? 0 };
+}

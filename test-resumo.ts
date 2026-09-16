@@ -201,6 +201,82 @@ async function main() {
   checa('seções fora da lista não aparecem', !(await R.montarResumo(FIM, ['assistente'])).texto.includes('Rede'));
   console.log('\n' + r.texto.split('\n').map((l) => `      │ ${l}`).join('\n'));
 
+  // ── Tráfego (NetFlow) ──────────────────────────────────────────────────────
+  console.log('\n─── Tráfego (NetFlow) ───');
+  /* eslint-disable @typescript-eslint/no-var-requires */
+  const { netflow } = require(path.join(RAIZ, 'src', 'integrations', 'netflow')) as { netflow: Record<string, unknown> };
+  const rel = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'relatorios')) as Record<string, unknown>;
+  /* eslint-enable @typescript-eslint/no-var-requires */
+  let tr = await R.coletarTrafego(INI, FIM);
+  checa('NetFlow não configurado: seção indisponível', !tr.disponivel && /não configurado/.test(tr.motivo), tr);
+
+  Object.defineProperty(netflow, 'disponivel', { get: () => true, configurable: true });
+  Object.defineProperty(netflow, 'fator', { get: () => 1024, configurable: true });
+  let fluxos = 5000;
+  netflow.resumo = async () => ({ total_flows: fluxos, total_bytes: 21_000_000_000 / 1024, total_packets: 1, peak_mbps: 0, avg_mbps: 0, current_mbps: 0 });
+  netflow.serie = async (j: { inicio: number }) => [
+    { bucket: j.inicio, total_bytes: 1_000_000 },
+    { bucket: Math.floor(new Date('2026-09-13T23:15:00Z').getTime() / 1000), total_bytes: 90_000_000 },
+  ];
+  netflow.topAsn = async () => [
+    { asn: 36040, total_bytes: 21_000_000_000 / 1024 / 4, total_packets: 1, flows: 1 },
+    { asn: 64512, total_bytes: 21_000_000_000 / 1024 / 10, total_packets: 1, flows: 1 },
+  ];
+  netflow.ataques = async () => [{ max_severity: 'critical' }, { max_severity: 'warning' }];
+  netflow.frescor = async () => ({ viva: false, fluxosRecentes: 0, janelaMin: 10, verificadoEm: '' });
+  tr = await R.coletarTrafego(INI, FIM);
+  if (tr.disponivel) {
+    checa('média das 24 h com o fator 1024 (~1,94 Mbps)', Math.round(tr.mediaMbps * 100) / 100 === 1.94, tr.mediaMbps);
+    checa('pico em hora local (20:15 de Fortaleza)', !!tr.pico && R.horaLocal(new Date(tr.pico.em)) === '20:15', tr.pico);
+    checa('ASN com nome curto e desconhecido como AS+número', tr.principaisAsns[0].nome === 'YouTube' && tr.principaisAsns[1].nome === 'AS64512' && tr.principaisAsns[0].pct === 25, tr.principaisAsns);
+    checa('conta só suspeitas críticas', tr.suspeitasCriticas === 1);
+    checa('avisa coleta parada agora', tr.coletaAgora === false);
+  } else checa('tráfego disponível', false, tr);
+  fluxos = 0;
+  tr = await R.coletarTrafego(INI, FIM);
+  checa('nenhum fluxo no período: indisponível, não "0 Mbps"', !tr.disponivel && /coleta parada/.test(tr.motivo), tr);
+  fluxos = 5000;
+
+  // ── Clientes ───────────────────────────────────────────────────────────────
+  console.log('\n─── Clientes ───');
+  rel.lerSessoesOnline = async () => ({ online_agora: 1157, ontem_mesmo_horario: { valor: 1170 } });
+  sgpMut.ordensServicoPorCadastro = async () => ({
+    janelaCompleta: true,
+    ordens: [
+      { id: 1, contrato: 201, cliente: 'NOVO CLIENTE', status_id: 1, motivo: 'ADESÃO - instalação de KIT', data_cadastro: '2026-09-13', data_finalizacao: '2026-09-13', hora_finalizacao: '15:00:00' },
+      { id: 2, contrato: 202, cliente: 'INSTALADO ANTES', status_id: 1, motivo: 'ADESÃO - instalação de KIT', data_cadastro: '2026-09-01', data_finalizacao: '2026-09-01', hora_finalizacao: '15:00:00' },
+      { id: 3, contrato: 203, cliente: 'SAINDO', status_id: 0, motivo: 'ADESÃO - Retirada', data_cadastro: '2026-09-14', hora_cadastro: '06:00:00' },
+      { id: 4, contrato: 204, cliente: 'REINCIDENTE', status_id: 1, motivo: 'SUPORTE - Sem Internet', data_cadastro: '2026-09-02' },
+      { id: 5, contrato: 204, cliente: 'REINCIDENTE', status_id: 0, motivo: 'SUPORTE - Corretiva', data_cadastro: '2026-09-12' },
+      { id: 6, contrato: 205, cliente: 'UMA VEZ', status_id: 0, motivo: 'SUPORTE - Corretiva', data_cadastro: '2026-09-12' },
+    ],
+  });
+  const sv = db().prepare(`INSERT INTO sgp_servico (servico_id, contrato_id, rx, cto_nome, atualizado_em) VALUES (?,?,?,?,?)`);
+  sv.run(901, 9, -28, 'CTO 7', h(10)); sv.run(902, 9, -31, 'CTO 7', h(10)); sv.run(903, 9, -20, 'CTO 8', h(10));
+  db().prepare(`INSERT INTO sgp_contrato_evento (contrato_id, de, para, detectado_em) VALUES (206,'Ativo','Cancelado',?), (207,'Ativo','Cancelado',?)`).run(h(3), h(40));
+
+  let cl = await R.coletarClientes(INI, FIM);
+  if (cl.disponivel) {
+    checa('online agora e ontem', 'agora' in cl.online && cl.online.agora === 1157 && cl.online.ontem === 1170, cl.online);
+    checa('instalação concluída nas 24 h (a de 01/09 fica de fora)', cl.instalacoesConcluidas === 1, cl.instalacoesConcluidas);
+    checa('retirada aberta nas 24 h', cl.retiradas === 1, cl.retiradas);
+    checa('contrato que virou Cancelado nas 24 h (o de 40 h atrás não)', cl.contratosCancelados === 1, cl.contratosCancelados);
+    checa('sinal ruim: 2 abaixo de -27, 1 abaixo de -30, CTO 7', cl.sinalRuim.abaixo27 === 2 && cl.sinalRuim.abaixo30 === 1 && cl.sinalRuim.ctos[0].cto === 'CTO 7', cl.sinalRuim);
+    checa('reincidência: só contrato com 2+ O.S. de suporte', cl.reincidentes?.length === 1 && cl.reincidentes[0].contrato === 204 && cl.reincidentes[0].os === 2, cl.reincidentes);
+  } else checa('clientes disponível', false, cl);
+
+  rel.lerSessoesOnline = async () => { throw new Error('nenhum item de sessões PPPoE com coleta viva'); };
+  sgpMut.ordensServicoPorCadastro = async () => { throw new Error('timeout'); };
+  cl = await R.coletarClientes(INI, FIM);
+  const txtCl = R.formatarResumo({ inicio: INI.toISOString(), fim: FIM.toISOString(), secoes: { clientes: cl } });
+  checa('sem Zabbix e sem SGP: diz o que faltou, sem inventar número',
+    /Online agora: sem dado/.test(txtCl) && /Instalações e retiradas: SGP não respondeu/.test(txtCl) && !/undefined|null|NaN/.test(txtCl), txtCl);
+
+  rel.lerSessoesOnline = async () => ({ online_agora: 1157, ontem_mesmo_horario: { valor: 1170 } });
+  const texto2 = R.formatarResumo({ inicio: INI.toISOString(), fim: FIM.toISOString(), secoes: { trafego: await R.coletarTrafego(INI, FIM), clientes: await R.coletarClientes(INI, FIM) } });
+  checa('texto das seções novas sem "undefined/null/NaN"', /Tráfego \(NetFlow, estimado\)/.test(texto2) && /Online agora: 1\.157/.test(texto2) && !/undefined|null|NaN/.test(texto2), texto2);
+  console.log('\n' + texto2.split('\n').map((l) => `      │ ${l}`).join('\n'));
+
   // ── Envio ──────────────────────────────────────────────────────────────────
   console.log('\n─── Envio ───');
   const e1 = await R.enviarResumo({ chave: 'resumo:2026-09-14', fim: FIM });

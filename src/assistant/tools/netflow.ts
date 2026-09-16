@@ -8,9 +8,10 @@
 
 import { config } from '../../config';
 import {
-  netflow, estimar, formatarBytes, formatarMbps, mbpsMedio,
+  netflow, estimar, formatarBytes, formatarMbps, mbpsMedio, volumeDaJanela,
   Janela, PontoSerie, TalkerNetflow,
 } from '../../integrations/netflow';
+import { obter } from '../config-dinamica';
 import { clientesPorIps, ipsDoContrato, statusIndice } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas } from './base';
 
@@ -404,9 +405,91 @@ const topAsn: Ferramenta = {
   },
 };
 
+// ─── Variação em relação ao normal ─────────────────────────────────────────
+
+const variacao: Ferramenta = {
+  nome: 'netflow_variacao',
+  fonte: 'netflow',
+  descricao:
+    'Compara o tráfego de agora com o mesmo horário nos dias anteriores (ontem e a mediana dos ' +
+    'últimos dias com dado) e mostra quais redes (ASN) mais cresceram ou caíram. Responde "o tráfego ' +
+    'está normal?", "caiu em relação a ontem?", "o que mudou?". Dia sem coleta não entra na ' +
+    'comparação e é dito — nunca vira "zero de tráfego".',
+  parametros: {
+    type: 'object',
+    properties: {
+      minutos: { type: 'number', description: 'Janela até agora a comparar (padrão 60, máx 1440)' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    return [await medir<Record<string, unknown>>(ctx, 'netflow', 'netflow.variacao', args, async () => {
+      const min = Math.min(1440, Math.max(10, Number(args.minutos) || 60));
+      const fim = Math.floor(Date.now() / 1000);
+      const atualJ = { inicio: fim - min * 60, fim };
+      await netflow.exigirColetaViva(atualJ);
+      const desloc = (dias: number) => ({ inicio: atualJ.inicio - dias * 86400, fim: atualJ.fim - dias * 86400 });
+
+      const [atual, ...refs] = await Promise.all([
+        volumeDaJanela(atualJ),
+        ...[1, 2, 3, 4, 5, 6].map((d) => volumeDaJanela(desloc(d))),
+      ]);
+      const comDado = refs.map((r, i) => ({ dias: i + 1, ...r })).filter((r) => r.fluxos > 0);
+      const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 1000) / 10 : null);
+      const ontem = comDado.find((r) => r.dias === 1) ?? null;
+      const ordenados = [...comDado].map((r) => r.mbps).sort((a, b) => a - b);
+      const mediana = ordenados.length ? ordenados[Math.floor((ordenados.length - 1) / 2)] : null;
+      const limiar = obter<number>('monitor.netflow.variacao_pct');
+
+      // O que mudou: ASN a ASN contra ontem.
+      let mudancas: Record<string, unknown> | null = null;
+      if (ontem) {
+        const [aA, aO] = await Promise.all([netflow.topAsn(atualJ, 20), netflow.topAsn(desloc(1), 20)]);
+        const mapa = new Map<number, { agora: number; ontem: number }>();
+        for (const x of aA) mapa.set(x.asn, { agora: estimar(x.total_bytes), ontem: 0 });
+        for (const x of aO) mapa.set(x.asn, { agora: mapa.get(x.asn)?.agora ?? 0, ontem: estimar(x.total_bytes) });
+        const seg = atualJ.fim - atualJ.inicio;
+        const lista = [...mapa.entries()].map(([asn, v]) => ({
+          asn, nome: nomeAsn(asn),
+          agora: formatarMbps(mbpsMedio(v.agora, seg)),
+          ontem: formatarMbps(mbpsMedio(v.ontem, seg)),
+          diferenca_mbps: Math.round(mbpsMedio(v.agora - v.ontem, seg)),
+        }));
+        mudancas = {
+          observacao: 'Comparação entre os 20 maiores ASNs de cada janela; ASN fora do top 20 conta como zero naquele dia.',
+          mais_cresceram: [...lista].sort((a, b) => b.diferenca_mbps - a.diferenca_mbps).slice(0, 5).filter((x) => x.diferenca_mbps > 0),
+          mais_cairam: [...lista].sort((a, b) => a.diferenca_mbps - b.diferenca_mbps).slice(0, 5).filter((x) => x.diferenca_mbps < 0),
+        };
+      }
+
+      const vsOntem = ontem ? pct(atual.mbps, ontem.mbps) : null;
+      const vsMediana = mediana !== null ? pct(atual.mbps, mediana) : null;
+      const referencia = vsOntem ?? vsMediana;
+      return {
+        dados: {
+          janela: { inicio: iso(atualJ.inicio), fim: iso(atualJ.fim), minutos: min },
+          amostragem: amostragem(),
+          agora: formatarMbps(atual.mbps),
+          ontem_mesmo_horario: ontem ? { media: formatarMbps(ontem.mbps), variacao_pct: vsOntem } : 'sem coleta nesse horário ontem',
+          mediana_dos_dias_anteriores: mediana !== null
+            ? { media: formatarMbps(mediana), dias_com_dado: comDado.length, variacao_pct: vsMediana }
+            : 'nenhum dos 6 dias anteriores tem coleta nesse horário — sem base de comparação',
+          dias_sem_coleta: refs.map((r, i) => ({ dias: i + 1, r })).filter((x) => x.r.fluxos === 0).map((x) => x.dias),
+          leitura: referencia === null
+            ? 'sem base de comparação'
+            : Math.abs(referencia) >= limiar
+              ? `alteração relevante (${referencia > 0 ? '+' : ''}${referencia}% — limiar configurado: ${limiar}%)`
+              : `dentro do normal (variação de ${referencia}% — limiar: ${limiar}%)`,
+          mudancas_por_asn: mudancas,
+        },
+      };
+    })];
+  },
+};
+
 export function registrarFerramentasNetflow(): void {
   // Sem configuração, as ferramentas nem aparecem para o modelo: oferecer
   // ferramenta que sempre falha só gera resposta "fonte indisponível" à toa.
   if (!config.netflow.enabled) return;
-  ferramentas.registrar(trafego, consumoClientes, trafegoIp, ataques, topAsn);
+  ferramentas.registrar(trafego, consumoClientes, trafegoIp, ataques, topAsn, variacao);
 }
