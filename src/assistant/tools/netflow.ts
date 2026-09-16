@@ -14,7 +14,7 @@ import {
 import { obter } from '../config-dinamica';
 import { nomesDeInterfacePorIndice } from '../../integrations/zabbix-metricas';
 import { clientesPorIps, ipsDoContrato, statusIndice } from '../store/sgp-index';
-import { Ferramenta, medir, ferramentas } from './base';
+import { Ferramenta, CtxFerramenta, medir, ferramentas, podeFonte, mascararIp } from './base';
 
 const MAX_MINUTOS = 7 * 24 * 60;
 
@@ -90,7 +90,13 @@ function ponto(p: PontoSerie, bucketSeg: number) {
   };
 }
 
-function clienteDoIp(ip: string, mapa: ReturnType<typeof clientesPorIps>) {
+/** Associação IP → cliente só para quem pode ver o SGP. */
+function clientesSePermitido(ctx: CtxFerramenta, ips: string[]): ReturnType<typeof clientesPorIps> | null {
+  return podeFonte(ctx, 'sgp') ? clientesPorIps(ips) : null;
+}
+
+function clienteDoIp(ip: string, mapa: ReturnType<typeof clientesPorIps> | null) {
+  if (!mapa) return null;
   const c = mapa.get(ip);
   if (!c) return null;
   return {
@@ -102,7 +108,8 @@ function clienteDoIp(ip: string, mapa: ReturnType<typeof clientesPorIps>) {
   };
 }
 
-function notaCliente(mapa: ReturnType<typeof clientesPorIps>): string | null {
+function notaCliente(mapa: ReturnType<typeof clientesPorIps> | null): string | null {
+  if (!mapa) return 'Associação de IP a cliente não disponível para este usuário (sem acesso ao cadastro).';
   if (!mapa.size) {
     return statusIndice().disponivel
       ? 'Nenhum IP casou com o cadastro do SGP no último sync (IP pode ser de CGNAT reatribuído, de infraestrutura ou de fora da rede).'
@@ -159,7 +166,7 @@ const trafego: Ferramenta = {
 
 // ─── Consumo por cliente ───────────────────────────────────────────────────
 
-function talker(t: TalkerNetflow, segundos: number, mapa: ReturnType<typeof clientesPorIps>, totalBytes: number) {
+function talker(t: TalkerNetflow, segundos: number, mapa: ReturnType<typeof clientesPorIps> | null, totalBytes: number) {
   const bytes = estimar(t.total_bytes);
   return {
     ip: t.ip,
@@ -177,6 +184,7 @@ function talker(t: TalkerNetflow, segundos: number, mapa: ReturnType<typeof clie
 const consumoClientes: Ferramenta = {
   nome: 'netflow_consumo_clientes',
   fonte: 'netflow',
+  dadoPessoal: true,
   descricao:
     'Quais IPs mais consomem banda numa janela, com o cliente associado pelo cadastro do SGP quando ' +
     'o IP casa. Responde "quem está consumindo mais?", "tem cliente puxando muita banda?". ' +
@@ -198,7 +206,7 @@ const consumoClientes: Ferramenta = {
       await netflow.exigirColetaViva(j);
       const limite = Math.min(50, Math.max(1, Number(args.limite) || 10));
       const [lista, r] = await Promise.all([netflow.consumoPorCliente(j, limite), netflow.resumo(j)]);
-      const mapa = clientesPorIps(lista.map((t) => t.ip));
+      const mapa = clientesSePermitido(ctx, lista.map((t) => t.ip));
       const total = estimar(r.total_bytes);
       return {
         vazio: lista.length === 0,
@@ -219,6 +227,7 @@ const consumoClientes: Ferramenta = {
 const trafegoIp: Ferramenta = {
   nome: 'netflow_trafego_ip',
   fonte: 'netflow',
+  dadoPessoal: true,
   descricao:
     'Série de tráfego de um IP específico (Mbps estimados no tempo). Use para "quanto o cliente X ' +
     'está consumindo", "o cliente reclama de lentidão: ele está usando a banda toda?". ' +
@@ -256,7 +265,7 @@ const trafegoIp: Ferramenta = {
       const j = janelaDe(args, 60);
       await netflow.exigirColetaViva(j);
       const bucket = bucketPara(j);
-      const mapa = clientesPorIps(ips.map((x) => x.ip));
+      const mapa = clientesSePermitido(ctx, ips.map((x) => x.ip));
 
       const resultados = await Promise.all(ips.slice(0, 4).map(async (x) => {
         const serie = await netflow.serieDoIp(x.ip, j, bucket);
@@ -321,7 +330,8 @@ const ataques: Ferramenta = {
         netflow.ataques(j, limite),
         netflow.incidentes(j, 5, 'critical'),
       ]);
-      const mapa = clientesPorIps([...lista.map((a) => a.victim_ip), ...criticos.map((i) => i.ip)]);
+      const mapa = clientesSePermitido(ctx, [...lista.map((a) => a.victim_ip), ...criticos.map((i) => i.ip)]);
+      const ipVisivel = (ip: string) => (ctx.publico ? mascararIp(ip) : ip);
       return {
         vazio: lista.length === 0 && criticos.length === 0,
         dados: {
@@ -329,7 +339,7 @@ const ataques: Ferramenta = {
           amostragem: amostragem(),
           natureza: 'classificação automática do Flow Guard — suspeita, não confirmação',
           suspeitas: lista.map((a) => ({
-            alvo_ip: a.victim_ip,
+            alvo_ip: ipVisivel(a.victim_ip),
             tipo_ip: tipoIp(a.victim_ip),
             cliente: clienteDoIp(a.victim_ip, mapa),
             severidade: a.max_severity,
@@ -344,7 +354,7 @@ const ataques: Ferramenta = {
           })),
           incidentes_criticos: criticos.map((i) => ({
             em: iso(i.tstamp),
-            ip: i.ip,
+            ip: ipVisivel(i.ip),
             cliente: clienteDoIp(i.ip, mapa),
             protocolo: i.proto,
             porta_origem: i.src_port,

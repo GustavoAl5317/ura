@@ -17,13 +17,21 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'resumo' | 'relatorios' | 'fontes';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
 }
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Fontes que um número NÃO cadastrado pode chegar a consultar no modo "rede".
+ * Fixo no código de propósito: SGP (cadastro), URA (telefone de quem ligou) e
+ * WhatsApp (conversas do atendimento) são dado pessoal, e nenhuma configuração
+ * do painel deve conseguir abri-las para desconhecidos.
+ */
+export const FONTES_PUBLICAS = ['zabbix', 'netflow'] as const satisfies readonly FonteId[];
 
 export const DEFINICOES = {
   // ── IA ──────────────────────────────────────────────────────────────────
@@ -199,6 +207,26 @@ export const DEFINICOES = {
     tipo: 'lista', grupo: 'relatorios',
     padrao: () => ['retirada', 'cancel', 'recolh', 'desinstala'],
     descricao: 'Trechos do motivo da O.S. que contam como cancelamento ou retirada de equipamento (ex.: "ADESÃO - Retirada").',
+  },
+
+  // ── WhatsApp dos técnicos ───────────────────────────────────────────────
+  'whatsapp.acesso': {
+    tipo: 'texto', grupo: 'whatsapp', padrao: () => 'cadastrados',
+    opcoes: ['cadastrados', 'rede', 'aberto'],
+    descricao:
+      'Quem pode perguntar pelo WhatsApp. cadastrados = só números da aba Técnicos. ' +
+      'rede = qualquer número pergunta sobre a rede (incidentes, links, tráfego), sem dados de cliente; ' +
+      'cadastrados continuam com acesso completo. aberto = qualquer número vê tudo, inclusive dados de clientes (não recomendado: LGPD). ' +
+      'Número desativado na aba Técnicos continua bloqueado em qualquer modo.',
+  },
+  'whatsapp.fontes_publicas': {
+    tipo: 'lista', grupo: 'whatsapp', padrao: () => ['zabbix', 'netflow'],
+    opcoes: FONTES_PUBLICAS,
+    descricao: 'No modo "rede", fontes que um número não cadastrado pode consultar. Cadastro de cliente (SGP), URA e atendimento ficam sempre de fora.',
+  },
+  'whatsapp.limite_publico_hora': {
+    tipo: 'inteiro', grupo: 'whatsapp', padrao: () => 10, min: 1, max: 200,
+    descricao: 'Perguntas por hora para cada número não cadastrado. Protege o custo da IA contra curiosos e abuso.',
   },
 
   // ── Fontes ──────────────────────────────────────────────────────────────

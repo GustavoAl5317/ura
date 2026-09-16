@@ -275,6 +275,7 @@ export function lerPadraoLuz(p: {
 const analisarPon: Ferramenta = {
   nome: 'analisar_pon',
   fonte: 'zabbix',
+  dadoPessoal: true,
   descricao:
     'Investigação completa de UMA porta PON/GPON: status da porta na OLT, quantas ONUs estão ' +
     'nela e quantas sem luz, quais clientes e CTOs são afetados (com % por CTO), quando o ' +

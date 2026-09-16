@@ -22,7 +22,8 @@
     "test:netflow": "ts-node --transpile-only test-netflow.ts",
     "test:relatorios": "ts-node --transpile-only test-relatorios.ts",
     "test:equipes": "ts-node --transpile-only test-equipes.ts",
-    "test:acesso": "ts-node --transpile-only test-acesso.ts"
+    "test:acesso": "ts-node --transpile-only test-acesso.ts",
+    "test:publico": "ts-node --transpile-only test-publico.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

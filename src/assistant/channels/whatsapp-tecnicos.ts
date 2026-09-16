@@ -11,7 +11,8 @@ import { EvolutionClient, MensagemRecebida, soNumero } from '../../integrations/
 import { db } from '../store/db';
 import { responder, paraWhatsApp } from '../agent';
 import { transcrever, sintetizar } from '../voice';
-import { obter } from '../config-dinamica';
+import { obter, FONTES_PUBLICAS } from '../config-dinamica';
+import { FonteId } from '../types';
 
 export const evoTecnicos = new EvolutionClient(
   {
@@ -70,13 +71,35 @@ export function permissaoDoNumero(autorJid: string): { usuario: string; ativo: n
 }
 
 export function autorizado(autorJid: string): boolean {
+  return acessoDoNumero(autorJid) === 'completo';
+}
+
+export type Acesso = 'completo' | 'publico' | 'negado';
+
+/**
+ * Nível de acesso de um número. Cadastro vence o modo: desativado na aba
+ * Técnicos fica bloqueado mesmo com o WhatsApp aberto, senão desativar alguém
+ * só o rebaixaria a "público".
+ */
+export function acessoDoNumero(autorJid: string): Acesso {
   // Cadastro no painel decide quando existe: libera sem editar o .env, e a
   // desativação vence a lista do .env.
   const r = permissaoDoNumero(autorJid);
-  if (r) return r.ativo === 1 && r.equipe_ok === 1;
+  if (r) return r.ativo === 1 && r.equipe_ok === 1 ? 'completo' : 'negado';
 
   const lista = config.evolutionTecnicos.autorizados;
-  return lista.some((permitido) => mesmoNumero(permitido, autorJid));
+  if (lista.some((permitido) => mesmoNumero(permitido, autorJid))) return 'completo';
+
+  const modo = obter<string>('whatsapp.acesso');
+  if (modo === 'aberto') return 'completo';
+  if (modo === 'rede') return 'publico';
+  return 'negado';
+}
+
+/** Teto de fontes do acesso público: o configurado, nunca além das públicas. */
+export function fontesPublicas(): FonteId[] {
+  const escolhidas = obter<string[]>('whatsapp.fontes_publicas');
+  return (FONTES_PUBLICAS as readonly FonteId[]).filter((f) => escolhidas.includes(f));
 }
 
 function obterConversa(usuario: string, nome: string | null): string {
@@ -134,7 +157,10 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
     if (msg.formato === 'audio') return;
   }
 
-  if (!autorizado(msg.autorJid)) {
+  const acesso = acessoDoNumero(msg.autorJid);
+  // Grupo segue exigindo cadastro de quem chama: o grupo de alertas não vira
+  // porta aberta só porque o modo público está ligado.
+  if (acesso === 'negado' || (acesso === 'publico' && msg.ehGrupo)) {
     logger.warn('Assistente: mensagem de número não autorizado', {
       autor: soNumero(msg.autorJid).slice(0, 8) + '…',
     });
@@ -191,10 +217,14 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
       conversaId,
       historico: hist,
       origemAudio: respostaEmAudio,
+      publico: acesso === 'publico'
+        ? { fontes: fontesPublicas(), limitePorHora: obter<number>('whatsapp.limite_publico_hora') }
+        : undefined,
     });
     textoResposta = paraWhatsApp(r);
     logger.info('Assistente: respondeu', {
       autor: soNumero(msg.autorJid).slice(0, 8) + '…',
+      acesso,
       veredito: r.veredito,
       evidencias: r.evidencias.length,
       ms: r.duracaoMs,

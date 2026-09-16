@@ -18,6 +18,11 @@ export interface CtxFerramenta {
   usuario: string;
   /** Fontes que este usuário pode consultar. */
   fontesPermitidas: FonteId[] | null;
+  /**
+   * Pergunta de número não cadastrado (WhatsApp no modo "rede"): nada que
+   * identifique cliente — nem nome, nem contrato, nem IP completo.
+   */
+  publico?: boolean;
 }
 
 export interface Ferramenta {
@@ -27,6 +32,8 @@ export interface Ferramenta {
   /** Descrição vista pelo modelo. Precisa dizer o que a ferramenta NÃO sabe. */
   descricao: string;
   parametros: Record<string, unknown>;
+  /** Existe para olhar UM cliente (ONU, IP, consumo por IP): fica fora do acesso público. */
+  dadoPessoal?: boolean;
   executar(args: Record<string, unknown>, ctx: CtxFerramenta): Promise<Envelope[]>;
 }
 
@@ -99,6 +106,12 @@ export async function medir<T>(
   };
   const t0 = Date.now();
 
+  // Trava central: uma macro de uma fonte liberada não pode consultar, por
+  // dentro, uma fonte bloqueada (ex.: analisar_pon é zabbix, mas cruza com o SGP).
+  if (!podeFonte(ctx, fonte)) {
+    return envelopeErro(base, `fonte ${fonte} bloqueada para este usuário`);
+  }
+
   try {
     const r = await corpo();
     base.duracaoMs = Date.now() - t0;
@@ -110,6 +123,17 @@ export async function medir<T>(
     logger.warn(`Assistente: fonte ${fonte} falhou em ${consulta}`, { err: msg });
     return envelopeErro(base, msg);
   }
+}
+
+export function podeFonte(ctx: CtxFerramenta, fonte: FonteId): boolean {
+  return !ctx.fontesPermitidas || ctx.fontesPermitidas.includes(fonte);
+}
+
+/** "10.20.30.40" → "10.20.30.x"; IPv6 fica só com o /48. Para acesso público. */
+export function mascararIp(ip: string): string {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip.replace(/\.\d+$/, '.x');
+  if (ip.includes(':')) return ip.split(':').slice(0, 3).join(':') + '::x';
+  return 'x';
 }
 
 /** Registro global das ferramentas disponíveis. */
@@ -125,15 +149,15 @@ export class RegistroFerramentas {
   }
 
   /** Ferramentas que o usuário pode usar, dadas suas fontes permitidas. */
-  disponiveis(fontesPermitidas: FonteId[] | null): Ferramenta[] {
-    const todas = [...this.mapa.values()];
+  disponiveis(fontesPermitidas: FonteId[] | null, publico = false): Ferramenta[] {
+    const todas = [...this.mapa.values()].filter((f) => !(publico && f.dadoPessoal));
     if (!fontesPermitidas) return todas;
     return todas.filter((f) => fontesPermitidas.includes(f.fonte));
   }
 
   /** Formato de tool calling da API de chat da OpenAI. */
-  comoOpenAiTools(fontesPermitidas: FonteId[] | null): unknown[] {
-    return this.disponiveis(fontesPermitidas).map((f) => ({
+  comoOpenAiTools(fontesPermitidas: FonteId[] | null, publico = false): unknown[] {
+    return this.disponiveis(fontesPermitidas, publico).map((f) => ({
       type: 'function',
       function: {
         name: f.nome,

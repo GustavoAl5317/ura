@@ -218,6 +218,7 @@ const metricas: Ferramenta = {
 const onuZabbix: Ferramenta = {
   nome: 'zabbix_onu',
   fonte: 'zabbix',
+  dadoPessoal: true,
   descricao:
     'Sinal óptico (potência RX/TX) e tráfego (download/upload) AO VIVO de uma ONU, pelo SN ou ' +
     'login PPPoE, lidos direto da OLT pelo Zabbix — independente do SGP. Com horas, mostra a ' +

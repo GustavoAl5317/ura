@@ -43,6 +43,11 @@ export interface PedidoAssistente {
    * com OUTRO contrato válido — revisão do cliente errado, com veredito confiante.
    */
   origemAudio?: boolean;
+  /**
+   * Número não cadastrado no modo "rede": as fontes ficam limitadas a estas e
+   * as ferramentas de um cliente específico somem. Ausente = acesso normal.
+   */
+  publico?: { fontes: FonteId[]; limitePorHora: number };
 }
 
 /** Fontes que o usuário pode consultar. null = todas. */
@@ -188,9 +193,14 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   // Fontes efetivas = habilitadas globalmente ∩ permitidas ao usuário.
   const doUsuario = fontesDoUsuario(pedido.usuario);
   const globais = fontesHabilitadas();
-  const fontesPermitidas = doUsuario === null ? globais : doUsuario.filter((f) => globais.includes(f));
+  let fontesPermitidas = doUsuario === null ? globais : doUsuario.filter((f) => globais.includes(f));
+  const publico = !!pedido.publico;
+  if (pedido.publico) {
+    const teto = pedido.publico.fontes;
+    fontesPermitidas = fontesPermitidas.filter((f) => teto.includes(f));
+  }
 
-  const limite = obter<number>('limites.consultas_por_hora');
+  const limite = pedido.publico?.limitePorHora ?? obter<number>('limites.consultas_por_hora');
   const naUltimaHora = (db().prepare(
     `SELECT COUNT(*) n FROM consulta WHERE usuario = ? AND at > ?`,
   ).get(pedido.usuario, new Date(Date.now() - 3600_000).toISOString()) as { n: number }).n;
@@ -208,9 +218,10 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     proximoId: () => `evd_${++contadorEvd}`,
     usuario: pedido.usuario,
     fontesPermitidas,
+    publico,
   };
 
-  const tools = ferramentas.comoOpenAiTools(fontesPermitidas);
+  const tools = ferramentas.comoOpenAiTools(fontesPermitidas, publico);
   const messages: MsgOpenAi[] = [
     { role: 'system', content: montarSystem(config.company.name, new Date(), fontesPermitidas) },
   ];
@@ -225,6 +236,18 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
         `Fontes BLOQUEADAS nesta conversa (desabilitadas pela administração ou sem permissão para este ` +
         `usuário): ${bloqueadas.join(', ')}. Se a pergunta depender delas, diga exatamente isso — ` +
         'que a fonte está bloqueada — em vez de pedir outro dado ao técnico.',
+    });
+  }
+
+  if (publico) {
+    messages.push({
+      role: 'system',
+      content:
+        'Quem pergunta NÃO é um técnico cadastrado. Responda só sobre a rede como um todo ' +
+        '(incidentes, links, tráfego, clientes online em número). NUNCA informe nome, contrato, ' +
+        'login, endereço, telefone, SN ou IP completo de cliente, nem confirme se alguém é cliente. ' +
+        'Se pedirem isso, diga que dados de clientes são só para técnicos cadastrados e que o ' +
+        'cadastro é feito pela equipe de NOC.',
     });
   }
 
@@ -289,7 +312,7 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
             vazio: true,
             erro: `ferramenta desconhecida: ${tc.function.name}`,
           }];
-        } else if (fontesPermitidas && !fontesPermitidas.includes(f.fonte)) {
+        } else if ((fontesPermitidas && !fontesPermitidas.includes(f.fonte)) || (publico && f.dadoPessoal)) {
           novos = [{
             id: ctx.proximoId(),
             fonte: f.fonte,
@@ -299,7 +322,9 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
             duracaoMs: 0,
             ok: false,
             vazio: true,
-            erro: `usuário sem permissão para a fonte ${f.fonte}`,
+            erro: publico && f.dadoPessoal
+              ? `${f.nome} mostra dados de um cliente e não está disponível para números não cadastrados`
+              : `usuário sem permissão para a fonte ${f.fonte}`,
           }];
         } else {
           let args: Record<string, unknown> = {};
