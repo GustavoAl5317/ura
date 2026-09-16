@@ -162,6 +162,13 @@ export const config = {
     salesGroupId: opt('WHATSAPP_SALES_GROUP_ID'),
   },
 
+  // ── Ponte URA → assistente de observabilidade ──
+  // Vazio = ponte desligada, e a URA segue exatamente como antes.
+  ponteAssistente: {
+    url: opt('ASSISTANT_EVENTS_URL', ''),
+    chave: opt('ASSISTANT_EVENTS_KEY', ''),
+  },
+
   chat: {
     /** Liga o atendente de chat do WhatsApp (webhook Evolution + loop OpenAI). */
     enabled: optBool('CHAT_ENABLED', true),

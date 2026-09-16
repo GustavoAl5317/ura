@@ -9,6 +9,7 @@ import { initWaitSound } from './audio/wait-sound';
 import { logVoiceRotationConfig } from './session/voice-rotation';
 import { BUILD_ID } from './build';
 import { isUraEnabled } from './admin/ura-control';
+import { iniciarPonteAssistente } from './admin/assistant-bridge';
 import { startUraSchedule } from './admin/ura-schedule';
 
 process.on('uncaughtException', (err) => {
@@ -45,6 +46,7 @@ async function main() {
   startSidecar();
   startAudioSocketServer();
   startAdminServer();
+  iniciarPonteAssistente();
   startUraSchedule();
   // Por padrão o chat roda em processo separado (chat-only.ts) para NÃO impactar a
   // URA de voz. Só sobe aqui se CHAT_IN_MAIN=1 for explicitamente definido.

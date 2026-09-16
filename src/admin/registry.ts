@@ -3,9 +3,34 @@ import type { ActiveSession, CallEvent, CallEventType } from './types';
 
 type SseClient = { id: string; write: (chunk: string) => void; close: () => void };
 
+/** Observador passivo do ciclo de vida da chamada (usado pela ponte com o assistente). */
+export type OuvinteSessao = (
+  ev:
+    | { tipo: 'inicio'; sessao: ActiveSession }
+    | { tipo: 'meta'; sessao: ActiveSession; patch: Partial<Pick<ActiveSession, 'clienteNome' | 'contratoId'>> }
+    | { tipo: 'evento'; sessao: ActiveSession | undefined; evento: CallEvent }
+    | { tipo: 'fim'; sessao: ActiveSession },
+) => void;
+
 class SessionRegistry {
   private sessions = new Map<string, ActiveSession>();
   private sseClients = new Map<string, SseClient>();
+  private ouvintes: OuvinteSessao[] = [];
+
+  /**
+   * Registra um observador. Ele NUNCA pode afetar a chamada: exceção é engolida
+   * aqui e o ouvinte não é aguardado. Quem ouve e precisa fazer I/O faz em
+   * segundo plano, por conta própria.
+   */
+  ouvir(fn: OuvinteSessao): void {
+    this.ouvintes.push(fn);
+  }
+
+  private notificar(ev: Parameters<OuvinteSessao>[0]): void {
+    for (const fn of this.ouvintes) {
+      try { fn(ev); } catch { /* observador com defeito não derruba ligação */ }
+    }
+  }
 
   register(callId: string, meta: { callerNumber: string; channel?: string }): void {
     this.sessions.set(callId, {
@@ -16,6 +41,8 @@ class SessionRegistry {
       events: [],
     });
     this.emit(callId, 'call_started', `Chamada iniciada — ${meta.callerNumber || 'desconhecido'}`, meta);
+    const s = this.sessions.get(callId);
+    if (s) this.notificar({ tipo: 'inicio', sessao: s });
   }
 
   updateMeta(callId: string, patch: Partial<Pick<ActiveSession, 'clienteNome' | 'contratoId'>>): void {
@@ -23,6 +50,7 @@ class SessionRegistry {
     if (!s) return;
     Object.assign(s, patch);
     this.broadcast({ type: 'session_update', callId, data: patch });
+    this.notificar({ tipo: 'meta', sessao: s, patch });
   }
 
   emit(
@@ -47,6 +75,7 @@ class SessionRegistry {
     }
 
     this.broadcast({ type: 'event', event });
+    if (this.ouvintes.length) this.notificar({ tipo: 'evento', sessao: session, evento: event });
     return event;
   }
 
@@ -54,6 +83,7 @@ class SessionRegistry {
     const s = this.sessions.get(callId);
     if (!s) return undefined;
     this.emit(callId, 'call_ended', 'Chamada encerrada');
+    this.notificar({ tipo: 'fim', sessao: s });
     this.sessions.delete(callId);
     this.broadcast({ type: 'session_ended', callId });
     return s;
