@@ -482,12 +482,14 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div class="subabas" role="tablist">
           <button class="subaba" data-sub="config">Comportamento</button>
           <button class="subaba" data-sub="permissoes">Técnicos</button>
+          <button class="subaba" data-sub="destinos">Quem recebe alertas</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
         </div>
         <div data-subpainel="config" hidden></div>
         <div data-subpainel="permissoes" hidden></div>
+        <div data-subpainel="destinos" hidden></div>
         <div data-subpainel="prompts" hidden></div>
         <div data-subpainel="monitores" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
@@ -1160,6 +1162,70 @@ function itemConfig(i, modelos) {
     el('div', { class: 'linha-acoes' }, btnSalvar, btnRestaurar));
 }
 
+subCarregadores.destinos = async () => {
+  const alvo = $('[data-subpainel="destinos"]');
+  const ROT_SEV = { info: 'Todos, inclusive informativos', aviso: 'Avisos e críticos', critico: 'Só críticos' };
+  try {
+    const r = await api('GET', '/api/alertas-destinos');
+    const caixasTipo = (sel) => el('div', { class: 'opcoes-lista' }, Object.entries(r.tipos).map(([k, t]) =>
+      el('label', {}, el('input', { type: 'checkbox', value: k, checked: sel.includes(k) }), t)));
+    const seletorSev = (atual, id) => el('select', { id }, r.severidades.map((s) => el('option', { value: s, text: ROT_SEV[s] || s, selected: s === atual })));
+
+    const form = el('form', { class: 'bloco grade', style: 'gap:12px;margin-bottom:16px' },
+      el('h2', { class: 'secao', text: 'Enviar alertas para um WhatsApp' }),
+      el('p', { class: 'mudo', style: 'margin:0;font-size:13px', text: 'Quem estiver aqui recebe os alertas escolhidos no próprio WhatsApp, pelo número do assistente. O grupo de alertas (em Comportamento) continua recebendo tudo.' }),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'd-nome', text: 'Nome' }), el('input', { type: 'text', id: 'd-nome', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'd-num', text: 'Celular com DDD' }), el('input', { type: 'text', id: 'd-num', required: true, placeholder: '85999999999', inputmode: 'tel' })),
+        el('div', { class: 'campo' }, el('label', { for: 'd-sev', text: 'Gravidade mínima' }), seletorSev('aviso', 'd-sev'))),
+      el('div', { class: 'campo' }, el('label', { text: 'Quais alertas recebe' }), caixasTipo(['rede', 'ctos'])),
+      el('p', { class: 'mudo', style: 'margin:0;font-size:12px', text: 'Chamadas da URA e resumo diário chegam sempre que marcados, sem olhar a gravidade. Crítico chega mesmo no horário de silêncio.' }),
+      el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Cadastrar' })));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const tipos = $$('.opcoes-lista input', form).filter((x) => x.checked).map((x) => x.value);
+      try {
+        await api('POST', '/api/alertas-destinos', { nome: $('#d-nome', form).value, numero: $('#d-num', form).value, tipos, severidade_minima: $('#d-sev', form).value });
+        toast('Cadastrado. Use "Enviar teste" para conferir o número.', 'ok'); subCarregadores.destinos();
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const linha = (d) => {
+      const tipos = caixasTipo(d.tipos);
+      const sev = seletorSev(d.severidade_minima, `d-sev-${d.id}`);
+      const salvar = async (corpo, msg) => {
+        try { await api('PUT', `/api/alertas-destinos/${d.id}`, corpo); toast(msg, 'ok'); subCarregadores.destinos(); }
+        catch (e) { toast(e.message, 'erro'); }
+      };
+      return el('div', { class: 'bloco', style: 'margin-bottom:10px' },
+        el('div', { style: 'display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px' },
+          el('b', { text: d.nome }),
+          el('span', { class: 'dado', text: d.numero.replace('@s.whatsapp.net', '') }),
+          el('span', { style: `color:var(${d.ativo ? '--confirmado' : '--inconclusivo'})`, text: d.ativo ? 'Recebendo' : 'Pausado' })),
+        tipos,
+        el('div', { class: 'linha-acoes', style: 'margin-top:8px;align-items:center' },
+          el('label', { for: `d-sev-${d.id}`, class: 'mudo', style: 'font-size:12.5px', text: 'Gravidade mínima' }), sev,
+          el('button', { class: 'botao mini', type: 'button', text: 'Salvar', onclick: () => salvar({
+            tipos: $$('input', tipos).filter((x) => x.checked).map((x) => x.value), severidade_minima: sev.value,
+          }, 'Alertas atualizados.') }),
+          el('button', { class: 'botao sec mini', type: 'button', text: 'Enviar teste', onclick: async () => {
+            try { await api('POST', `/api/alertas-destinos/${d.id}/teste`); toast('Teste enviado. Confira no WhatsApp.', 'ok'); }
+            catch (e) { toast(e.message, 'erro'); }
+          } }),
+          el('button', { class: 'botao sec mini', type: 'button', text: d.ativo ? 'Pausar' : 'Retomar', onclick: () => salvar({ ativo: !d.ativo }, d.ativo ? 'Pausado.' : 'Retomado.') }),
+          el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+            if (!confirm(`Parar de enviar alertas para ${d.nome}?`)) return;
+            try { await api('DELETE', `/api/alertas-destinos/${d.id}`); toast('Removido.', 'ok'); subCarregadores.destinos(); }
+            catch (e) { toast(e.message, 'erro'); }
+          } })));
+    };
+
+    alvo.replaceChildren(form,
+      el('h2', { class: 'secao', text: 'Cadastrados' }),
+      ...(r.destinos.length ? r.destinos.map(linha) : [el('p', { class: 'vazio-msg', text: 'Ninguém cadastrado ainda. Os alertas vão só para o grupo, se houver.' })]));
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
 subCarregadores.permissoes = async () => {
   const alvo = $('[data-subpainel="permissoes"]');
   try {
@@ -1351,7 +1417,7 @@ subCarregadores.auditoria = async () => {
     alvo.dataset.montado = '1';
     const filtros = el('form', { class: 'filtros' },
       el('div', { class: 'campo' }, el('label', { for: 'a-acao', text: 'Ação' }),
-        el('select', { id: 'a-acao' }, [['', 'Todas'], ['config', 'Comportamento'], ['permissao', 'Técnicos'], ['prompt', 'Instruções da IA']].map(([v, t]) => el('option', { value: v, text: t })))),
+        el('select', { id: 'a-acao' }, [['', 'Todas'], ['config', 'Comportamento'], ['permissao', 'Técnicos'], ['alerta_destino', 'Quem recebe alertas'], ['prompt', 'Instruções da IA']].map(([v, t]) => el('option', { value: v, text: t })))),
       el('div', { class: 'campo' }, el('label', { for: 'a-ator', text: 'Quem' }), el('input', { type: 'text', id: 'a-ator' })),
       el('div', { class: 'campo' }, el('label', { for: 'a-alvo', text: 'Sobre o quê' }), el('input', { type: 'text', id: 'a-alvo' })),
       el('button', { class: 'botao sec', type: 'submit', text: 'Filtrar' }));

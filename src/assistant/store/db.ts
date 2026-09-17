@@ -283,6 +283,29 @@ function migrar(d: Database.Database): void {
       detectado_em TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ix_contrato_evento_em ON sgp_contrato_evento(detectado_em);
+
+    -- ═══ Quem recebe alerta no WhatsApp, além do grupo ════════════════════
+    CREATE TABLE IF NOT EXISTS alerta_destino (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome              TEXT NOT NULL,
+      numero            TEXT NOT NULL UNIQUE,   -- JID (pessoa ou grupo)
+      tipos             TEXT NOT NULL,          -- JSON: rede, ctos, trafego, atendimento, ura, resumo, sistema
+      severidade_minima TEXT NOT NULL DEFAULT 'aviso',
+      ativo             INTEGER NOT NULL DEFAULT 1,
+      criado_em         TEXT NOT NULL
+    );
+
+    -- Resultado do envio para cada destino: "enviado" do alerta sozinho não
+    -- diz para QUEM foi nem quem ficou sem receber.
+    CREATE TABLE IF NOT EXISTS alerta_envio (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      alerta_id  TEXT NOT NULL,
+      destino    TEXT NOT NULL,
+      enviado_em TEXT,
+      erro       TEXT,
+      at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_alerta_envio_alerta ON alerta_envio(alerta_id);
   `);
 
   // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────

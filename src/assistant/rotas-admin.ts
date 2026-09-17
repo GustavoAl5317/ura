@@ -8,6 +8,10 @@ import { db, registrarAuditoria } from './store/db';
 import { listar, definir, restaurar, DEFINICOES, ChaveConfig } from './config-dinamica';
 import { paraJid } from '../integrations/evolution';
 import { FONTES, FonteId } from './types';
+import {
+  TIPOS_ALERTA, SEVERIDADES, listarDestinos, destinoPorId, validarTipos, validarSeveridade,
+} from './destinos-alerta';
+import { evoTecnicos } from './channels/whatsapp-tecnicos';
 
 // ─── Modelos liberados no projeto OpenAI ────────────────────────────────────
 
@@ -77,6 +81,15 @@ function validarEquipe(v: unknown): string | null {
 }
 
 const PAPEIS = ['tecnico', 'noc', 'supervisor', 'admin'];
+
+/** Celular com DDD (vira JID) ou id de grupo (…@g.us). */
+function numeroDeAlerta(v: unknown): string {
+  const bruto = String(v ?? '').trim();
+  if (/@g\.us$/.test(bruto)) return bruto;
+  const digitos = bruto.replace(/\D/g, '');
+  if (digitos.length < 10 || digitos.length > 13) throw new ErroHttp(400, 'número inválido: use DDD + número, ex.: 85999999999');
+  return paraJid(digitos);
+}
 
 /** Número de WhatsApp vira JID; login de painel fica como veio. */
 function normalizarUsuario(u: string): string {
@@ -168,6 +181,75 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
   }
 
   // ── Equipes ───────────────────────────────────────────────────────────────
+  // ── Destinos de alerta ────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/alertas-destinos') {
+    json(res, 200, { destinos: listarDestinos(), tipos: TIPOS_ALERTA, severidades: SEVERIDADES });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/alertas-destinos') {
+    const b = await lerJson<{ nome?: string; numero?: string; tipos?: unknown; severidade_minima?: unknown; ativo?: boolean }>(req);
+    const nome = String(b.nome ?? '').trim();
+    if (!nome) throw new ErroHttp(400, 'informe o nome de quem recebe');
+    const numero = numeroDeAlerta(b.numero);
+    let tipos, sev;
+    try { tipos = validarTipos(b.tipos); sev = validarSeveridade(b.severidade_minima); } catch (e) { throw new ErroHttp(400, (e as Error).message); }
+    if (db().prepare(`SELECT 1 FROM alerta_destino WHERE numero = ?`).get(numero)) throw new ErroHttp(409, 'esse número já recebe alertas; edite o cadastro existente');
+    const r = db().prepare(
+      `INSERT INTO alerta_destino (nome, numero, tipos, severidade_minima, ativo, criado_em) VALUES (?,?,?,?,?,?)`,
+    ).run(nome, numero, JSON.stringify(tipos), sev, b.ativo === false ? 0 : 1, new Date().toISOString());
+    const novo = destinoPorId(Number(r.lastInsertRowid));
+    registrarAuditoria(ator(req), 'alerta_destino.criar', numero, undefined, novo);
+    json(res, 201, { ok: true, destino: novo });
+    return true;
+  }
+
+  const mDest = p.match(/^\/api\/alertas-destinos\/(\d+)(\/teste)?$/);
+  if (mDest) {
+    const id = Number(mDest[1]);
+    const antes = destinoPorId(id);
+    if (!antes) throw new ErroHttp(404, 'destino não encontrado');
+
+    if (mDest[2] && req.method === 'POST') {
+      if (!evoTecnicos.disponivel) throw new ErroHttp(409, 'WhatsApp do assistente não configurado');
+      const ok = await evoTecnicos.enviarTexto(antes.numero,
+        `✅ *Teste de alerta*\nOlá, ${antes.nome}! Você vai receber por aqui: ${antes.tipos.map((t) => TIPOS_ALERTA[t]).join(', ')}.`);
+      registrarAuditoria(ator(req), 'alerta_destino.teste', antes.numero, undefined, { ok });
+      if (!ok) throw new ErroHttp(502, 'o WhatsApp não aceitou o envio — confira o número e se o assistente está conectado');
+      json(res, 200, { ok: true });
+      return true;
+    }
+
+    if (!mDest[2] && req.method === 'DELETE') {
+      db().prepare(`DELETE FROM alerta_destino WHERE id = ?`).run(id);
+      registrarAuditoria(ator(req), 'alerta_destino.remover', antes.numero, antes, undefined);
+      json(res, 200, { ok: true });
+      return true;
+    }
+
+    if (!mDest[2] && req.method === 'PUT') {
+      const b = await lerJson<{ nome?: string; numero?: string; tipos?: unknown; severidade_minima?: unknown; ativo?: boolean }>(req);
+      let tipos = antes.tipos, sev = antes.severidade_minima;
+      try {
+        if (b.tipos !== undefined) tipos = validarTipos(b.tipos);
+        if (b.severidade_minima !== undefined) sev = validarSeveridade(b.severidade_minima);
+      } catch (e) { throw new ErroHttp(400, (e as Error).message); }
+      const numero = b.numero !== undefined ? numeroDeAlerta(b.numero) : antes.numero;
+      if (numero !== antes.numero && db().prepare(`SELECT 1 FROM alerta_destino WHERE numero = ?`).get(numero)) {
+        throw new ErroHttp(409, 'esse número já recebe alertas');
+      }
+      db().prepare(`UPDATE alerta_destino SET nome = ?, numero = ?, tipos = ?, severidade_minima = ?, ativo = ? WHERE id = ?`).run(
+        b.nome !== undefined && String(b.nome).trim() ? String(b.nome).trim() : antes.nome,
+        numero, JSON.stringify(tipos), sev,
+        b.ativo !== undefined ? (b.ativo ? 1 : 0) : (antes.ativo ? 1 : 0), id,
+      );
+      const depois = destinoPorId(id);
+      registrarAuditoria(ator(req), 'alerta_destino.editar', numero, antes, depois);
+      json(res, 200, { ok: true, destino: depois });
+      return true;
+    }
+  }
+
   if (req.method === 'GET' && p === '/api/equipes') {
     const linhas = db().prepare(
       `SELECT e.*, (SELECT COUNT(*) FROM permissao p WHERE p.equipe = e.id) membros FROM equipe e ORDER BY e.nome`,

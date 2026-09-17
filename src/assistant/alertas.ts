@@ -13,6 +13,7 @@ import { db } from './store/db';
 import { obter, dentroDaJanela } from './config-dinamica';
 import { publicar } from './eventos';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
+import { destinosDoAlerta, registrarEnvio } from './destinos-alerta';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -112,13 +113,19 @@ export async function emitir(p: {
 }
 
 async function despachar(a: Alerta): Promise<void> {
-  const destino = obter<string>('alertas.destino_grupo');
+  const grupo = obter<string>('alertas.destino_grupo');
   const motivoNaoEnvio = (m: string) => {
     db().prepare(`UPDATE alerta SET envio_erro = ? WHERE id = ?`).run(m, a.id);
     a.envio_erro = m;
   };
 
-  if (!destino) return motivoNaoEnvio('sem grupo de destino configurado (alertas.destino_grupo)');
+  const alvos: Array<{ rotulo: string; jid: string }> = [
+    ...(grupo ? [{ rotulo: 'grupo', jid: grupo }] : []),
+    ...destinosDoAlerta(a).map((d) => ({ rotulo: d.nome, jid: d.numero })),
+  ];
+  if (!alvos.length) {
+    return motivoNaoEnvio('ninguém recebe este tipo de alerta (sem grupo e sem pessoa cadastrada para ele)');
+  }
 
   const inicio = obter<string>('alertas.silencio_inicio');
   const fim = obter<string>('alertas.silencio_fim');
@@ -130,13 +137,20 @@ async function despachar(a: Alerta): Promise<void> {
     return motivoNaoEnvio('instância Evolution dos técnicos não configurada');
   }
 
-  const ok = await evoTecnicos.enviarTexto(destino, a.texto);
-  if (!ok) return motivoNaoEnvio('falha ao enviar pelo WhatsApp (ver log do Evolution)');
+  const falhas: string[] = [];
+  for (const alvo of alvos) {
+    const ok = await evoTecnicos.enviarTexto(alvo.jid, a.texto);
+    registrarEnvio(a.id, alvo.rotulo, ok, ok ? null : 'falha no WhatsApp (ver log do Evolution)');
+    if (!ok) falhas.push(alvo.rotulo);
+  }
+  if (falhas.length === alvos.length) return motivoNaoEnvio(`falha ao enviar pelo WhatsApp para ${falhas.join(', ')} (ver log do Evolution)`);
 
   const agora = new Date().toISOString();
-  db().prepare(`UPDATE alerta SET enviado_em = ?, envio_erro = NULL WHERE id = ?`).run(agora, a.id);
+  const parcial = falhas.length ? `não chegou para: ${falhas.join(', ')}` : null;
+  db().prepare(`UPDATE alerta SET enviado_em = ?, envio_erro = ? WHERE id = ?`).run(agora, parcial, a.id);
   a.enviado_em = agora;
-  logger.info(`Alerta enviado: ${a.titulo}`);
+  a.envio_erro = parcial;
+  logger.info(`Alerta enviado: ${a.titulo}`, { para: alvos.length, falhas: falhas.length });
 }
 
 export function marcarResolvido(chave: string): Alerta | null {
