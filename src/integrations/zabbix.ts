@@ -146,6 +146,8 @@ export class ZabbixClient {
     if (/\bpop\b/i.test(blob) && /queda|off|down|indispon/i.test(blob)) return 'pop_off';
     if (/\bpoe\b/i.test(blob) && /falha|desligado|off|down/i.test(blob)) return 'poe';
     if (/\blink\b/i.test(blob) && /queda|rompimento|down|fora/i.test(blob)) return 'link';
+    // "Interface XGigabitEthernet0/0/5 - OPER_ANGOLA down": porta de operadora caída (17/09/2026).
+    if (/\binterface\b/i.test(nome) && /\b(down|link\s*down|oper(ational)?\s*status.*down)\b/i.test(nome)) return 'link';
     if (/\b(onu|roteador|equipamento)\b/i.test(blob)) {
       if (/energia|power|desligad/i.test(blob)) return 'energia_cliente';
       if (/offline|down|falha|los|sinal/i.test(blob)) return 'equipamento_cliente';

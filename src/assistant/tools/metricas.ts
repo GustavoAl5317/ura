@@ -7,6 +7,7 @@
 import { config } from '../../config';
 import * as zm from '../../integrations/zabbix-metricas';
 import type { ItemMetrica, Interface, Onu } from '../../integrations/zabbix-metricas';
+import { zabbix } from '../../integrations/zabbix';
 import { Ferramenta, medir, ferramentas } from './base';
 
 function exigirZabbix(): void {
@@ -105,8 +106,8 @@ const links: Ferramenta = {
   nome: 'zabbix_links',
   fonte: 'zabbix',
   descricao:
-    'Tráfego atual das interfaces, ordenado pelo maior volume, com capacidade da porta e ' +
-    'UTILIZAÇÃO %. Responde "como está o link principal?", "tem link saturado?". ' +
+    'Ranking do tráfego atual das interfaces, ordenado pelo maior volume, com capacidade da porta e ' +
+    'UTILIZAÇÃO %. Responde "quais links mais carregados?", "tem link saturado?". Para UM link pelo nome (Angola, ETICE...), use zabbix_link. ' +
     'Os links de borda (saída para a internet) estão nos roteadores com "BGP" no nome ' +
     '(NE20-BGP-01, NE8K-AQUI-FOR-BGP) — use equipamento="BGP" para o link principal. ' +
     'Interface com coleta "sem_coleta" ou "atrasada" NÃO tem tráfego zero: tem leitura ausente. ' +
@@ -147,6 +148,150 @@ const links: Ferramenta = {
             maiores: ordenadas.slice(0, top).map(iface),
           },
           vazio: lista.length === 0,
+        };
+      }),
+    ];
+  },
+};
+
+// ─── Um link específico ─────────────────────────────────────────────────────
+
+/** ifOperStatus (IF-MIB): 1 up, 2 down, 3 testing, 4 unknown, 5 dormant, 6 notPresent, 7 lowerLayerDown. */
+const OPER_STATUS: Record<number, string> = {
+  1: 'up', 2: 'down', 3: 'testing', 4: 'desconhecido', 5: 'dormant', 6: 'ausente', 7: 'down (camada inferior)',
+};
+const ESTADO_FORA = /\b(down|offline|fora|inativ\w*|queda|rompimento|sem\s*link)\b/i;
+
+/** Interface citada num nome de item ou trigger: "Interface XGigabitEthernet0/0/5 - OPER_ANGOLA ..." → "XGigabitEthernet0/0/5". */
+export function portaDoTexto(texto: string): string | null {
+  return texto.match(/\binterface\s+([A-Za-z-]*\d+(?:\/\d+)*(?:\.\d+)?)/i)?.[1] ?? null;
+}
+
+export function situacaoDoLink(p: {
+  problemas: Array<{ nome: string }>;
+  operStatus: number | null;
+  trafegoVivo: boolean;
+}): { situacao: 'fora' | 'com_problema' | 'no_ar' | 'desconhecida'; motivo: string } {
+  const queda = p.problemas.find((x) => ESTADO_FORA.test(x.nome));
+  if (queda) return { situacao: 'fora', motivo: `alerta aberto no Zabbix: "${queda.nome}"` };
+  if (p.operStatus !== null && [2, 7].includes(p.operStatus)) {
+    return { situacao: 'fora', motivo: `porta com estado operacional ${OPER_STATUS[p.operStatus]}` };
+  }
+  if (p.problemas.length) return { situacao: 'com_problema', motivo: `alerta aberto no Zabbix: "${p.problemas[0].nome}"` };
+  if (p.operStatus === 1) return { situacao: 'no_ar', motivo: 'porta up e nenhum alerta aberto' };
+  if (p.trafegoVivo) return { situacao: 'no_ar', motivo: 'tráfego sendo coletado e nenhum alerta aberto' };
+  return { situacao: 'desconhecida', motivo: 'sem alerta aberto, mas sem estado da porta nem tráfego coletado' };
+}
+
+const link: Ferramenta = {
+  nome: 'zabbix_link',
+  fonte: 'zabbix',
+  descricao:
+    'Valida UM link pelo nome (operadora, trânsito, PTT ou interface): "como está o link da Angola?", ' +
+    '"o link da ETICE caiu?", "valida o IX-CE". Cruza os ALERTAS ABERTOS no Zabbix com esse nome ' +
+    '(ex.: "Interface XGigabitEthernet0/0/5 - OPER_ANGOLA down"), o estado operacional da porta ' +
+    '(up/down) e o tráfego atual, e devolve a situação: fora, com_problema, no_ar ou desconhecida, ' +
+    'com desde quando. Use SEMPRE esta para pergunta sobre um link específico; zabbix_links é para ranking de tráfego.',
+  parametros: {
+    type: 'object',
+    properties: {
+      link: { type: 'string', description: 'Nome do link como se fala: "angola", "etice", "seaborn", "IX-CE" ou a interface' },
+    },
+    required: ['link'],
+  },
+  async executar(args, ctx) {
+    const termo = String(args.link ?? '').trim();
+    return [
+      await medir(ctx, 'zabbix', 'zabbix.link', { link: termo }, async () => {
+        exigirZabbix();
+        if (termo.length < 2) throw new Error('informe o nome do link');
+
+        const [problemas, itens] = await Promise.all([
+          zabbix.problemasPorPadroes([termo]),
+          zm.buscarItens({ nome: termo, limite: 300 }),
+        ]);
+
+        // Agrupa o que achou por equipamento + porta.
+        type Grupo = { host: string; porta: string; nomes: Set<string>; oper: ItemMetrica | null; trafego: ItemMetrica[]; problemas: typeof problemas };
+        const grupos = new Map<string, Grupo>();
+        const grupo = (host: string, porta: string) => {
+          const k = `${host}|${porta}`.toLowerCase();
+          if (!grupos.has(k)) grupos.set(k, { host, porta, nomes: new Set(), oper: null, trafego: [], problemas: [] });
+          return grupos.get(k)!;
+        };
+        for (const it of itens) {
+          const porta = portaDoTexto(it.nome) ?? zm.interfaceDoItem(it.nome, it.chave);
+          const g = grupo(it.host, porta);
+          g.nomes.add(it.nome.replace(/:\s.*$/, ''));
+          if (/oper(ational)?\s*status|status\s*operacional|ifOperStatus/i.test(`${it.nome} ${it.chave}`)) g.oper = it;
+          else if (it.unidade === 'bps' && zm.sentidoDoItem(it.nome) && zm.sentidoDoItem(it.nome) !== 'velocidade') g.trafego.push(it);
+        }
+        const soltos: typeof problemas = [];
+        for (const p of problemas) {
+          const host = p.hosts?.[0]?.name ?? '';
+          const porta = portaDoTexto(p.name);
+          const alvo = [...grupos.values()].find((g) => (!host || g.host === host) && porta && g.porta.toLowerCase() === porta.toLowerCase());
+          if (alvo) alvo.problemas.push(p);
+          else if (porta && host) grupo(host, porta).problemas.push(p);
+          else soltos.push(p);
+        }
+
+        const agora = Date.now();
+        const problema = (p: (typeof problemas)[number]) => ({
+          alerta: p.name,
+          equipamento: p.hosts?.[0]?.name ?? null,
+          severidade: Number(p.severity),
+          desde: new Date(Number(p.clock) * 1000).toISOString(),
+          ha_min: Math.round((agora - Number(p.clock) * 1000) / 60_000),
+        });
+
+        const links = [...grupos.values()].map((g) => {
+          const operStatus = g.oper?.coleta === 'viva' ? g.oper.valorNumerico : null;
+          const vivos = g.trafego.filter((t) => t.coleta === 'viva' && t.valorNumerico !== null);
+          const s = situacaoDoLink({
+            problemas: g.problemas.map((p) => ({ nome: p.name })),
+            operStatus,
+            trafegoVivo: vivos.length > 0,
+          });
+          return {
+            equipamento: g.host,
+            interface: g.porta,
+            descricao: [...g.nomes][0] ?? null,
+            situacao: s.situacao,
+            motivo: s.motivo,
+            estado_da_porta: operStatus === null
+              ? (g.oper ? `sem coleta (${g.oper.coleta})` : 'item de estado não encontrado')
+              : OPER_STATUS[operStatus] ?? String(operStatus),
+            trafego: g.trafego.map((t) => ({ item: t.nome.replace(/^.*?:\s*/, ''), ...item(t) })),
+            alertas_abertos: g.problemas.map(problema),
+          };
+        }).sort((a, b) => ['fora', 'com_problema', 'desconhecida', 'no_ar'].indexOf(a.situacao)
+          - ['fora', 'com_problema', 'desconhecida', 'no_ar'].indexOf(b.situacao));
+
+        const nadaAchado = !links.length && !soltos.length;
+        let sugestoes: string[] = [];
+        if (nadaAchado) {
+          // Ajuda a perguntar de volta: nomes de porta dos roteadores de borda.
+          const borda = await zm.buscarItens({ host: 'BGP', unidade: 'bps', limite: 2000 }).catch(() => []);
+          sugestoes = [...new Set(borda.map((i) => i.nome.replace(/:\s.*$/, '').replace(/^interface\s+/i, '')))]
+            // Só porta com descrição ("... - OPER_ANGOLA", "...(IX-CE)"): nome cru de porta não ajuda a perguntar.
+            .filter((n) => /\s-\s\S|\(\S/.test(n))
+            .slice(0, 40);
+        }
+
+        return {
+          vazio: nadaAchado,
+          dados: {
+            link: termo,
+            situacao_geral: links[0]?.situacao ?? (soltos.length ? 'com_problema' : 'nao_encontrado'),
+            links,
+            outros_alertas_com_o_nome: soltos.map(problema),
+            ...(nadaAchado ? {
+              nao_encontrado: `Nenhum alerta aberto, item ou interface no Zabbix com "${termo}" no nome. ` +
+                'Pode ser outro nome no cadastro: pergunte ao técnico ou ofereça as portas abaixo. Não afirme que o link está no ar.',
+              portas_dos_roteadores_de_borda: sugestoes,
+            } : {}),
+          },
         };
       }),
     ];
@@ -328,5 +473,5 @@ const olt: Ferramenta = {
 };
 
 export function registrarFerramentasMetricas(): void {
-  ferramentas.registrar(equipamentos, links, metricas, onuZabbix, olt);
+  ferramentas.registrar(equipamentos, links, link, metricas, onuZabbix, olt);
 }
