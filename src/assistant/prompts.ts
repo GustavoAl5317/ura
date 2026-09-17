@@ -112,6 +112,8 @@ export const PROMPT_FONTE_NETFLOW = `Sobre o NetFlow: os volumes são ESTIMADOS 
 
 export const PROMPT_FONTE_QUESTDB = `Sobre as CTOs (QuestDB): o sinal é a MÉDIA em dBm do sinal óptico dos clientes da CTO, lido a cada 5 minutos, em todas as OLTs. Mais negativo é pior; abaixo de -27 dBm é ruim. "Piorou" é comparado com a média da própria CTO nos dias anteriores, e o limiar vem da ferramenta — não recalcule. Sinal nulo é "sem leitura", nunca 0 dBm. A série NÃO diz se a CTO está fora do ar: clientes_ativos é cadastro, não quem está online. Para queda, use analisar_cto ou o Zabbix. Várias CTOs da mesma PON piorando juntas apontam para o tronco ou a PON. Ao falar de ocupação, diga portas livres e o total.`;
 
+export const PROMPT_FONTE_WHATSAPP = `Sobre o atendimento pelo WhatsApp: os dados vêm do ura-chat, o atendimento oficial dos clientes. "Clientes que mandaram mensagem" conta conversas, não pessoas únicas por CPF. Quem está esperando é quem aguarda atendente assumir ou aguarda resposta do atendente; conversa só com a IA não é espera. Ao citar clientes esperando, diga há quanto tempo.`;
+
 const SEMENTES: Record<string, string> = {
   principal: PROMPT_PRINCIPAL_PADRAO,
   revisao: PROMPT_REVISAO_PADRAO,
@@ -120,6 +122,7 @@ const SEMENTES: Record<string, string> = {
   'fonte:ura': PROMPT_FONTE_URA,
   'fonte:netflow': PROMPT_FONTE_NETFLOW,
   'fonte:questdb': PROMPT_FONTE_QUESTDB,
+  'fonte:whatsapp': PROMPT_FONTE_WHATSAPP,
 };
 
 /**

@@ -244,6 +244,26 @@ export class EvolutionClient {
     }
   }
 
+  /**
+   * O número tem WhatsApp? Devolve o JID que o WhatsApp usa para ele — que pode
+   * diferir do digitado (nono dígito). null = não deu para verificar.
+   */
+  async verificarNumero(numero: string): Promise<{ existe: boolean; jid: string | null } | null> {
+    if (!this.disponivel) return null;
+    try {
+      const res = await this.client.post<Array<{ exists?: boolean; jid?: string; number?: string }>>(
+        `/chat/whatsappNumbers/${this.cfg.instance}`,
+        { numbers: [soNumero(paraJid(numero))] },
+      );
+      const r = Array.isArray(res.data) ? res.data[0] : undefined;
+      if (!r) return null;
+      return { existe: !!r.exists, jid: r.exists && r.jid ? r.jid : null };
+    } catch (err) {
+      this.falha('verificarNumero', err, { numero: soNumero(paraJid(numero)).slice(0, 6) + '…' });
+      return null;
+    }
+  }
+
   async estadoConexao(): Promise<{ ok: boolean; estado?: string; erro?: string }> {
     if (!this.disponivel) return { ok: false, erro: 'nao_configurado' };
     try {

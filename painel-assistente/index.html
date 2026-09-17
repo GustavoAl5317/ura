@@ -1318,7 +1318,7 @@ subCarregadores.permissoes = async () => {
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
-const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow', 'fonte:questdb': 'Sobre as CTOs (QuestDB)' };
+const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow', 'fonte:questdb': 'Sobre as CTOs (QuestDB)', 'fonte:whatsapp': 'Sobre o atendimento (WhatsApp)' };
 subCarregadores.prompts = async (chaveSel) => {
   const alvo = $('[data-subpainel="prompts"]');
   try {

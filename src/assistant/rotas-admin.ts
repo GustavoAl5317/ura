@@ -82,6 +82,18 @@ function validarEquipe(v: unknown): string | null {
 
 const PAPEIS = ['tecnico', 'noc', 'supervisor', 'admin'];
 
+/**
+ * Número conferido no WhatsApp: recusa quem não tem conta e troca pelo JID que
+ * o WhatsApp usa. Se a verificação não responder, segue com o digitado.
+ */
+async function numeroConferido(v: unknown): Promise<string> {
+  const jid = numeroDeAlerta(v);
+  if (jid.endsWith('@g.us')) return jid;
+  const r = await evoTecnicos.verificarNumero(jid);
+  if (r && !r.existe) throw new ErroHttp(400, `o número ${jid.split('@')[0]} não tem WhatsApp — confira DDD e dígitos`);
+  return r?.jid ?? jid;
+}
+
 /** Celular com DDD (vira JID) ou id de grupo (…@g.us). */
 function numeroDeAlerta(v: unknown): string {
   const bruto = String(v ?? '').trim();
@@ -191,7 +203,7 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
     const b = await lerJson<{ nome?: string; numero?: string; tipos?: unknown; severidade_minima?: unknown; ativo?: boolean }>(req);
     const nome = String(b.nome ?? '').trim();
     if (!nome) throw new ErroHttp(400, 'informe o nome de quem recebe');
-    const numero = numeroDeAlerta(b.numero);
+    const numero = await numeroConferido(b.numero);
     let tipos, sev;
     try { tipos = validarTipos(b.tipos); sev = validarSeveridade(b.severidade_minima); } catch (e) { throw new ErroHttp(400, (e as Error).message); }
     if (db().prepare(`SELECT 1 FROM alerta_destino WHERE numero = ?`).get(numero)) throw new ErroHttp(409, 'esse número já recebe alertas; edite o cadastro existente');
@@ -212,6 +224,13 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
 
     if (mDest[2] && req.method === 'POST') {
       if (!evoTecnicos.disponivel) throw new ErroHttp(409, 'WhatsApp do assistente não configurado');
+      // Cadastro antigo pode ter o JID errado (nono dígito): o teste é a hora de corrigir.
+      const conferido = await numeroConferido(antes.numero);
+      if (conferido !== antes.numero) {
+        db().prepare(`UPDATE alerta_destino SET numero = ? WHERE id = ?`).run(conferido, id);
+        registrarAuditoria(ator(req), 'alerta_destino.corrigir_numero', conferido, { numero: antes.numero }, { numero: conferido });
+        antes.numero = conferido;
+      }
       const ok = await evoTecnicos.enviarTexto(antes.numero,
         `✅ *Teste de alerta*\nOlá, ${antes.nome}! Você vai receber por aqui: ${antes.tipos.map((t) => TIPOS_ALERTA[t]).join(', ')}.`);
       registrarAuditoria(ator(req), 'alerta_destino.teste', antes.numero, undefined, { ok });
@@ -234,7 +253,7 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
         if (b.tipos !== undefined) tipos = validarTipos(b.tipos);
         if (b.severidade_minima !== undefined) sev = validarSeveridade(b.severidade_minima);
       } catch (e) { throw new ErroHttp(400, (e as Error).message); }
-      const numero = b.numero !== undefined ? numeroDeAlerta(b.numero) : antes.numero;
+      const numero = b.numero !== undefined ? await numeroConferido(b.numero) : antes.numero;
       if (numero !== antes.numero && db().prepare(`SELECT 1 FROM alerta_destino WHERE numero = ?`).get(numero)) {
         throw new ErroHttp(409, 'esse número já recebe alertas');
       }

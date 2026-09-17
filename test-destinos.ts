@@ -43,6 +43,16 @@ Object.defineProperty(evoTecnicos, 'disponivel', { get: () => true });
   return true;
 };
 const para = () => enviados.map((e) => e.para).sort();
+// Verificação no WhatsApp: por padrão existe com o mesmo JID; o teste muda por número.
+const semWhats = new Set<string>();
+const jidReal = new Map<string, string>();
+let verificacaoFora = false;
+(evoTecnicos as any).verificarNumero = async (n: string) => {
+  if (verificacaoFora) return null;
+  const jid = n.includes('@') ? n : `${n.replace(/\D/g, '')}@s.whatsapp.net`;
+  if (semWhats.has(jid)) return { existe: false, jid: null };
+  return { existe: true, jid: jidReal.get(jid) ?? jid };
+};
 
 const servidor = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
@@ -105,6 +115,28 @@ async function main() {
   const idGrupo = r.j.destino.id;
   r = await api('GET', '/api/alertas-destinos');
   checa('lista com tipos e gravidades para o painel', r.j.destinos.length === 3 && r.j.tipos.ctos && r.j.severidades.length === 3, r.j);
+
+  console.log('\n─── Conferência do número no WhatsApp ───');
+  semWhats.add('5585944444444@s.whatsapp.net');
+  r = await api('POST', '/api/alertas-destinos', { nome: 'Sem Whats', numero: '85944444444', tipos: ['rede'] });
+  checa('número sem WhatsApp é recusado', r.status === 400 && /não tem WhatsApp/.test(r.j.error), r);
+  jidReal.set('5585955555555@s.whatsapp.net', '558555555555@s.whatsapp.net');
+  r = await api('POST', '/api/alertas-destinos', { nome: 'Nono', numero: '85955555555', tipos: ['rede'], severidade_minima: 'critico' });
+  checa('grava o JID que o WhatsApp usa (sem o nono dígito)', r.status === 201 && r.j.destino.numero === '558555555555@s.whatsapp.net', r);
+  const idNono = r.j.destino.id;
+  verificacaoFora = true;
+  r = await api('POST', '/api/alertas-destinos', { nome: 'Fora', numero: '85966666666', tipos: ['rede'], severidade_minima: 'critico' });
+  checa('verificação fora do ar: aceita o digitado', r.status === 201 && r.j.destino.numero === '5585966666666@s.whatsapp.net', r);
+  const idFora = r.j.destino.id;
+  verificacaoFora = false;
+  jidReal.set('5585966666666@s.whatsapp.net', '558566666666@s.whatsapp.net');
+  enviados.length = 0;
+  r = await api('POST', `/api/alertas-destinos/${idFora}/teste`);
+  const corrigido = (await api('GET', '/api/alertas-destinos')).j.destinos.find((d: any) => d.id === idFora);
+  checa('teste corrige o número salvo e envia para o JID certo',
+    r.status === 200 && corrigido.numero === '558566666666@s.whatsapp.net' && enviados[0]?.para === '558566666666@s.whatsapp.net', { r, corrigido, enviados });
+  await api('DELETE', `/api/alertas-destinos/${idNono}`);
+  await api('DELETE', `/api/alertas-destinos/${idFora}`);
 
   console.log('\n─── Quem recebe o quê ───');
   enviados.length = 0;
@@ -196,7 +228,7 @@ async function main() {
   checa('inexistente = 404', r.status === 404);
 
   const aud = db().prepare(`SELECT acao, ator FROM auditoria WHERE acao LIKE 'alerta_destino.%'`).all() as Array<{ acao: string; ator: string }>;
-  checa('tudo auditado com quem fez', ['criar', 'editar', 'teste', 'remover'].every((x) => aud.some((a) => a.acao === `alerta_destino.${x}`)) && aud.every((a) => a.ator === 'painel:teste'), aud);
+  checa('tudo auditado com quem fez', ['criar', 'editar', 'teste', 'remover', 'corrigir_numero'].every((x) => aud.some((a) => a.acao === `alerta_destino.${x}`)) && aud.every((a) => a.ator === 'painel:teste'), aud);
 
   servidor.close();
   fecharDb();

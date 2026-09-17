@@ -18,6 +18,7 @@ import { registrarFerramentasMetricas } from './tools/metricas';
 import { registrarFerramentasCausais } from './tools/causal';
 import { registrarFerramentasNetflow } from './tools/netflow';
 import { registrarFerramentasCtos } from './tools/ctos';
+import { registrarFerramentasAtendimento } from './tools/atendimento';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
@@ -298,6 +299,7 @@ async function main(): Promise<void> {
   registrarFerramentasNetflow();
   registrarFerramentasRelatorios();
   registrarFerramentasCtos();
+  registrarFerramentasAtendimento();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;
