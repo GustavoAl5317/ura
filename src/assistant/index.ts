@@ -18,6 +18,7 @@ import { registrarFerramentasMetricas } from './tools/metricas';
 import { registrarFerramentasCausais } from './tools/causal';
 import { registrarFerramentasNetflow } from './tools/netflow';
 import { registrarFerramentasCtos } from './tools/ctos';
+import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
 import { parseWebhook } from '../integrations/evolution';
@@ -312,10 +313,11 @@ async function main(): Promise<void> {
   logger.info(`  Ferramentas: ${ferramentas.disponiveis(null).length}`);
   logger.info('══════════════════════════════════════════');
 
-  if (!evo.autorizados.length) {
+  const modoWhats = obter<string>('whatsapp.acesso');
+  logger.info(`  Quem pergunta no WhatsApp: ${modoWhats} (painel → Configuração → WhatsApp)`);
+  if (modoWhats === 'cadastrados' && !evo.autorizados.length) {
     logger.warn(
-      'EVO_TEC_AUTORIZADOS vazio — o assistente vai IGNORAR toda mensagem. ' +
-      'Isso é proposital: sem allowlist, qualquer número consultaria dado de cliente.',
+      'Modo "cadastrados" e EVO_TEC_AUTORIZADOS vazio: só respondem os números da aba Técnicos do painel.',
     );
   }
 

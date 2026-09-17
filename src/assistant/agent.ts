@@ -165,6 +165,38 @@ export function conversaValida(texto: string, evidencias: Envelope[]): { ok: boo
   return { ok: true };
 }
 
+const CUMPRIMENTO = /^(oi+|ol[aá]+|opa+|e a[ií]|eae|eai|fala|salve|bom dia|boa tarde|boa noite|tudo (bem|bom|certo)|como vai)$/;
+// "ok", "certo", "beleza" ficam de fora: depois de uma pergunta de volta, são resposta a ela.
+const AGRADECIMENTO = /^(obrigad[oa]|muito obrigad[oa]|obg|brigad[oa]|valeu|vlw|agrade[cç]o)$/;
+const DESPEDIDA = /^(tchau|at[eé] mais|at[eé] logo|flw|falou|at[eé] amanh[aã])$/;
+
+/**
+ * Resposta para mensagem que é SÓ cumprimento, agradecimento ou despedida.
+ * null = tem pergunta junto ("bom dia, a CTO 5 caiu?") e vai para o modelo.
+ */
+export function respostaSocial(pergunta: string, agora: Date): string | null {
+  const partes = pergunta
+    .toLowerCase()
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, ' ')
+    .replace(/[!?.,;:~\s]+/g, ' ')
+    .trim()
+    .replace(/\s+(pessoal|galera|gente|assistente|bot|robo|robô|tudo bem|tudo bom|td bem)$/, '')
+    .split(/\s+e\s+|\s*,\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!partes.length || pergunta.length > 60) return null;
+  const junto = partes.join(' ');
+  const tipos = [CUMPRIMENTO, AGRADECIMENTO, DESPEDIDA];
+  const tipo = tipos.find((re) => re.test(junto)) ?? (partes.every((p) => tipos.some((re) => re.test(p))) ? CUMPRIMENTO : null);
+  if (!tipo) return null;
+
+  if (tipo === AGRADECIMENTO) return 'Por nada! Qualquer coisa, é só chamar.';
+  if (tipo === DESPEDIDA) return 'Até mais! Qualquer coisa, é só chamar.';
+  const hora = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Fortaleza', hour: '2-digit', hour12: false }).format(agora)) % 24;
+  const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  return `${saudacao}! Em que posso ajudar? Posso ver incidentes da rede, CTOs, sinal e histórico de clientes, O.S., tráfego e clientes online.`;
+}
+
 function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
   const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO|CONVERSA)\s*\n?/i);
   if (!m) {
@@ -212,6 +244,18 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   const t0 = Date.now();
   const evidencias: Envelope[] = [];
   let contadorEvd = 0;
+
+  // Cumprimento puro não passa pelo modelo: o gpt-4.1-mini respondeu "olá"
+  // só com "VEREDITO: INCONCLUSIVO" e corpo vazio (17/09/2026).
+  const social = respostaSocial(pedido.pergunta, new Date());
+  if (social) {
+    const r: RespostaAssistente = {
+      veredito: 'CONVERSA', texto: social, evidencias: [], fontesIndisponiveis: [], lacunas: [],
+      modelo: 'conversa', duracaoMs: Date.now() - t0,
+    };
+    persistir(pedido, r);
+    return r;
+  }
 
   // Fontes efetivas = habilitadas globalmente ∩ permitidas ao usuário.
   const doUsuario = fontesDoUsuario(pedido.usuario);
@@ -405,8 +449,17 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     textoFinal = 'VEREDITO: INCONCLUSIVO\nNão consegui concluir dentro do limite de consultas.';
   }
 
-  const { veredito: pedidoDoModelo, corpo: semVeredito } = extrairVereditoProposto(textoFinal);
-  const { hipotese, corpo } = extrairHipotese(semVeredito);
+  const extraido = extrairVereditoProposto(textoFinal);
+  const { hipotese, corpo: corpoModelo } = extrairHipotese(extraido.corpo);
+  let pedidoDoModelo = extraido.veredito;
+  let corpo = corpoModelo;
+
+  // Só a linha do veredito, sem texto e sem consulta: o modelo não entendeu o
+  // pedido. Mostrar "INCONCLUSIVO" vazio não ajuda ninguém; perguntar, sim.
+  if (!corpo.trim() && !evidencias.length) {
+    pedidoDoModelo = 'CONVERSA';
+    corpo = 'Não entendi bem o que você precisa. Pode me dizer sobre qual cliente, CTO, equipamento ou região é a pergunta?';
+  }
 
   if (pedidoDoModelo === 'CONVERSA') {
     const cv = conversaValida(corpo, evidencias);

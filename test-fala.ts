@@ -16,7 +16,7 @@ process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'aq-fala-')));
 /* eslint-disable @typescript-eslint/no-var-requires */
 const { extenso, textoParaFala } = require(path.join(RAIZ, 'src', 'assistant', 'fala')) as typeof import('./src/assistant/fala');
 const { falaDaResposta } = require(path.join(RAIZ, 'src', 'assistant', 'voice')) as typeof import('./src/assistant/voice');
-const { conversaValida } = require(path.join(RAIZ, 'src', 'assistant', 'agent')) as typeof import('./src/assistant/agent');
+const { conversaValida, respostaSocial } = require(path.join(RAIZ, 'src', 'assistant', 'agent')) as typeof import('./src/assistant/agent');
 const { formatarResposta } = require(path.join(RAIZ, 'src', 'assistant', 'evidence')) as typeof import('./src/assistant/evidence');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
@@ -148,6 +148,23 @@ const recusa: Array<[string, any[]]> = [
   ['', []],
 ];
 for (const [t, e] of recusa) checa(`recusa: "${t.slice(0, 50)}"`, !conversaValida(t, e).ok, conversaValida(t, e));
+
+console.log('\n─── Cumprimento respondido sem IA ───');
+const manha = new Date('2026-09-17T09:30:00-03:00');
+const tarde = new Date('2026-09-17T14:00:00-03:00');
+const noite = new Date('2026-09-17T20:00:00-03:00');
+for (const m of ['ola', 'olá', 'Oi', 'oiii', 'Olá!', 'bom dia', 'Bom dia!!', 'boa tarde pessoal', 'e aí', 'opa, tudo bem?', 'oi 👋']) {
+  checa(`"${m}" é cumprimento`, (respostaSocial(m, manha) ?? '').startsWith('Bom dia!'), respostaSocial(m, manha));
+}
+checa('de tarde: boa tarde', (respostaSocial('olá', tarde) ?? '').startsWith('Boa tarde!'));
+checa('de noite: boa noite (mesmo se ele disse bom dia)', (respostaSocial('bom dia', noite) ?? '').startsWith('Boa noite!'));
+checa('obrigado', respostaSocial('obrigado!', manha) === 'Por nada! Qualquer coisa, é só chamar.');
+checa('valeu', /Por nada/.test(respostaSocial('valeu', manha) ?? ''));
+checa('tchau', /Até mais/.test(respostaSocial('tchau', manha) ?? ''));
+for (const m of ['bom dia, a CTO 5 caiu?', 'oi, quantos clientes online?', 'ok', 'certo', 'sim', 'CTO 3 da Araçá',
+  'boa tarde, preciso da revisão do cliente João', 'olá tudo bem? tem incidente aberto?', '']) {
+  checa(`"${m}" vai para a IA`, respostaSocial(m, manha) === null, respostaSocial(m, manha));
+}
 
 console.log('\n─── Formatação da conversa no WhatsApp ───');
 const f = formatarResposta({ veredito: 'CONVERSA', texto: '  Boa tarde! Em que posso ajudar?  ', evidencias: [], fontesIndisponiveis: [], lacunas: ['x'] });

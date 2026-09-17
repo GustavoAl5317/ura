@@ -222,6 +222,28 @@ export class EvolutionClient {
   }
 
   /** Checa se a instância está conectada — alimenta o painel de integrações. */
+  /**
+   * Pede à Evolution um QR (e, com número, um código de pareamento) para ligar
+   * o WhatsApp à instância. Cada chamada pode gerar um código novo e invalidar
+   * o anterior: quem chama controla a frequência.
+   */
+  async conectar(numero?: string): Promise<{ qr: string | null; codigo: string | null }> {
+    if (!this.disponivel) throw new Error('instância Evolution não configurada');
+    try {
+      const res = await this.client.get<{ base64?: string; pairingCode?: string | null }>(
+        `/instance/connect/${this.cfg.instance}`,
+        { params: numero ? { number: numero } : {} },
+      );
+      const qr = res.data?.base64;
+      return {
+        qr: typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null,
+        codigo: res.data?.pairingCode ?? null,
+      };
+    } catch (err) {
+      throw this.erroLegivel(err);
+    }
+  }
+
   async estadoConexao(): Promise<{ ok: boolean; estado?: string; erro?: string }> {
     if (!this.disponivel) return { ok: false, erro: 'nao_configurado' };
     try {
