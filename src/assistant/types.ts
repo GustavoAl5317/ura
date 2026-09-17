@@ -47,8 +47,14 @@ export function envelopeErro(base: Omit<Envelope, 'ok' | 'vazio' | 'dados'>, err
 
 export type Veredito = 'CONFIRMADO' | 'PROVAVEL' | 'INCONCLUSIVO';
 
+/**
+ * CONVERSA: cumprimento, agradecimento ou pergunta de volta ao técnico —
+ * resposta que não afirma nada sobre a rede. Só o código concede (agent.ts).
+ */
+export type VereditoResposta = Veredito | 'CONVERSA';
+
 export interface RespostaAssistente {
-  veredito: Veredito;
+  veredito: VereditoResposta;
   /** Motivo do veredito quando o código rebaixou o que o modelo propôs. */
   vereditoAjustado?: string;
   texto: string;

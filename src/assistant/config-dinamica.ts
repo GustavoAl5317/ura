@@ -63,8 +63,17 @@ export const DEFINICOES = {
   },
   'audio.voz': {
     tipo: 'texto', grupo: 'audio', padrao: () => config.assistant.ttsVoice,
-    opcoes: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
-    descricao: 'Voz da síntese.',
+    opcoes: ['nova', 'shimmer', 'alloy', 'coral', 'sage', 'marin', 'echo', 'onyx', 'fable', 'ash', 'ballad', 'verse', 'cedar'],
+    descricao: 'Voz da síntese. coral, sage, marin, ash, ballad, verse e cedar só existem no gpt-4o-mini-tts; no tts-1 elas viram nova.',
+  },
+  'audio.modelo': {
+    tipo: 'texto', grupo: 'audio', padrao: () => config.tts.openaiSpeechModel || 'gpt-4o-mini-tts',
+    opcoes: ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'],
+    descricao: 'Modelo de voz. O gpt-4o-mini-tts segue o estilo abaixo e soa mais natural; se a conta recusar, cai sozinho para o tts-1.',
+  },
+  'audio.estilo': {
+    tipo: 'texto', grupo: 'audio', padrao: () => '',
+    descricao: 'Como a voz deve falar (tom, ritmo, sotaque). Vazio usa o padrão: colega calmo do NOC, português do Brasil, devagar em números. Só vale no gpt-4o-mini-tts.',
   },
   'audio.max_caracteres': {
     tipo: 'inteiro', grupo: 'audio', padrao: () => 1500, min: 200, max: 4000,

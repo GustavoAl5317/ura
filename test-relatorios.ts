@@ -113,6 +113,31 @@ async function main() {
   indexar([cliente(1, 'Cancelado', 'Financeiro')]);
   checa('sync repetido não duplica', eventos().length === 2, eventos());
 
+  console.log('\n─── Ativos x online (offline estimado) ───');
+  const comServicos = (id: number, status: string, servicos: Array<{ id: number; status?: string }>) => ({
+    id, nome: `CLIENTE ${id}`, contratos: [{ id: 100 + id, status, servicos }],
+  });
+  indexar([
+    cliente(1, 'Cancelado', 'Financeiro'),
+    comServicos(10, 'Ativo', [{ id: 1001, status: 'Ativo' }, { id: 1002, status: 'Suspenso' }]),
+    comServicos(11, 'Suspenso', [{ id: 1101, status: 'Ativo' }]),
+    comServicos(12, 'ATIVO', [{ id: 1201 }]),
+  ] as any);
+  let envs = await rodar('clientes_online');
+  checa('com SGP liberado vêm duas evidências', envs.length === 2 && envs[1].fonte === 'sgp', envs.map((x) => x.consulta));
+  const ax = dados(envs[1]);
+  checa('conta só serviço ativo de contrato ativo (sem status do serviço = ativo)', ax.servicos_ativos === 2, ax);
+  checa('contratos ativos pelo cadastro', ax.contratos_ativos === 4, ax);
+  checa('offline estimado = ativos − online, nunca negativo', ax.offline_estimado === 0 && ax.online_agora === 1158, ax);
+  checa('diz que é estimativa', /Estimativa/.test(ax.leitura));
+  const soZabbix = { ...ctx, fontesPermitidas: ['zabbix'] as any };
+  envs = await ferramentas.get('clientes_online')!.executar({}, soZabbix);
+  checa('sem acesso ao SGP: só o número online', envs.length === 1 && envs[0].fonte === 'zabbix');
+  cenario = 'nada';
+  envs = await rodar('clientes_online');
+  checa('sem sessões lidas: offline fica sem número', dados(envs[1]).offline_estimado === null, dados(envs[1]));
+  cenario = 'normal';
+
   console.log('\n─── Instalações ───');
   [e] = await rodar('relatorio_instalacoes', { dias: 7 });
   const inst = dados(e).instalacoes;

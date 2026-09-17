@@ -140,7 +140,7 @@ function horaCurta(iso: string): string {
  * O rastro não é enfeite — é o que permite conferir a resposta sem acreditar nela.
  */
 export function formatarResposta(params: {
-  veredito: Veredito;
+  veredito: Veredito | 'CONVERSA';
   ajuste?: string;
   texto: string;
   evidencias: Envelope[];
@@ -149,6 +149,8 @@ export function formatarResposta(params: {
   hipotese?: string;
   incluirRastro?: boolean;
 }): string {
+  // Conversa não tem o que atestar: selo e rodapé ali seriam ruído.
+  if (params.veredito === 'CONVERSA') return params.texto.trim();
   const linhas: string[] = [];
   linhas.push(`${EMOJI[params.veredito]} *${ROTULO[params.veredito]}*`);
   linhas.push('');

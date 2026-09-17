@@ -142,13 +142,36 @@ function extrairHipotese(texto: string): { hipotese?: string; corpo: string } {
   };
 }
 
-function extrairVereditoProposto(texto: string): { veredito: Veredito; corpo: string } {
-  const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO)\s*\n?/i);
+/**
+ * A resposta pode ficar sem veredito? Só se não afirma nada sobre a rede.
+ * O modelo pede CONVERSA; o código confere, porque "VEREDITO: CONVERSA" seguido
+ * de "a rede está normal" seria a alucinação sem selo que o projeto existe
+ * para impedir.
+ */
+export function conversaValida(texto: string, evidencias: Envelope[]): { ok: boolean; motivo?: string } {
+  const t = texto.trim();
+  if (!t) return { ok: false, motivo: 'resposta vazia' };
+  if (t.length > 600) return { ok: false, motivo: 'longa demais para ser só conversa' };
+  if (/\bevd_\d+/i.test(t)) return { ok: false, motivo: 'cita evidência' };
+  const afirma = /\b(est[aá]|t[aá]|est[aã]o|ficou|ficaram|segue|seguem|continua|continuam|voltou|voltaram|caiu|ca[ií]ram)\s+(tudo\s+|todos?\s+|todas?\s+)?(normal|normais|ok|bem|est[aá]ve(l|is)|fora|offline|online|no ar|ca[ií]d[ao]s?|sem sinal|com problema)\b|\bsem (nenhum |nenhuma )?(problema|incidente|alerta|queda|falha)s?\b|\b(n[aã]o )?(h[aá]|tem|existe)m? (nenhum |nenhuma |um |uma )?(incidente|queda|problema|alerta|falha|rompimento)/i;
+  if (afirma.test(t)) return { ok: false, motivo: 'afirma algo sobre a rede' };
+  // Verbo de estado sozinho só é afirmação fora de pergunta: "quer saber se a CTO caiu?" pode.
+  const afirmativas = t.split(/(?<=[.!?])\s+/).filter((f) => !/\?\s*$/.test(f));
+  if (afirmativas.some((f) => /\b(caiu|ca[ií]ram|voltou|voltaram|normalizou|normalizaram|restabeleceu|restabeleceram|rompeu|parou|pararam)\b/i.test(f))) {
+    return { ok: false, motivo: 'afirma algo sobre a rede' };
+  }
+  // Com consulta feita, só vale como pergunta de volta (ex.: qual das CTOs).
+  if (evidencias.length && !/\?\s*$/.test(t)) return { ok: false, motivo: 'consultou as fontes e respondeu sem veredito' };
+  return { ok: true };
+}
+
+function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
+  const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO|CONVERSA)\s*\n?/i);
   if (!m) {
     // Sem declaração explícita não se assume o melhor caso.
     return { veredito: 'PROVAVEL', corpo: texto.trim() };
   }
-  const bruto = m[1].toUpperCase().replace('PROVÁVEL', 'PROVAVEL') as Veredito;
+  const bruto = m[1].toUpperCase().replace('PROVÁVEL', 'PROVAVEL') as Veredito | 'CONVERSA';
   return { veredito: bruto, corpo: texto.slice(m[0].length).trim() };
 }
 
@@ -252,6 +275,15 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   }
 
   if (pedido.origemAudio) {
+    messages.push({
+      role: 'system',
+      content:
+        'A resposta desta pergunta vai ser OUVIDA em áudio (o texto vai junto). Escreva como se fala: ' +
+        'frases curtas, no máximo 4 ou 5, sem lista longa e sem tabela. Dê primeiro a resposta, depois ' +
+        'o detalhe que muda a conduta. Arredonde quando a precisão não importar ("cerca de 2 gigabits"), ' +
+        'mas nunca arredonde sinal óptico, contrato ou horário. Datas como "16/09" e horas como "21:33" — ' +
+        'a conversão para fala é automática. Não leia rótulo de evidência em voz alta: cite evd_N só entre parênteses no fim da frase.',
+    });
     messages.push({
       role: 'system',
       content:
@@ -373,8 +405,29 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     textoFinal = 'VEREDITO: INCONCLUSIVO\nNão consegui concluir dentro do limite de consultas.';
   }
 
-  const { veredito: proposto, corpo: semVeredito } = extrairVereditoProposto(textoFinal);
+  const { veredito: pedidoDoModelo, corpo: semVeredito } = extrairVereditoProposto(textoFinal);
   const { hipotese, corpo } = extrairHipotese(semVeredito);
+
+  if (pedidoDoModelo === 'CONVERSA') {
+    const cv = conversaValida(corpo, evidencias);
+    if (cv.ok) {
+      const conversa: RespostaAssistente = {
+        veredito: 'CONVERSA',
+        texto: corpo,
+        evidencias,
+        fontesIndisponiveis: [],
+        lacunas: [],
+        modelo: obter<string>('ia.modelo'),
+        tokensEntrada,
+        tokensSaida,
+        duracaoMs: Date.now() - t0,
+      };
+      persistir(pedido, conversa);
+      return conversa;
+    }
+    logger.info('Assistente: conversa recusada, segue com veredito', { usuario: pedido.usuario, motivo: cv.motivo });
+  }
+  const proposto: Veredito = pedidoDoModelo === 'CONVERSA' ? 'INCONCLUSIVO' : pedidoDoModelo;
   const decisao = calcularVeredito(proposto, evidencias, corpo);
 
   const resultado: RespostaAssistente = {

@@ -10,7 +10,7 @@ import { logger } from '../../logger';
 import { EvolutionClient, MensagemRecebida, soNumero } from '../../integrations/evolution';
 import { db } from '../store/db';
 import { responder, paraWhatsApp } from '../agent';
-import { transcrever, sintetizar } from '../voice';
+import { transcrever, sintetizar, falaDaResposta } from '../voice';
 import { obter, FONTES_PUBLICAS } from '../config-dinamica';
 import { FonteId } from '../types';
 
@@ -209,6 +209,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   gravarMensagem(conversaId, 'user', msg.formato === 'audio' ? 'audio' : 'texto', pergunta);
 
   let textoResposta: string;
+  let fala = '';
   try {
     const r = await responder({
       pergunta,
@@ -222,6 +223,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
         : undefined,
     });
     textoResposta = paraWhatsApp(r);
+    fala = falaDaResposta(r);
     logger.info('Assistente: respondeu', {
       autor: soNumero(msg.autorJid).slice(0, 8) + '…',
       acesso,
@@ -238,7 +240,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   }
 
   const querAudio = respostaEmAudio && obter<boolean>('audio.responder_em_audio');
-  const ogg = querAudio ? await sintetizar(textoResposta, 'opus') : null;
+  const ogg = querAudio ? await sintetizar(fala, 'opus') : null;
   if (querAudio && !ogg) logger.warn('Assistente: sem áudio de resposta, seguiu só o texto');
 
   gravarMensagem(conversaId, 'assistant', ogg ? 'audio' : 'texto', textoResposta);

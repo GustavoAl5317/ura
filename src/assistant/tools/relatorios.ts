@@ -13,7 +13,7 @@ import { db } from '../store/db';
 import { statusIndice, idadeEspelho } from '../store/sgp-index';
 import { obter } from '../config-dinamica';
 import { diaLocal, instanteSgp, normalizar } from '../datas';
-import { Ferramenta, medir, ferramentas } from './base';
+import { Ferramenta, medir, ferramentas, podeFonte } from './base';
 
 // ─── Clientes online ────────────────────────────────────────────────────────
 
@@ -95,14 +95,53 @@ const clientesOnline: Ferramenta = {
     'Quantos clientes estão online AGORA: sessões PPPoE ativas nos concentradores, lidas do Zabbix, ' +
     'com o total, o detalhe por concentrador, a variação na última hora e a comparação com ontem no ' +
     'mesmo horário. Uma sessão PPPoE = um serviço conectado. Responde "quantos clientes estão online?", ' +
-    '"caiu muita gente?". Para a foto do cadastro (contratos ativos, cancelados), use panorama_rede.',
+    '"caiu muita gente?", "quantos estão offline?". Com acesso ao SGP, traz também os serviços ativos no ' +
+    'cadastro e a ESTIMATIVA de offline (ativos − online): use esse número, não faça a conta. ' +
+    'Para a foto completa do cadastro (contratos por situação), use panorama_rede.',
   parametros: { type: 'object', properties: {}, required: [] },
   async executar(_args, ctx) {
-    return [await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.clientes_online', {}, async () => {
-      return { dados: await lerSessoesOnline() };
+    let online: number | null = null;
+    const envs = [await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.clientes_online', {}, async () => {
+      const r = await lerSessoesOnline();
+      online = r.online_agora;
+      return { dados: r };
     })];
+    if (!podeFonte(ctx, 'sgp')) return envs;
+    envs.push(await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.ativos_x_online', {}, async () => {
+      const c = contarAtivos();
+      return {
+        dados: {
+          ...c,
+          online_agora: online,
+          offline_estimado: online === null || c.servicos_ativos === null ? null : Math.max(0, c.servicos_ativos - online),
+          leitura:
+            'Estimativa: serviços ativos no cadastro (foto do sync) menos sessões PPPoE agora. Inclui quem ' +
+            'desligou o roteador, suspensos que o SGP ainda marca como ativos e clientes instalados depois do sync. ' +
+            'Diga que é estimativa e a idade do cadastro. Sem sessões lidas no Zabbix, não há estimativa.',
+        },
+        vazio: c.servicos_ativos === null,
+      };
+    }));
+    return envs;
   },
 };
+
+/**
+ * Serviços de contratos ativos, pelo espelho. Situação do contrato decide
+ * ("Ativo"); serviço com situação própria que não seja ativa fica de fora.
+ */
+export function contarAtivos(): { servicos_ativos: number | null; contratos_ativos: number | null; origem: string } {
+  if (!statusIndice().disponivel) return { servicos_ativos: null, contratos_ativos: null, origem: 'espelho do SGP ainda não sincronizado' };
+  const d = db();
+  const linhas = d.prepare(
+    `SELECT c.status cst, s.status sst, COUNT(*) n FROM sgp_servico s JOIN sgp_contrato c ON c.contrato_id = s.contrato_id GROUP BY 1, 2`,
+  ).all() as Array<{ cst: string | null; sst: string | null; n: number }>;
+  const ativo = (x: string | null) => /^ativ/i.test(normalizar(x ?? ''));
+  const servicos = linhas.filter((l) => ativo(l.cst) && (l.sst === null || l.sst === '' || ativo(l.sst))).reduce((s, l) => s + l.n, 0);
+  const contratos = (d.prepare(`SELECT status st, COUNT(*) n FROM sgp_contrato GROUP BY 1`).all() as Array<{ st: string | null; n: number }>)
+    .filter((l) => ativo(l.st)).reduce((s, l) => s + l.n, 0);
+  return { servicos_ativos: servicos, contratos_ativos: contratos, origem: idadeEspelho() };
+}
 
 // ─── Instalações e cancelamentos ────────────────────────────────────────────
 

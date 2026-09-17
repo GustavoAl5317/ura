@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { Rota, json, lerBytes, ator, ErroHttp } from './http-util';
 import { responder, paraWhatsApp } from './agent';
-import { transcrever, sintetizar } from './voice';
+import { transcrever, sintetizar, falaDaResposta } from './voice';
 import { obter } from './config-dinamica';
 import { logger } from '../logger';
 
@@ -76,7 +76,7 @@ export const rotasChatAudio: Rota = async (req, res, url, p) => {
 
   // mp3, não opus: Safari não toca Opus e o chat precisa funcionar em qualquer navegador.
   const querAudio = obter<boolean>('audio.responder_em_audio');
-  const mp3 = querAudio ? await sintetizar(paraWhatsApp(r), 'mp3') : null;
+  const mp3 = querAudio ? await sintetizar(falaDaResposta(r), 'mp3') : null;
   if (querAudio && !mp3) logger.warn('Painel: síntese falhou, resposta vai só em texto');
 
   json(res, 200, {
