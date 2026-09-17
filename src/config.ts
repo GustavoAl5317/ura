@@ -294,13 +294,15 @@ export const config = {
 
   questdb: {
     enabled: optBool('QUESTDB_ENABLED', false),
-    /** Endpoint HTTP /exec do QuestDB — ex.: http://10.169.0.30:9000 */
+    /** Endpoint HTTP do QuestDB — ex.: http://10.169.0.52:9000 */
     baseUrl: opt('QUESTDB_URL', ''),
     user: opt('QUESTDB_USER', ''),
     password: opt('QUESTDB_PASSWORD', ''),
     timeoutMs: optInt('QUESTDB_TIMEOUT_MS', 15_000),
-    /** Tabela de sinais das CTOs. */
-    tabelaSinais: opt('QUESTDB_TABELA_SINAIS', 'cto_sinais'),
+    /** Tabela das CTOs: uma linha por CTO a cada ~5 min (sinal, ocupação). */
+    tabelaSinais: opt('QUESTDB_TABELA_SINAIS', 'ctos'),
+    /** Sem linha nova há mais que isto = coleta parada (a coleta é a cada 5 min). */
+    silencioMaxMin: optInt('QUESTDB_SILENCIO_MAX_MIN', 20),
   },
 
   netflow: {

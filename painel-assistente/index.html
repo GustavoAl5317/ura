@@ -460,7 +460,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         </div>
         <div class="filtros">
           <div class="campo"><label for="f-alerta-origem">Origem</label>
-            <select id="f-alerta-origem"><option value="">Todas</option><option value="zabbix">Rede (Zabbix)</option><option value="ura">URA</option><option value="sla">Atendimento</option><option value="sistema">Sistema</option></select></div>
+            <select id="f-alerta-origem"><option value="">Todas</option><option value="zabbix">Rede (Zabbix)</option><option value="ura">URA</option><option value="sla">Atendimento</option><option value="netflow">Tráfego (NetFlow)</option><option value="ctos">Sinal das CTOs</option><option value="sistema">Sistema</option></select></div>
           <label class="interruptor" style="padding-bottom:8px"><input type="checkbox" id="f-alerta-abertos"> Só sem resolução</label>
         </div>
         <div class="bloco tabela-rolagem"><table><thead><tr><th>Quando</th><th>Nível</th><th>Alerta</th><th>Entrega</th><th></th></tr></thead><tbody id="tb-alertas"></tbody></table></div>
@@ -1086,7 +1086,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1250,7 +1250,7 @@ subCarregadores.permissoes = async () => {
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
-const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow' };
+const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow', 'fonte:questdb': 'Sobre as CTOs (QuestDB)' };
 subCarregadores.prompts = async (chaveSel) => {
   const alvo = $('[data-subpainel="prompts"]');
   try {

@@ -77,7 +77,7 @@ async function main() {
   cfg.definir('whatsapp.acesso', 'rede', 'teste');
 
   console.log('\n─── Fontes do acesso público ───');
-  checa('padrão: zabbix e netflow', JSON.stringify(canal.fontesPublicas()) === '["zabbix","netflow"]', canal.fontesPublicas());
+  checa('padrão: zabbix, netflow e questdb', JSON.stringify(canal.fontesPublicas()) === '["zabbix","netflow","questdb"]', canal.fontesPublicas());
   erro = '';
   try { cfg.definir('whatsapp.fontes_publicas', ['zabbix', 'sgp'], 'teste'); } catch (e) { erro = (e as Error).message; }
   checa('painel não consegue abrir o SGP ao público', /sgp/.test(erro), erro);

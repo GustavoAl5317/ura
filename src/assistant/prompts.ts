@@ -97,6 +97,8 @@ export const PROMPT_FONTE_URA = `Sobre a URA: a intenção de uma chamada é der
 
 export const PROMPT_FONTE_NETFLOW = `Sobre o NetFlow: os volumes são ESTIMADOS por amostragem (a ferramenta diz o fator). Diga "cerca de" e não apresente como medição exata; para capacidade e ocupação de um link, o Zabbix é a fonte. Se a ferramenta falhar dizendo que a coleta está parada, a resposta é que não há dado de tráfego — nunca que "não há tráfego". Cliente associado a um IP vem do cadastro no último sync e pode ter mudado: para afirmar que o consumo é de um cliente, confirme o IP atual com revisao_cliente. Ataque do Flow Guard é suspeita por heurística: fale em "suspeita de ataque" e mostre a evidência (origens, protocolos, duração), sem afirmar que é ataque. Para "está normal?" ou "o que mudou?", use netflow_variacao, que compara com os dias anteriores. Em investigação de queda ou lentidão, o NetFlow ajuda a ver se o tráfego caiu junto e se há suspeita de ataque no período.`;
 
+export const PROMPT_FONTE_QUESTDB = `Sobre as CTOs (QuestDB): o sinal é a MÉDIA em dBm do sinal óptico dos clientes da CTO, lido a cada 5 minutos, em todas as OLTs. Mais negativo é pior; abaixo de -27 dBm é ruim. "Piorou" é comparado com a média da própria CTO nos dias anteriores, e o limiar vem da ferramenta — não recalcule. Sinal nulo é "sem leitura", nunca 0 dBm. A série NÃO diz se a CTO está fora do ar: clientes_ativos é cadastro, não quem está online. Para queda, use analisar_cto ou o Zabbix. Várias CTOs da mesma PON piorando juntas apontam para o tronco ou a PON. Ao falar de ocupação, diga portas livres e o total.`;
+
 const SEMENTES: Record<string, string> = {
   principal: PROMPT_PRINCIPAL_PADRAO,
   revisao: PROMPT_REVISAO_PADRAO,
@@ -104,6 +106,7 @@ const SEMENTES: Record<string, string> = {
   'fonte:sgp': PROMPT_FONTE_SGP,
   'fonte:ura': PROMPT_FONTE_URA,
   'fonte:netflow': PROMPT_FONTE_NETFLOW,
+  'fonte:questdb': PROMPT_FONTE_QUESTDB,
 };
 
 /**

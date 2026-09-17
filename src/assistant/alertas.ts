@@ -14,7 +14,7 @@ import { obter, dentroDaJanela } from './config-dinamica';
 import { publicar } from './eventos';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 
-export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'sistema';
+export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
 
 export interface Alerta {
@@ -63,6 +63,8 @@ export async function emitir(p: {
   dados?: unknown;
   /** Grava sem enviar. Usado para semear problemas antigos no primeiro boot. */
   silencioso?: boolean;
+  /** Motivo registrado no lugar do "semeado" quando silencioso (ex.: agrupado em outra mensagem). */
+  motivoSemEnvio?: string;
   /**
    * É um acontecimento (chamada recebida, incidente resolvido), não um problema
    * em aberto: nasce resolvido. Sem isto, cada chamada da URA ficaria para sempre
@@ -86,6 +88,7 @@ export async function emitir(p: {
     resolvido_em: null,
   };
   if (p.evento) alerta.resolvido_em = alerta.criado_em;
+  const motivoSilencio = p.motivoSemEnvio ?? 'semeado sem envio (já existia quando o monitor iniciou)';
 
   const r = db().prepare(
     `INSERT OR IGNORE INTO alerta (id, origem, severidade, titulo, texto, dados, chave, criado_em, envio_erro, resolvido_em)
@@ -93,13 +96,13 @@ export async function emitir(p: {
   ).run(
     alerta.id, alerta.origem, alerta.severidade, alerta.titulo, alerta.texto,
     alerta.dados === null ? null : JSON.stringify(alerta.dados), alerta.chave, alerta.criado_em,
-    p.silencioso ? 'semeado sem envio (já existia quando o monitor iniciou)' : null,
+    p.silencioso ? motivoSilencio : null,
     alerta.resolvido_em,
   );
   if (!r.changes) return null;   // chave repetida: fato já alertado
 
   if (p.silencioso) {
-    alerta.envio_erro = 'semeado sem envio (já existia quando o monitor iniciou)';
+    alerta.envio_erro = motivoSilencio;
     return alerta;
   }
 

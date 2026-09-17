@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -31,7 +31,7 @@ const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
  * WhatsApp (conversas do atendimento) são dado pessoal, e nenhuma configuração
  * do painel deve conseguir abri-las para desconhecidos.
  */
-export const FONTES_PUBLICAS = ['zabbix', 'netflow'] as const satisfies readonly FonteId[];
+export const FONTES_PUBLICAS = ['zabbix', 'netflow', 'questdb'] as const satisfies readonly FonteId[];
 
 export const DEFINICOES = {
   // ── IA ──────────────────────────────────────────────────────────────────
@@ -179,6 +179,36 @@ export const DEFINICOES = {
     descricao: 'Avisa suspeitas de ataque de severidade crítica detectadas pelo Flow Guard.',
   },
 
+  // ── Monitor do sinal das CTOs (QuestDB) ─────────────────────────────────
+  'monitor.ctos.ativo': {
+    tipo: 'booleano', grupo: 'monitor_ctos', padrao: () => config.questdb.enabled,
+    descricao: 'Avisa quando o sinal de uma CTO fica pior que o normal dela e quando a coleta para.',
+  },
+  'monitor.ctos.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'monitor_ctos', padrao: () => 600, min: 300, max: 3600,
+    descricao: 'De quanto em quanto tempo verifica (segundos). A coleta é a cada 5 minutos.',
+  },
+  'monitor.ctos.limiar_db': {
+    tipo: 'numero', grupo: 'monitor_ctos', padrao: () => 3, min: 1, max: 15,
+    descricao: 'Piora mínima, em dB, para avisar. CTO que oscila muito usa 3× a própria oscilação, se for maior.',
+  },
+  'monitor.ctos.critico_db': {
+    tipo: 'numero', grupo: 'monitor_ctos', padrao: () => 6, min: 2, max: 30,
+    descricao: 'Piora a partir da qual o aviso é crítico (fura o horário de silêncio).',
+  },
+  'monitor.ctos.janela_min': {
+    tipo: 'inteiro', grupo: 'monitor_ctos', padrao: () => 30, min: 10, max: 240,
+    descricao: 'Minutos recentes comparados com o normal. Mais curto avisa antes; mais longo ignora picos isolados.',
+  },
+  'monitor.ctos.dias_referencia': {
+    tipo: 'inteiro', grupo: 'monitor_ctos', padrao: () => 7, min: 1, max: 60,
+    descricao: 'Dias anteriores que definem o sinal normal de cada CTO.',
+  },
+  'monitor.ctos.alertar_coleta': {
+    tipo: 'booleano', grupo: 'monitor_ctos', padrao: () => true,
+    descricao: 'Avisa quando o QuestDB para de receber leituras das CTOs.',
+  },
+
   // ── Resumo diário ───────────────────────────────────────────────────────
   'resumo.ativo': {
     tipo: 'booleano', grupo: 'resumo', padrao: () => true,
@@ -190,8 +220,8 @@ export const DEFINICOES = {
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
-    padrao: () => ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
-    opcoes: ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    padrao: () => ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    opcoes: ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
     descricao: 'O que entra no resumo.',
   },
 
@@ -220,7 +250,7 @@ export const DEFINICOES = {
       'Número desativado na aba Técnicos continua bloqueado em qualquer modo.',
   },
   'whatsapp.fontes_publicas': {
-    tipo: 'lista', grupo: 'whatsapp', padrao: () => ['zabbix', 'netflow'],
+    tipo: 'lista', grupo: 'whatsapp', padrao: () => ['zabbix', 'netflow', 'questdb'],
     opcoes: FONTES_PUBLICAS,
     descricao: 'No modo "rede", fontes que um número não cadastrado pode consultar. Cadastro de cliente (SGP), URA e atendimento ficam sempre de fora.',
   },

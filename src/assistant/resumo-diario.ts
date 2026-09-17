@@ -23,8 +23,9 @@ import type { ZabbixEventoTipo } from '../integrations/zabbix';
 import { diaLocal, horaLocal, rotuloData, instanteSgp } from './datas';
 import { netflow, formatarMbps, mbpsMedio, estimar } from '../integrations/netflow';
 import { lerSessoesOnline, casaMotivo } from './tools/relatorios';
+import { questdb, avaliarSinal, SINAL_RUIM_DBM } from '../integrations/questdb';
 
-export const SECOES = ['rede', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'] as const;
+export const SECOES = ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'] as const;
 export type Secao = (typeof SECOES)[number];
 
 /** Se o serviço estava fora no horário, ainda manda até este tanto depois. Mais que isso, o resumo "de hoje cedo" já perdeu o sentido. */
@@ -101,11 +102,24 @@ export interface ResumoClientes {
   reincidentes: Array<{ cliente: string; contrato: number; os: number }> | null;
 }
 
+export interface ResumoCtos {
+  disponivel: true;
+  avaliadas: number;
+  piorando: Array<{ nome: string; pon: string | null; piora: number; atual: number }>;
+  sinalRuim: number;
+  semLeitura: number;
+  alertas24h: number;
+  lotadas: number;
+  portasLivres: number;
+  ocupacaoPct: number | null;
+}
+
 export interface Resumo {
   inicio: string;
   fim: string;
   secoes: Partial<{
     rede: ResumoRede | Indisponivel;
+    ctos: ResumoCtos | Indisponivel;
     trafego: ResumoTrafego | Indisponivel;
     os: ResumoOs | Indisponivel;
     clientes: ResumoClientes | Indisponivel;
@@ -324,6 +338,46 @@ const NOME_ASN_CURTO: Record<number, string> = {
   20940: 'Akamai', 16509: 'Amazon', 13335: 'Cloudflare', 138699: 'TikTok', 396986: 'ByteDance',
 };
 
+export async function coletarCtos(inicio: Date, fim: Date): Promise<ResumoCtos | Indisponivel> {
+  if (!questdb.disponivel) return { disponivel: false, motivo: 'QuestDB não configurado' };
+  try {
+    questdb.limparCache();
+    const f = await questdb.frescor();
+    if (!f.viva) return { disponivel: false, motivo: `coleta das CTOs parada (última leitura: ${f.ultima ? horaLocal(new Date(f.ultima)) : 'nenhuma em 3 dias'})` };
+    const minutos = obter<number>('monitor.ctos.janela_min');
+    const [atuais, recentes, bases] = await Promise.all([
+      questdb.ctosAtuais(),
+      questdb.recente(minutos),
+      questdb.referencia(obter<number>('monitor.ctos.dias_referencia'), minutos),
+    ]);
+    const rec = new Map(recentes.map((x) => [x.cto_id, x]));
+    const bas = new Map(bases.map((x) => [x.cto_id, x]));
+    const limiar = obter<number>('monitor.ctos.limiar_db');
+    const av = atuais.map((c) => ({ c, a: avaliarSinal(rec.get(c.cto_id), bas.get(c.cto_id), limiar) }));
+    const portas = atuais.reduce((s, c) => s + (c.portas ?? 0), 0);
+    const ocupadas = atuais.reduce((s, c) => s + (c.clientes ?? 0), 0);
+    const alertas24h = (db().prepare(
+      `SELECT COUNT(*) n FROM alerta WHERE origem = 'ctos' AND chave LIKE 'ctos:sinal:%' AND chave NOT LIKE '%:resolvido'
+         AND chave NOT LIKE 'ctos:sinal:grupo:%' AND criado_em >= ? AND criado_em < ?`,
+    ).get(inicio.toISOString(), fim.toISOString()) as { n: number }).n;
+    return {
+      disponivel: true,
+      avaliadas: atuais.length,
+      piorando: av.filter((x) => x.a.situacao === 'piorou')
+        .sort((x, y) => (y.a.variacao_db ?? 0) - (x.a.variacao_db ?? 0))
+        .map((x) => ({ nome: x.c.nome, pon: x.c.pon, piora: x.a.variacao_db ?? 0, atual: x.a.atual ?? 0 })),
+      sinalRuim: av.filter((x) => x.a.atual !== null && x.a.atual <= SINAL_RUIM_DBM).length,
+      semLeitura: av.filter((x) => x.a.situacao === 'sem_leitura').length,
+      alertas24h,
+      lotadas: atuais.filter((c) => (c.ocupacao ?? 0) >= 100).length,
+      portasLivres: Math.max(0, portas - ocupadas),
+      ocupacaoPct: portas ? Math.round((ocupadas / portas) * 1000) / 10 : null,
+    };
+  } catch (err) {
+    return { disponivel: false, motivo: `QuestDB não respondeu (${erroTexto(err)})` };
+  }
+}
+
 export async function coletarTrafego(inicio: Date, fim: Date): Promise<ResumoTrafego | Indisponivel> {
   if (!netflow.disponivel) return { disponivel: false, motivo: 'NetFlow não configurado' };
   const j = { inicio: Math.floor(inicio.getTime() / 1000), fim: Math.floor(fim.getTime() / 1000) };
@@ -433,7 +487,7 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
   const fim = new Date(r.fim);
   const partes: string[] = [`📋 *Resumo das últimas 24 horas*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
 
-  const { rede, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
+  const { rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
 
   if (rede) {
     const l = ['', '*Rede (Zabbix)*'];
@@ -444,6 +498,23 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
       if (rede.maisLongoResolvido) l.push(`• Mais longo resolvido: ${rede.maisLongoResolvido.nome} (${duracaoHumana(rede.maisLongoResolvido.duracaoSeg)})`);
       if (rede.abertoHaMaisTempo) l.push(`• Aberto há mais tempo: ${rede.abertoHaMaisTempo.nome} (${duracaoHumana(rede.abertoHaMaisTempo.duracaoSeg)})`);
       if (rede.aviso) l.push(`• ⚠️ _Atenção: ${rede.aviso}._`);
+    }
+    partes.push(...l);
+  }
+
+  if (ctos) {
+    const l = ['', '*CTOs (sinal e ocupação)*'];
+    if (!ctos.disponivel) l.push(naoDisponivel(ctos));
+    else {
+      l.push(ctos.piorando.length
+        ? `• ⚠️ ${plural(ctos.piorando.length, 'CTO com sinal pior', 'CTOs com sinal pior')} que o normal agora`
+        : `• Nenhuma CTO com sinal pior que o normal agora (${ctos.avaliadas} avaliadas)`);
+      for (const p of ctos.piorando.slice(0, 3)) {
+        l.push(`   – ${p.nome}${p.pon ? ` (PON ${p.pon})` : ''}: ${p.atual} dBm, ${p.piora} dB pior`);
+      }
+      if (ctos.alertas24h) l.push(`• ${plural(ctos.alertas24h, 'aviso', 'avisos')} de piora de sinal nas 24h`);
+      l.push(`• Sinal abaixo de ${SINAL_RUIM_DBM} dBm: ${ctos.sinalRuim}${ctos.semLeitura ? ` · sem leitura: ${ctos.semLeitura}` : ''}`);
+      l.push(`• Ocupação ${ctos.ocupacaoPct ?? '—'}% · ${plural(ctos.portasLivres, 'porta livre', 'portas livres')} · ${plural(ctos.lotadas, 'CTO lotada', 'CTOs lotadas')}`);
     }
     partes.push(...l);
   }
@@ -570,6 +641,7 @@ export async function montarResumo(fim = new Date(), secoes: readonly string[] =
   };
 
   if (quer.has('rede')) base.secoes.rede = seguro(() => coletarRede(inicio, fim));
+  if (quer.has('ctos')) base.secoes.ctos = await coletarCtos(inicio, fim);
   if (quer.has('trafego')) base.secoes.trafego = await coletarTrafego(inicio, fim);
   if (quer.has('os')) base.secoes.os = await coletarOs(inicio, fim);
   if (quer.has('clientes')) {

@@ -22,6 +22,8 @@ import {
   type ResultadoBusca,
 } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas, CtxFerramenta } from './base';
+import { questdb } from '../../integrations/questdb';
+import { resolverCto, sinalDaCto } from './ctos';
 import { Envelope } from '../types';
 
 // ─── Utilitários ────────────────────────────────────────────────────────────
@@ -495,8 +497,8 @@ const analisarCto: Ferramenta = {
   fonte: 'sgp',
   descricao:
     'Investigação completa de UMA CTO: clientes atendidos, quantos estão sem luz agora (pela OLT), ' +
-    'se há incidente aberto no Zabbix para ela e desde quando, histórico de quedas e O.S. abertas ' +
-    'dos clientes. Aceita o nome aproximado ("CTO 3 da Rua Araca") e resolve para o cadastrado; ' +
+    'se há incidente aberto no Zabbix para ela e desde quando, histórico de quedas, O.S. abertas ' +
+    'dos clientes e, quando o QuestDB está ligado, se o sinal médio vinha piorando. Aceita o nome aproximado ("CTO 3 da Rua Araca") e resolve para o cadastrado; ' +
     'se houver mais de uma CTO parecida, devolve as candidatas para você perguntar qual é. ' +
     'Use para "a CTO X caiu?", "quem foi afetado na CTO X?". ' +
     'Clientes de OLT sem monitoramento por ONU aparecem como sem_monitoramento: não conte como online.',
@@ -635,7 +637,21 @@ const analisarCto: Ferramenta = {
       };
     }));
 
-    // 4. O.S. abertas.
+    // 4. Sinal ao longo do tempo (QuestDB): diz se a CTO vinha degradando
+    //    antes — o que o Zabbix não mostra, e em todas as OLTs.
+    if (questdb.disponivel) {
+      envs.push(await medir<Record<string, unknown>>(ctx, 'questdb', 'questdb.sinal_da_cto', { cto: nomeCto, horas }, async () => {
+        await questdb.exigirColetaViva();
+        const res = resolverCto(nomeCto, await questdb.ctosAtuais());
+        if (!res.cto) {
+          return { vazio: true, dados: { cto: nomeCto, na_serie: false, candidatas: res.candidatas } };
+        }
+        const s = await sinalDaCto(res.cto, Math.min(horas, 168));
+        return { dados: { cto: nomeCto, resolvida_por: res.por, ...s, serie: s.serie.slice(-12) } };
+      }));
+    }
+
+    // 5. O.S. abertas.
     envs.push(await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.os_relacionadas', { cto: nomeCto }, async () => {
       const r = await osDosContratos([...new Set(clientes.map((c) => c.contratoId))]);
       return {

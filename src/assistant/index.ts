@@ -17,6 +17,7 @@ import { registrarFerramentas } from './tools/consultas';
 import { registrarFerramentasMetricas } from './tools/metricas';
 import { registrarFerramentasCausais } from './tools/causal';
 import { registrarFerramentasNetflow } from './tools/netflow';
+import { registrarFerramentasCtos } from './tools/ctos';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
 import { parseWebhook } from '../integrations/evolution';
@@ -31,6 +32,7 @@ import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
 import { iniciarMonitorResumo } from './resumo-diario';
 import { iniciarMonitorNetflow } from './monitors/netflow';
+import { iniciarMonitorCtos } from './monitors/ctos';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -294,6 +296,7 @@ async function main(): Promise<void> {
   registrarFerramentasCausais();
   registrarFerramentasNetflow();
   registrarFerramentasRelatorios();
+  registrarFerramentasCtos();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;
@@ -321,6 +324,7 @@ async function main(): Promise<void> {
   iniciarMonitorSla();
   iniciarMonitorResumo();
   iniciarMonitorNetflow();
+  iniciarMonitorCtos();
 
   const atender = (req: http.IncomingMessage, res: http.ServerResponse) => {
     rotear(req, res).catch((err) => {
