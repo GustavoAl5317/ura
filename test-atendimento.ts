@@ -140,6 +140,10 @@ async function main() {
   checa('quem ligou mais de uma vez', du.numeros_que_ligaram_mais_de_uma_vez[0]?.numero === '85988887777' && du.numeros_que_ligaram_mais_de_uma_vez[0].chamadas === 2, du.numeros_que_ligaram_mais_de_uma_vez);
   checa('duração média só das que têm duração', du.duracao_media_seg === 210, du.duracao_media_seg);
   checa('última primeiro, com horário local', du.ultimas[0].status === 'em_andamento' && /-03:00$/.test(du.ultimas[0].inicio), du.ultimas[0]);
+  insUra.run('c5', '85955556666', null, null, null, 'em_andamento', iso(minAtras(180)), null, iso(minAtras(180)));
+  const [u72] = await ferramentas.get('chamadas_ura')!.executar({ horas: 4 }, ctx);
+  checa('em andamento há 3 h vira "sem aviso de encerramento"', (u72.dados as any).sem_aviso_de_encerramento === 1 && (u72.dados as any).em_andamento === 1, u72.dados);
+  db().prepare(`DELETE FROM chamada_ura WHERE call_id = 'c5'`).run();
   const [uo] = await ferramentas.get('chamadas_ura')!.executar({ periodo: 'ontem' }, ctx);
   checa('ontem: 1 chamada financeira', (uo.dados as any).chamadas === 1 && (uo.dados as any).por_intencao[0].nome === 'financeiro', uo.dados);
   const [uh] = await ferramentas.get('chamadas_ura')!.executar({ horas: 72 }, ctx);

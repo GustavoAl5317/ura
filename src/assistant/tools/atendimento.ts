@@ -144,6 +144,8 @@ const atendimento: Ferramenta = {
 
 // ─── Chamadas da URA ─────────────────────────────────────────────────────────
 
+const SEM_FIM_APOS_MS = 2 * 3600_000;
+
 interface LinhaChamada {
   call_id: string; numero: string | null; cliente_nome: string | null; contrato_id: number | null;
   intencao: string | null; status: string; iniciada_em: string; encerrada_em: string | null; duracao_seg: number | null;
@@ -159,6 +161,11 @@ export function resumoChamadas(inicio: Date, fim: Date, limite = 15) {
     `SELECT call_id, numero, cliente_nome, contrato_id, intencao, status, iniciada_em, encerrada_em, duracao_seg
        FROM chamada_ura WHERE iniciada_em >= ? AND iniciada_em < ? ORDER BY iniciada_em DESC`,
   ).all(inicio.toISOString(), fim.toISOString()) as LinhaChamada[];
+  // Ligação não dura horas: "em andamento" antigo é aviso de fim que a URA não entregou.
+  const limite2h = Date.now() - SEM_FIM_APOS_MS;
+  for (const l of linhas) {
+    if (l.status === 'em_andamento' && Date.parse(l.iniciada_em) < limite2h) l.status = 'sem_aviso_de_encerramento';
+  }
 
   const contar = (f: (l: LinhaChamada) => string) => {
     const m = new Map<string, number>();
@@ -178,6 +185,7 @@ export function resumoChamadas(inicio: Date, fim: Date, limite = 15) {
   return {
     chamadas: linhas.length,
     em_andamento: linhas.filter((l) => l.status === 'em_andamento').length,
+    sem_aviso_de_encerramento: linhas.filter((l) => l.status === 'sem_aviso_de_encerramento').length,
     encerradas: linhas.filter((l) => l.status === 'encerrada').length,
     transferidas_para_atendente: linhas.filter((l) => l.status === 'transferida').length,
     clientes_identificados: linhas.filter((l) => l.cliente_nome).length,
