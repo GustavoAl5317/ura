@@ -185,6 +185,13 @@ function migrar(d: Database.Database): void {
       depois TEXT
     );
     CREATE INDEX IF NOT EXISTS ix_auditoria_at ON auditoria(at DESC);
+
+    CREATE TABLE IF NOT EXISTS sessao_painel (
+      token      TEXT PRIMARY KEY,
+      operador   TEXT NOT NULL,
+      criada_em  TEXT NOT NULL,
+      ultima_em  TEXT NOT NULL
+    );
   `);
 
   // Colunas acrescentadas depois da primeira versão do schema. SQLite não tem
@@ -198,6 +205,11 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'sgp_sync', 'lock_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'consulta', 'hipotese', 'TEXT');
   adicionarColunaSeFaltar(d, 'permissao', 'equipe', 'TEXT');
+
+  // Limpeza de sessões do painel com mais de 90 dias
+  try { d.prepare(`DELETE FROM sessao_painel WHERE ultima_em < strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 day')`).run(); } catch {}
+  // Limpeza de conversas do chat com mais de 30 dias
+  try { d.prepare(`DELETE FROM conversa WHERE canal = 'chat' AND ultima_em < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 day')`).run(); } catch {}
 
   // ORDEM DA MIGRAÇÃO: (1) cria tabelas, (2) adiciona colunas, (3) corrige dados.
   // Correção de dado antes do CREATE TABLE derrubou o serviço em produção: o

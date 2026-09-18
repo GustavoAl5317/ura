@@ -254,8 +254,17 @@ details > summary { cursor: pointer; color: var(--tinta-2); font-size: 12.5px; }
 pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-radius: var(--raio); max-height: 320px; overflow: auto; font: 12px/1.5 var(--f-dado); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ── Chat ──────────────────────────────────────────────────────────────── */
-.chat { display: grid; grid-template-rows: 1fr auto; height: calc(100vh - 170px); min-height: 460px; }
-.mensagens { overflow: auto; padding: 4px 2px 12px; display: flex; flex-direction: column; gap: 14px; }
+.chat-container { display: flex; height: calc(100vh - 170px); min-height: 460px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--painel); overflow: hidden; }
+.chat-sidebar { width: 260px; border-right: 1px solid var(--linha); display: flex; flex-direction: column; background: var(--painel-2); }
+.lista-conversas { overflow-y: auto; flex: 1; }
+.item-conversa { padding: 12px 16px; border-bottom: 1px solid var(--linha); cursor: pointer; }
+.item-conversa:hover { background: var(--painel); }
+.item-conversa.ativa { background: var(--painel); border-left: 3px solid var(--foco); padding-left: 13px; }
+.item-conversa .titulo { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-conversa .data { font-size: 11px; color: var(--tinta-2); margin-top: 4px; }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat { display: grid; grid-template-rows: 1fr auto; flex: 1; }
+.mensagens { overflow: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 14px; }
 .msg { max-width: 820px; }
 .msg.eu { align-self: flex-end; background: var(--tinta); color: var(--painel); padding: 9px 13px; border-radius: 10px 10px 2px 10px; max-width: 70%; }
 .msg.eu .origem { font-size: 11px; opacity: .7; margin-top: 3px; }
@@ -413,27 +422,37 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
 
       <!-- Chat -->
       <section data-painel="chat" hidden>
-        <div class="cabeca-aba">
-          <div><h1>Perguntar</h1><p>Escreva para receber texto. Grave para receber áudio.</p></div>
-          <button class="botao sec mini" type="button" id="btn-limpar-chat">Nova conversa</button>
-        </div>
-        <div class="chat bloco">
-          <div class="mensagens" id="mensagens" aria-live="polite">
-            <div class="vazio-msg" id="chat-vazio">
-              Pergunte como a um colega do NOC. Por exemplo:<br>
-              <span class="dado">como está o link principal agora?</span><br>
-              <span class="dado">revisão completa do cliente &lt;nome ou SN&gt;</span><br>
-              <span class="dado">por que a PON 0/1/8 da OLT 3 tem cliente sem luz?</span>
+        <div class="chat-container">
+          <div class="chat-sidebar">
+            <div class="cabeca-aba" style="margin-bottom:0; padding:16px;">
+              <div><h1>Conversas</h1></div>
+              <button class="botao sec mini" type="button" id="btn-limpar-chat">Nova</button>
+            </div>
+            <div class="lista-conversas" id="lista-conversas"></div>
+          </div>
+          <div class="chat-main">
+            <div class="cabeca-aba" style="padding:16px 16px 0; margin-bottom:0;">
+              <div><h1>Perguntar</h1><p>Escreva para receber texto. Grave para receber áudio.</p></div>
+            </div>
+            <div class="chat bloco" style="height: 100%; border:none;">
+              <div class="mensagens" id="mensagens" aria-live="polite">
+                <div class="vazio-msg" id="chat-vazio">
+                  Pergunte como a um colega do NOC. Por exemplo:<br>
+                  <span class="dado">como está o link principal agora?</span><br>
+                  <span class="dado">revisão completa do cliente &lt;nome ou SN&gt;</span><br>
+                  <span class="dado">por que a PON 0/1/8 da OLT 3 tem cliente sem luz?</span>
+                </div>
+              </div>
+              <form class="compositor" id="form-chat">
+                <textarea id="in-pergunta" rows="1" placeholder="Pergunte sobre a rede, um cliente, uma CTO…" aria-label="Pergunta"></textarea>
+                <button class="botao sec mic" type="button" id="btn-mic" aria-label="Gravar pergunta em áudio" title="Gravar pergunta em áudio">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+                </button>
+                <button class="botao" type="submit" id="btn-enviar">Enviar</button>
+                <div class="nota-mic" id="nota-mic" hidden></div>
+              </form>
             </div>
           </div>
-          <form class="compositor" id="form-chat">
-            <textarea id="in-pergunta" rows="1" placeholder="Pergunte sobre a rede, um cliente, uma CTO…" aria-label="Pergunta"></textarea>
-            <button class="botao sec mic" type="button" id="btn-mic" aria-label="Gravar pergunta em áudio" title="Gravar pergunta em áudio">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-            </button>
-            <button class="botao" type="submit" id="btn-enviar">Enviar</button>
-            <div class="nota-mic" id="nota-mic" hidden></div>
-          </form>
         </div>
       </section>
 
@@ -582,16 +601,14 @@ function toast(msg, tipo = '') {
    Sessão e API
    ───────────────────────────────────────────────────────────────────────── */
 const sessao = {
-  get chave() { try { return sessionStorage.getItem('aq.chave') || ''; } catch { return ''; } },
-  get operador() { try { return sessionStorage.getItem('aq.operador') || ''; } catch { return ''; } },
-  salvar(chave, operador) { try { sessionStorage.setItem('aq.chave', chave); sessionStorage.setItem('aq.operador', operador); } catch {} },
-  limpar() { try { sessionStorage.removeItem('aq.chave'); } catch {} },
+  operador: '',
+  conversaAtiva: '',
 };
 
 class ErroApi extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
 async function api(metodo, caminho, corpo, extra = {}) {
-  const headers = { 'x-admin-key': sessao.chave, 'x-operador': sessao.operador, ...(extra.headers || {}) };
+  const headers = { ...(extra.headers || {}) };
   let body;
   if (corpo instanceof Blob) body = corpo;
   else if (corpo !== undefined) { body = JSON.stringify(corpo); headers['Content-Type'] = 'application/json'; }
@@ -611,21 +628,20 @@ $('#form-entrada').addEventListener('submit', async (ev) => {
   const chave = $('#in-chave').value.trim();
   const operador = $('#in-operador').value.trim();
   $('#erro-entrada').hidden = true;
-  sessao.salvar(chave, operador);
   try {
-    const r = await fetch('/api/health', { headers: { 'x-admin-key': chave } });
-    if (r.status === 401) throw new Error('Chave incorreta.');
-    if (!r.ok) throw new Error(`O assistente respondeu com erro ${r.status}.`);
+    const r = await api('POST', '/api/sessao', { chave, operador });
+    sessao.operador = r.operador;
     iniciar();
   } catch (e) {
-    sessao.limpar();
     $('#erro-entrada').textContent = e.message === 'Failed to fetch' ? 'Não consegui falar com o assistente. Ele está no ar?' : e.message;
     $('#erro-entrada').hidden = false;
   }
 });
 
-function sair(motivo) {
-  sessao.limpar();
+async function sair(motivo) {
+  try { await api('DELETE', '/api/sessao'); } catch {}
+  sessao.operador = '';
+  sessao.conversaAtiva = '';
   fontesStream?.close();
   $('#tela-app').hidden = true;
   $('#tela-entrada').hidden = false;
@@ -797,7 +813,7 @@ async function semearLinhaDoTempo() {
 
 function abrirStream() {
   fontesStream?.close();
-  const es = new EventSource(`/api/eventos/stream?key=${encodeURIComponent(sessao.chave)}`);
+  const es = new EventSource('/api/eventos/stream');
   fontesStream = es;
   es.addEventListener('open', () => marcarAoVivo(true));
   es.addEventListener('error', () => marcarAoVivo(false));
@@ -828,7 +844,48 @@ async function atualizarContadorAlertas() {
 /* ─────────────────────────────────────────────────────────────────────────
    Perguntar (texto → texto, áudio → áudio)
    ───────────────────────────────────────────────────────────────────────── */
-let historico = [];
+async function carregarConversas() {
+  try {
+    const r = await api('GET', '/api/conversas');
+    const lista = $('#lista-conversas');
+    if (!r.conversas || !r.conversas.length) {
+      lista.replaceChildren(el('div', { class: 'vazio-msg', text: 'Nenhuma conversa.' }));
+      return;
+    }
+    lista.replaceChildren(...r.conversas.map(c => {
+      const item = el('div', { class: `item-conversa ${c.id === sessao.conversaAtiva ? 'ativa' : ''}` },
+        el('div', { class: 'titulo', text: c.titulo || 'Nova Conversa' }),
+        el('div', { class: 'data', text: quando(c.atualizada_em || c.criada_em) })
+      );
+      item.addEventListener('click', () => abrirConversa(c.id));
+      return item;
+    }));
+  } catch (e) { console.error('Erro ao carregar conversas', e); }
+}
+
+async function abrirConversa(id) {
+  sessao.conversaAtiva = id;
+  $('#mensagens').replaceChildren();
+  carregarConversas();
+  try {
+    const r = await api('GET', `/api/conversas/${encodeURIComponent(id)}/mensagens`);
+    if (r.mensagens && r.mensagens.length > 0) {
+      r.mensagens.forEach(msg => {
+        if (msg.papel === 'user') {
+          adicionarMensagem(el('div', { class: 'msg eu' }, msg.conteudo));
+        } else {
+          adicionarMensagem(renderResposta({ texto: msg.conteudo, veredito: 'CONVERSA' }));
+        }
+      });
+    } else {
+      $('#mensagens').replaceChildren(el('div', { class: 'vazio-msg', id: 'chat-vazio', text: 'Conversa vazia.' }));
+    }
+  } catch (e) {
+    toast(`Erro ao carregar mensagens: ${e.message}`, 'erro');
+  }
+}
+
+carregadores.chat = () => { carregarConversas(); };
 
 function renderResposta(r, audioSrc) {
   const naoConfirmado = r.veredito !== 'CONFIRMADO' && r.veredito !== 'CONVERSA';
@@ -885,10 +942,13 @@ $('#form-chat').addEventListener('submit', async (ev) => {
   adicionarMensagem(el('div', { class: 'msg eu' }, pergunta));
   travarChat(true); mostrarPensando();
   try {
-    const r = await api('POST', '/api/chat', { pergunta, historico: historico.slice(-12) });
+    const r = await api('POST', '/api/chat', { pergunta, conversaId: sessao.conversaAtiva });
+    if (r.conversaId) {
+      sessao.conversaAtiva = r.conversaId;
+      carregarConversas();
+    }
     tirarPensando();
     adicionarMensagem(renderResposta(r));
-    historico.push({ papel: 'user', conteudo: pergunta }, { papel: 'assistant', conteudo: r.texto });
   } catch (e) {
     tirarPensando();
     if (e.status !== 401) adicionarMensagem(el('div', { class: 'msg ia' }, el('div', { class: 'aviso erro', text: `Não foi possível responder: ${e.message}` })));
@@ -899,8 +959,9 @@ $('#in-pergunta').addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#form-chat').requestSubmit(); }
 });
 $('#btn-limpar-chat').addEventListener('click', () => {
-  historico = [];
+  sessao.conversaAtiva = '';
   $('#mensagens').replaceChildren(el('div', { class: 'vazio-msg', id: 'chat-vazio', text: 'Nova conversa. O assistente não lembra das perguntas anteriores.' }));
+  carregarConversas();
 });
 
 /* Gravação. Navegador só libera microfone em HTTPS ou localhost — em vez de
@@ -948,12 +1009,16 @@ async function enviarAudio(blob) {
   adicionarMensagem(bolha);
   travarChat(true); mostrarPensando();
   try {
-    const q = encodeURIComponent(JSON.stringify(historico.slice(-12)));
-    const r = await api('POST', `/api/chat/audio?historico=${q}`, blob, { headers: { 'Content-Type': blob.type } });
+    let url = '/api/chat/audio';
+    if (sessao.conversaAtiva) url += `?conversaId=${encodeURIComponent(sessao.conversaAtiva)}`;
+    const r = await api('POST', url, blob, { headers: { 'Content-Type': blob.type } });
+    if (r.conversaId) {
+      sessao.conversaAtiva = r.conversaId;
+      carregarConversas();
+    }
     bolha.replaceChildren(r.transcricao, el('div', { class: 'origem', text: 'áudio transcrito' }));
     tirarPensando();
     adicionarMensagem(renderResposta(r.resposta, r.audio));
-    historico.push({ papel: 'user', conteudo: r.transcricao }, { papel: 'assistant', conteudo: r.resposta.texto });
   } catch (e) {
     tirarPensando();
     bolha.replaceChildren(el('span', { class: 'fraco', text: 'Áudio não enviado' }));
@@ -1461,14 +1526,15 @@ function iniciar() {
   setInterval(() => { if (!$('[data-painel="visao"]').hidden) carregadores.visao(); }, 60_000);
 }
 
-if (sessao.chave && sessao.operador) {
-  fetch('/api/health', { headers: { 'x-admin-key': sessao.chave } })
-    .then((r) => r.ok ? iniciar() : sair())
-    .catch(() => sair('Não consegui falar com o assistente. Ele está no ar?'));
-} else {
-  $('#tela-entrada').hidden = false;
-  try { $('#in-operador').value = localStorage.getItem('aq.ultimoOperador') || ''; } catch {}
-}
+api('GET', '/api/sessao')
+  .then((r) => {
+    sessao.operador = r.operador;
+    iniciar();
+  })
+  .catch((e) => {
+    $('#tela-entrada').hidden = false;
+    try { $('#in-operador').value = localStorage.getItem('aq.ultimoOperador') || ''; } catch {}
+  });
 $('#form-entrada').addEventListener('submit', () => { try { localStorage.setItem('aq.ultimoOperador', $('#in-operador').value.trim()); } catch {} });
 </script>
 </body>

@@ -6,11 +6,13 @@
 
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { Rota, json, lerBytes, ator, ErroHttp } from './http-util';
 import { responder, paraWhatsApp } from './agent';
 import { transcrever, sintetizar, falaDaResposta } from './voice';
 import { obter } from './config-dinamica';
 import { logger } from '../logger';
+import { db } from './store/db';
 
 const PAGINA = path.join(process.cwd(), 'painel-assistente', 'index.html');
 
@@ -74,6 +76,33 @@ export const rotasChatAudio: Rota = async (req, res, url, p) => {
     pergunta, usuario, canal: 'chat', historico: historico.slice(-12), origemAudio: true,
   });
 
+  const conversaIdParam = url.searchParams.get('conversaId');
+  const d = db();
+  const agora = new Date().toISOString();
+
+  // Criar ou reutilizar conversa
+  let conversaId = conversaIdParam ?? undefined;
+  if (conversaId) {
+    // Verifica se a conversa existe
+    const existe = d.prepare(`SELECT id FROM conversa WHERE id = ?`).get(conversaId);
+    if (!existe) conversaId = undefined;
+  }
+  if (!conversaId) {
+    conversaId = randomUUID();
+    d.prepare(
+      `INSERT INTO conversa (id, canal, usuario, nome, criada_em, ultima_em) VALUES (?,?,?,?,?,?)`,
+    ).run(conversaId, 'chat', usuario, null, agora, agora);
+  }
+
+  // Persistir mensagens no banco
+  d.prepare(
+    `INSERT INTO mensagem (id, conversa_id, papel, formato, conteudo, at) VALUES (?,?,?,?,?,?)`,
+  ).run(randomUUID(), conversaId, 'user', 'texto', pergunta, agora);
+  d.prepare(
+    `INSERT INTO mensagem (id, conversa_id, papel, formato, conteudo, at) VALUES (?,?,?,?,?,?)`,
+  ).run(randomUUID(), conversaId, 'assistant', 'texto', r.texto, new Date().toISOString());
+  d.prepare(`UPDATE conversa SET ultima_em = ? WHERE id = ?`).run(new Date().toISOString(), conversaId);
+
   // mp3, não opus: Safari não toca Opus e o chat precisa funcionar em qualquer navegador.
   const querAudio = obter<boolean>('audio.responder_em_audio');
   const mp3 = querAudio ? await sintetizar(falaDaResposta(r), 'mp3') : null;
@@ -83,6 +112,7 @@ export const rotasChatAudio: Rota = async (req, res, url, p) => {
     transcricao: pergunta,
     resposta: r,
     audio: mp3 ? `data:audio/mpeg;base64,${mp3.toString('base64')}` : null,
+    conversaId,
   });
   return true;
 };

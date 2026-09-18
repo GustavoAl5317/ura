@@ -5,6 +5,7 @@
 // compartilham src/integrations e src/config, e nada mais.
 
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
@@ -59,14 +60,41 @@ function lerCorpo(req: http.IncomingMessage, maxBytes = 8 * 1024 * 1024): Promis
   });
 }
 
+function parseCookies(req: http.IncomingMessage): Record<string, string> {
+  const c: Record<string, string> = {};
+  for (const par of (req.headers.cookie ?? '').split(';')) {
+    const [k, ...v] = par.split('=');
+    if (k?.trim()) c[k.trim()] = decodeURIComponent(v.join('=').trim());
+  }
+  return c;
+}
+
+function sessaoDoCookie(req: http.IncomingMessage): { token: string; operador: string } | null {
+  const token = parseCookies(req).aq_sessao;
+  if (!token) return null;
+  const row = db().prepare(`SELECT token, operador FROM sessao_painel WHERE token = ?`).get(token) as { token: string; operador: string } | undefined;
+  if (!row) return null;
+  // Atualiza última atividade
+  db().prepare(`UPDATE sessao_painel SET ultima_em = ? WHERE token = ?`).run(new Date().toISOString(), token);
+  return row;
+}
+
+function atorComSessao(req: http.IncomingMessage): string {
+  const sess = sessaoDoCookie(req);
+  if (sess) return `painel:${sess.operador}`;
+  return ator(req);
+}
+
 function autorizadoApi(req: http.IncomingMessage, url: URL): boolean {
   const chave = config.admin.apiKey;
   if (!chave) return true;
-  return (
+  if (
     req.headers.authorization === `Bearer ${chave}` ||
     req.headers['x-admin-key'] === chave ||
     url.searchParams.get('key') === chave
-  );
+  ) return true;
+  // Cookie de sessão do painel
+  return !!sessaoDoCookie(req);
 }
 
 /**
@@ -132,6 +160,41 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (!p.startsWith('/api/')) {
     res.writeHead(404);
     res.end();
+    return;
+  }
+
+  // ── Sessão do painel (cookie) ────────────────────────────────────────────
+  if (req.method === 'POST' && p === '/api/sessao') {
+    const b = JSON.parse(await lerCorpo(req)) as { chave?: string; operador?: string };
+    const chave = config.admin.apiKey;
+    if (chave && b.chave !== chave) return json(res, 401, { error: 'chave_invalida' });
+    const operador = (b.operador ?? '').trim().slice(0, 60);
+    if (!operador) return json(res, 400, { error: 'operador_obrigatorio' });
+    const token = randomUUID();
+    const agora = new Date().toISOString();
+    db().prepare(`INSERT INTO sessao_painel (token, operador, criada_em, ultima_em) VALUES (?,?,?,?)`).run(token, operador, agora, agora);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Set-Cookie': `aq_sessao=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=31536000`,
+    });
+    res.end(JSON.stringify({ ok: true, operador }));
+    return;
+  }
+
+  if (req.method === 'GET' && p === '/api/sessao') {
+    const sess = sessaoDoCookie(req);
+    if (!sess) return json(res, 401, { error: 'sem_sessao' });
+    return json(res, 200, { operador: sess.operador });
+  }
+
+  if (req.method === 'DELETE' && p === '/api/sessao') {
+    const token = parseCookies(req).aq_sessao;
+    if (token) db().prepare(`DELETE FROM sessao_painel WHERE token = ?`).run(token);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Set-Cookie': 'aq_sessao=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0',
+    });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -210,6 +273,39 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     });
   }
 
+  // ── Conversas do painel (histórico estilo WhatsApp) ────────────────────────
+  if (req.method === 'GET' && p === '/api/conversas') {
+    const usuario = atorComSessao(req);
+    const limite = Math.min(100, parseInt(url.searchParams.get('limite') ?? '50', 10) || 50);
+    const linhas = db().prepare(
+      `SELECT c.id, c.canal, c.usuario, c.nome, c.criada_em, c.ultima_em,
+              (SELECT conteudo FROM mensagem WHERE conversa_id = c.id AND papel = 'user' ORDER BY at ASC LIMIT 1) AS primeira_pergunta,
+              (SELECT COUNT(*) FROM mensagem WHERE conversa_id = c.id) AS total_msgs
+       FROM conversa c
+       WHERE c.usuario = ? AND c.canal = 'chat'
+       ORDER BY c.ultima_em DESC LIMIT ?`,
+    ).all(usuario, limite);
+    return json(res, 200, { conversas: linhas });
+  }
+
+  if (req.method === 'POST' && p === '/api/conversas') {
+    const usuario = atorComSessao(req);
+    const id = randomUUID();
+    const agora = new Date().toISOString();
+    db().prepare(
+      `INSERT INTO conversa (id, canal, usuario, nome, criada_em, ultima_em) VALUES (?,?,?,?,?,?)`,
+    ).run(id, 'chat', usuario, null, agora, agora);
+    return json(res, 200, { id });
+  }
+
+  const mConversaMsgs = p.match(/^\/api\/conversas\/([^/]+)\/mensagens$/);
+  if (req.method === 'GET' && mConversaMsgs) {
+    const linhas = db().prepare(
+      `SELECT id, papel, formato, conteudo, at FROM mensagem WHERE conversa_id = ? ORDER BY at ASC`,
+    ).all(mConversaMsgs[1]);
+    return json(res, 200, { mensagens: linhas });
+  }
+
   // ── Prompts versionados ────────────────────────────────────────────────────
   if (req.method === 'GET' && p === '/api/prompts') {
     return json(res, 200, { chaves: listarChaves() });
@@ -267,14 +363,51 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     };
     if (!b.pergunta?.trim()) return json(res, 400, { error: 'pergunta_vazia' });
 
+    const usuario = b.usuario ?? atorComSessao(req);
+    const agora = new Date().toISOString();
+    const d = db();
+
+    // Criar ou reutilizar conversa
+    let conversaId = b.conversaId;
+    if (conversaId) {
+      // Verifica se a conversa existe
+      const existe = d.prepare(`SELECT id FROM conversa WHERE id = ?`).get(conversaId);
+      if (!existe) conversaId = undefined;
+    }
+    if (!conversaId) {
+      conversaId = randomUUID();
+      d.prepare(
+        `INSERT INTO conversa (id, canal, usuario, nome, criada_em, ultima_em) VALUES (?,?,?,?,?,?)`,
+      ).run(conversaId, 'chat', usuario, null, agora, agora);
+    }
+
+    // Carregar histórico do banco se não veio no request
+    let hist = b.historico;
+    if (!hist || !hist.length) {
+      hist = d.prepare(
+        `SELECT papel, conteudo FROM mensagem WHERE conversa_id = ? ORDER BY at DESC LIMIT 24`,
+      ).all(conversaId) as Array<{ papel: 'user' | 'assistant'; conteudo: string }>;
+      hist.reverse();
+    }
+
     const r = await responder({
       pergunta: b.pergunta,
-      usuario: b.usuario ?? ator(req),
+      usuario,
       canal: 'chat',
-      conversaId: b.conversaId,
-      historico: b.historico,
+      conversaId,
+      historico: hist.slice(-12),
     });
-    return json(res, 200, r);
+
+    // Persistir mensagens no banco
+    d.prepare(
+      `INSERT INTO mensagem (id, conversa_id, papel, formato, conteudo, at) VALUES (?,?,?,?,?,?)`,
+    ).run(randomUUID(), conversaId, 'user', 'texto', b.pergunta, agora);
+    d.prepare(
+      `INSERT INTO mensagem (id, conversa_id, papel, formato, conteudo, at) VALUES (?,?,?,?,?,?)`,
+    ).run(randomUUID(), conversaId, 'assistant', 'texto', r.texto, new Date().toISOString());
+    d.prepare(`UPDATE conversa SET ultima_em = ? WHERE id = ?`).run(new Date().toISOString(), conversaId);
+
+    return json(res, 200, { ...r, conversaId });
   }
 
   if (await rotasChatAudio(req, res, url, p)) return;
