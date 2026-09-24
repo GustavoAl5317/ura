@@ -4,14 +4,28 @@ import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
 import { buildFarewellPromptBlock } from '../admin/farewells';
 import { blocoServicosParaPrompt as servicosParaPrompt } from '../chat/servicos';
+import { valor as configValor } from '../chat/configuracoes';
 
 export function buildSystemPrompt(ctx: CallContext): string {
   // Tabela de servicos vem do banco do chat, editada pelo painel. Em try/catch
   // porque a URA de voz roda sem esse banco — sem isso a ligacao quebraria.
   let blocoServicos = '';
+  let blocoExtra = '';
   try {
     blocoServicos = servicosParaPrompt(config.company.taxaInstalacao);
-  } catch { /* sem banco: segue sem a tabela */ }
+    // Mesmas instruções que o painel aplica ao chat — sem isto, o campo
+    // "Instruções adicionais" valia só metade do atendimento.
+    const extra = configValor('prompt_extra').trim();
+    if (extra) {
+      blocoExtra = [
+        '',
+        '═══ INSTRUÇÕES ADICIONAIS DA OPERAÇÃO ═══════════════════════════════',
+        'Definidas pela equipe da empresa. Valem sobre as regras gerais acima, mas NÃO',
+        'autorizam prometer condição comercial que o sistema não confirme.',
+        extra,
+      ].join(String.fromCharCode(10));
+    }
+  } catch { /* sem banco: segue sem a tabela e sem instrução extra */ }
 
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
@@ -540,7 +554,7 @@ ${despedidas}
   - Após o cliente escolher, chame selecionar_contrato(contrato_id) com o ID correto
   - PROIBIDO consultar_financeiro, consultar_onu, gerar_segunda_via ou abrir_chamado antes de selecionar_contrato
   - Se identificado pelo telefone com vários contratos, faça a mesma pergunta de endereço no início do atendimento
-
+${blocoExtra}
 `.trim();
 }
 

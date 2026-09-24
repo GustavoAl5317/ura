@@ -87,9 +87,11 @@ export const CAMPOS: CampoConfig[] = [
   {
     chave: 'prompt_extra',
     rotulo: 'Instruções adicionais para a IA',
-    ajuda: 'Texto acrescentado ao final das instruções da IA, valendo sobre as regras gerais. '
-      + 'Use para ajustar tom, acrescentar orientação ou corrigir algo que ela esteja falando errado. '
-      + 'Não apaga as regras existentes — complementa.',
+    ajuda: 'Acrescentado ao FINAL das instruções da IA, no chat e na URA de voz. '
+      + 'Funciona bem para acrescentar orientação, ajustar o tom ou cobrir um assunto que ela não sabe. '
+      + 'NÃO serve para contrariar regra que já existe (preço, gratuidade, quando transferir): aí o '
+      + 'resultado é imprevisível — peça a mudança no lugar certo. Também não muda o que as '
+      + 'ferramentas fazem, só o que ela escreve.',
     tipo: 'texto', grupo: 'prompt',
     padrao: () => '',
     valida: (v) => (v.length > 6000 ? 'Máximo de 6000 caracteres.' : null),
