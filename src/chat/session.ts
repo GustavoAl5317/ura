@@ -18,6 +18,7 @@ import { logger } from '../logger';
 import { valorNumero } from './configuracoes';
 import { ChatToolRegistry } from './tool-registry';
 import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
+import { MIN_ATE_DEVOLVER, registrarStore } from './atribuicao';
 import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
@@ -159,7 +160,7 @@ export class ChatSession {
     this.ctx.enviarTextoCliente = this.enviar;
 
     registerTools(this.registry, this.ctx);   // MESMOS handlers da URA
-    registerChatOverrides(this.registry, this.ctx);
+    registerChatOverrides(this.registry, this.ctx, this);
   }
 
   get key(): string {
@@ -337,6 +338,41 @@ export class ChatSession {
     return { ok: true };
   }
 
+  /**
+   * Entrega a conversa a uma atendente sem ela precisar puxar da fila.
+   *
+   * Diferente de intervir(): aqui a pessoa não pediu — o sistema escolheu. Por
+   * isso a fila NÃO é limpa: enquanto ela não responder, o escalonamento segue
+   * e a conversa volta para todos se ficar parada. Atribuir para quem está
+   * ausente seria só esconder a espera do painel.
+   */
+  assumirPorAtribuicao(atendente: { id: string; nome: string }): void {
+    this.modo = 'humano';
+    this.atendenteId = atendente.id;
+    this.atendenteNome = atendente.nome;
+    this.ctx.atribuicaoAutoEm = Date.now();
+    this.ctx.atendenteRespondeu = false;
+    this.record({
+      tipo: 'sistema',
+      texto: `Conversa direcionada automaticamente para ${atendente.nome} — IA pausada`,
+    });
+    this.persistir();
+  }
+
+  /** Devolve à fila a conversa atribuída que ninguém respondeu. */
+  private devolverParaFila(): void {
+    const quem = this.atendenteNome ?? 'a atendente';
+    this.atendenteId = undefined;
+    this.atendenteNome = undefined;
+    this.ctx.atribuicaoAutoEm = undefined;
+    this.record({
+      tipo: 'sistema',
+      texto: `⚠️ ${quem} não respondeu — conversa devolvida para a fila, qualquer atendente pode assumir`,
+    });
+    logger.warn(`[${this.ctx.callId}] atribuição automática sem resposta — devolvida à fila`);
+    this.persistir();
+  }
+
   /** Cancela o próprio repasse e retoma a conversa (mandou para a pessoa errada). */
   desfazerRepasse(atendente: { id: string; nome: string }): { ok: boolean; erro?: string } {
     const r = this.ctx.repasse;
@@ -384,6 +420,7 @@ export class ChatSession {
     const r = await this.enviar(this.numero, t);
     if (r.enviado) {
       this.history.push({ role: 'assistant', content: t });
+      this.ctx.atendenteRespondeu = true;   // encerra o prazo da atribuição automática
       this.record({ tipo: 'atendente', texto: t, autor: autor ?? this.atendenteNome });
       this.trimHistory();
       this.lastActivity = Date.now();
@@ -502,7 +539,17 @@ export class ChatSession {
    */
   async verificarFilaAtendimento(agora: number): Promise<void> {
     if (!this.ctx.pendingTransfer || !this.ctx.filaEntradaEm) return;
-    if (this.modo === 'humano') return;                 // já foi assumido
+    if (this.encerrada) return;
+
+    if (this.modo === 'humano') {
+      // Atribuída automaticamente e ninguém falou nada: devolve para a fila em
+      // vez de deixar o cliente esperando por uma pessoa que não está lá.
+      if (this.ctx.atribuicaoAutoEm && !this.ctx.atendenteRespondeu
+          && agora - this.ctx.atribuicaoAutoEm >= MIN_ATE_DEVOLVER * 60_000) {
+        this.devolverParaFila();
+      }
+      return;                                           // assumido de verdade
+    }
     if (this.encerrada) return;
     if (!estaNoHorarioComercial()) return;               // fora do expediente não escala sozinho
 
@@ -794,6 +841,7 @@ export class ChatSessionStore {
   private resolveEnviar?: (instancia?: string) => EnviarTexto | undefined;
 
   constructor() {
+    registrarStore(this);   // a atribuição automática precisa ver todas as conversas
     const idleMs = config.chat.sessionIdleMin * 60_000;
     setInterval(() => {
       const agora = Date.now();

@@ -4,6 +4,8 @@
 // continua vindo dos handlers originais, sem alteração.
 
 import type { CallContext } from '../session/context';
+import type { ChatSession } from './session';
+import { atribuirAutomaticamente } from './atribuicao';
 import { whatsapp } from '../integrations/whatsapp';
 import { config } from '../config';
 import { logger } from '../logger';
@@ -28,7 +30,11 @@ function entrarNaFila(ctx: CallContext, tipo: 'atendimento' | 'adesao', setor: s
   ctx.transferSetor = setor;
 }
 
-export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallContext): void {
+export function registerChatOverrides(
+  registry: ChatToolRegistry,
+  ctx: CallContext,
+  sessao?: ChatSession,
+): void {
   // ── Transferência para humano ─────────────────────────────────────────────
   registry.override('transferir_para_atendente', async (args) => {
     const motivo = String(args.motivo ?? '');
@@ -43,7 +49,14 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
     // e-mail. Quem quer contratar precisa de gente, não de formulário.
     const fila = setor === 'vendas' ? 'adesao' : 'atendimento';
     entrarNaFila(ctx, fila, setor);
-    ctx.log.push(`Transferência (chat): ${motivo} [${setor}] → fila ${fila}`);
+
+    // Entrega a conversa a alguém em vez de deixá-la esperando na fila para
+    // alguém puxar. Quem está fechando uma contratação não espera. Se não
+    // houver ninguém online, segue na fila com o escalonamento de sempre — e
+    // se a pessoa escolhida não responder, a conversa volta para todos.
+    const atribuida = sessao ? atribuirAutomaticamente(sessao) : false;
+    ctx.log.push(`Transferência (chat): ${motivo} [${setor}] → fila ${fila}`
+      + (atribuida ? ' (atribuída automaticamente)' : ''));
     logger.info(`[${ctx.callId}] Transferência solicitada (chat): ${motivo} [${setor}]`);
 
     const foraDoHorario = !estaNoHorarioComercial();
@@ -72,7 +85,9 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
     const mensagemCliente = foraDoHorario
       ? `No momento não há atendimento humano disponível — nosso horário é ${descricaoHorarioComercial()}. `
         + 'Seu pedido ficou registrado e um atendente continua assim que o expediente reabrir.'
-      : 'Seu atendimento foi direcionado para nossa equipe. Um atendente continuará com você em breve.';
+      : atribuida
+        ? 'Seu atendimento foi direcionado para um de nossos atendentes, que continuará com você agora. 🙂'
+        : 'Seu atendimento foi direcionado para nossa equipe. Um atendente continuará com você em breve.';
     if (ctx.enviarTextoCliente && ctx.callerNumber) {
       await ctx.enviarTextoCliente(ctx.callerNumber, mensagemCliente);
     }
@@ -100,6 +115,7 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
       // a transferência para humano, pra não perder a venda por ninguém ver.
       if (tipo === 'nova_assinatura' && !falhou) {
         entrarNaFila(ctx, 'adesao', 'vendas');
+        if (sessao) atribuirAutomaticamente(sessao);
         ctx.transferMotivo = 'Adesão — nova assinatura';
         ctx.log.push('Cliente encaminhado para a FILA DE ADESÃO (nova assinatura)');
         logger.info(`[${ctx.callId}] Fila de adesão (chat): nova assinatura`);

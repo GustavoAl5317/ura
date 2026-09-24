@@ -44,6 +44,15 @@ export interface CallContext {
    * fila da IA — aqui já houve atendimento humano e a conversa tem destinatário
    * definido, então não pode voltar para o bolo geral e perder o contexto.
    */
+  /**
+   * Quando a conversa foi atribuída automaticamente a uma atendente. Enquanto
+   * ela não responder, a fila continua escalando — atribuir a quem está ausente
+   * não pode virar cliente esperando em silêncio.
+   */
+  atribuicaoAutoEm?: number;
+  /** A atendente já falou algo depois de receber a conversa. */
+  atendenteRespondeu?: boolean;
+
   repasse?: {
     paraId: string;
     paraNome: string;
