@@ -1517,7 +1517,20 @@
     // Repassada por uma colega e ainda sem dono. Quem recebeu vê destacado;
     // as demais veem também, senão a conversa fica parada se a destinatária
     // estiver fora.
-    if (d.modo==='humano' && !d.atendenteId && d.repasse){
+    // Conversa em atendimento humano SEM dono: ninguém está com ela. Pode ter
+    // vindo de repasse ou de uma atribuição que se soltou. Tem que aparecer
+    // como disponível — antes caía no bloco de baixo e mostrava "Outra
+    // atendente está atendendo" com o nome VAZIO, então ninguém assumia e o
+    // cliente ficava esperando sem ninguém na conversa.
+    if (d.modo==='humano' && !d.atendenteId){
+      if (!d.repasse){
+        el.composer.innerHTML = `<div class="locked busy">
+          <div class="txt"><b>⚠️ Esta conversa está sem atendente</b>
+          <span>O cliente está aguardando e ninguém assumiu. Assuma para continuar.</span></div>
+          <button class="btn take" id="btnTake">Assumir</button></div>`;
+        if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa.', true);
+        return;
+      }
       const praMim = d.repasse.paraId === eu.id;
       el.composer.innerHTML = `<div class="locked busy">
         <div class="txt"><b>${praMim?'🔔 '+esc(d.repasse.deNome)+' repassou esta conversa pra você'
