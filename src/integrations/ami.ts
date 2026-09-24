@@ -150,6 +150,19 @@ export class AmiClient extends EventEmitter {
     if (sock !== this.activeSock && sock !== this.socket) return;
 
     this.buf += data;
+
+    // O banner de saudação do AMI é uma linha única terminada em \r\n
+    // (não em \r\n\r\n), então precisa ser consumido ANTES do split por blocos.
+    if (this.pendingBanner && this.buf.startsWith('Asterisk Call Manager')) {
+      const nl = this.buf.indexOf('\r\n');
+      if (nl >= 0) {
+        this.buf = this.buf.slice(nl + 2);
+        const handler = this.pendingBanner;
+        this.pendingBanner = null;
+        void handler?.();
+      }
+    }
+
     const blocks = this.buf.split('\r\n\r\n');
     this.buf = blocks.pop() ?? '';
 

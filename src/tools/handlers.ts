@@ -557,9 +557,19 @@ function resolverWhatsAppCliente(
   // escrever. Validar formato aqui rejeita wa_id legítimo — o Brasil tem
   // números antigos sem o nono dígito (55 + DDD + 8) — e faz a IA pedir ao
   // cliente um número que ela já tem na mão.
-  if (ctx.canal === 'chat' && ctx.celularWhatsApp && !informado) {
-    const d = ctx.celularWhatsApp.replace(/\D/g, '');
-    if (d.length >= 10) return { numero: d };
+  //
+  // Vale MESMO com número informado. Um cliente de (85) 8806-6590 pediu o
+  // boleto, a IA perguntou o celular, ele digitou o dele — e isCelularBr
+  // recusou por ter 10 dígitos, então a IA respondeu que "não conseguia
+  // enviar o boleto por aqui". O número era o da própria conversa.
+  if (ctx.canal === 'chat' && ctx.celularWhatsApp) {
+    const daConversa = ctx.celularWhatsApp.replace(/\D/g, '');
+    const digitado = tel.replace(/\D/g, '');
+    // Mesmo número, ainda que escrito com/sem 55 ou com/sem o nono dígito.
+    const so9 = (d: string) => d.replace(/^55/, '').replace(/^(\d{2})9(\d{8})$/, '$1$2');
+    if (!informado || so9(digitado) === so9(daConversa) || digitado.length < 10) {
+      if (daConversa.length >= 10) return { numero: daConversa };
+    }
   }
 
   const resolvido = resolveCelularInformado(tel, ctx.lastClientSpeech);
