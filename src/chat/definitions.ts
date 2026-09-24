@@ -9,28 +9,39 @@ import type { ChatToolFunction } from './openai';
 const EXCLUIR_NO_CHAT = new Set(['ignorar_ruido']);
 
 /**
- * Campos que a URA de VOZ exige e o chat não deve exigir.
+ * Campos que existem para a URA de VOZ e NÃO devem existir no chat.
  *
- * Na voz é preciso perguntar em qual WhatsApp mandar — a ligação pode vir de um
- * fixo. No chat a conversa JÁ é o WhatsApp do cliente. Mantê-los como
- * obrigatórios fazia a IA pedir o celular mesmo com o prompt proibindo: o schema
- * fala mais alto. Um cliente de (85) 8806-6590 digitou o próprio número, a
- * validação recusou por ter 10 dígitos, e ela respondeu que não conseguia
- * enviar o boleto.
+ * Na ligação é preciso perguntar em qual WhatsApp mandar — a chamada pode vir de
+ * um fixo. No chat a conversa JÁ é o WhatsApp do cliente, e é o único número
+ * comprovadamente válido: ele acabou de escrever dele.
  *
- * Os campos continuam existindo (aceitos quando o cliente pede outro número) —
- * só deixam de ser obrigatórios.
+ * Removidos das PROPERTIES, não só de `required`: enquanto o campo aparecer no
+ * schema o modelo tenta preenchê-lo e vai perguntar ao cliente, por mais que o
+ * prompt proíba. Foi o que aconteceu com um cliente de (85) 8806-6590 — ele
+ * digitou o próprio número, a validação recusou por ter 10 dígitos e a IA
+ * respondeu que não conseguia enviar o boleto.
+ *
+ * Cliente que peça envio em OUTRO número vira caso de atendente humana, que
+ * consegue confirmar a entrega. A IA não consegue.
  */
-const NAO_OBRIGATORIOS_NO_CHAT: Record<string, string[]> = {
-  gerar_segunda_via: ['celular_whatsapp'],
-  enviar_resumo_whatsapp: ['celular_whatsapp'],
+const CAMPOS_SO_DA_VOZ: Record<string, string[]> = {
+  gerar_segunda_via: ['celular_whatsapp', 'celular_confirmado'],
+  enviar_resumo_whatsapp: ['celular_whatsapp', 'celular_confirmado'],
 };
 
 function ajustarParaChat(nome: string, parameters: unknown): Record<string, unknown> {
   const p = (parameters as Record<string, unknown>) ?? { type: 'object', properties: {} };
-  const remover = NAO_OBRIGATORIOS_NO_CHAT[nome];
-  if (!remover || !Array.isArray(p.required)) return p;
-  return { ...p, required: (p.required as string[]).filter((r) => !remover.includes(r)) };
+  const remover = CAMPOS_SO_DA_VOZ[nome];
+  if (!remover) return p;
+
+  const props = { ...(p.properties as Record<string, unknown> ?? {}) };
+  for (const campo of remover) delete props[campo];
+
+  const required = Array.isArray(p.required)
+    ? (p.required as string[]).filter((r) => !remover.includes(r))
+    : p.required;
+
+  return { ...p, properties: props, required };
 }
 
 export function buildChatTools(): ChatToolFunction[] {
