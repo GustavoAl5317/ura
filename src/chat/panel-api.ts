@@ -145,6 +145,20 @@ export async function tratarPainel(
     return true;
   }
 
+  // ── Colegas para quem repassar ───────────────────────────────────────────
+  // Só id e nome, e quem está online: a atendente comum não pode ver a gestão de
+  // usuários, mas precisa saber para quem mandar.
+  if (req.method === 'GET' && p === '/api/colegas') {
+    const online = usuariosOnline();
+    json(res, 200, {
+      colegas: listarUsuarios()
+        .filter((u) => u.id !== eu.id && u.ativo !== false)
+        .map((u) => ({ id: u.id, nome: u.nome, online: online.has(u.id) }))
+        .sort((a, b) => Number(b.online) - Number(a.online) || a.nome.localeCompare(b.nome)),
+    });
+    return true;
+  }
+
   // ── Ocultar uma mensagem da tela de atendimento ──────────────────────────
   // Some da conversa mas CONTINUA no banco e na auditoria: a trilha não pode
   // ser destruída. Não apaga do WhatsApp do cliente — a Cloud API não permite.
@@ -511,7 +525,7 @@ export async function tratarPainel(
   // 'enviar-arquivo'/'enviar-audio' vêm antes de 'enviar' na alternância: a
   // regex é gulosa da esquerda e casaria só o prefixo, jogando o resto para
   // dentro da chave.
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -549,7 +563,11 @@ export async function tratarPainel(
 
   if (req.method === 'POST' && acao === 'intervir') {
     // Admin pode tomar a conversa de outra atendente; atendente comum, não.
-    if (session.modo === 'humano' && session.atendenteId !== eu.id && eu.papel !== 'admin') {
+    // Conversa SEM dono não está sendo atendida por ninguém — é o caso do
+    // repasse, em que quem mandou já soltou. Sem esta ressalva a destinatária
+    // levava "fulana já está atendendo" com atendenteNome vazio.
+    if (session.modo === 'humano' && session.atendenteId
+        && session.atendenteId !== eu.id && eu.papel !== 'admin') {
       json(res, 409, { erro: `${session.atendenteNome} já está atendendo esta conversa.` });
       return true;
     }
@@ -561,6 +579,39 @@ export async function tratarPainel(
       return true;
     }
     json(res, 200, { ok: true, modo: session.modo });
+    return true;
+  }
+
+  // Repasse entre atendentes (ex.: cancelamento é tratado por outra pessoa).
+  if (req.method === 'POST' && acao === 'repassar') {
+    const b = await lerCorpo(req);
+    const paraId = txt(b.para_id);
+    const alvo = listarUsuarios().find((u) => u.id === paraId);
+    if (!alvo) { json(res, 400, { erro: 'Escolha para quem repassar.' }); return true; }
+
+    const r = session.repassar(
+      { id: eu.id, nome: eu.nome },
+      { id: alvo.id, nome: alvo.nome },
+      txt(b.motivo),
+    );
+    if (!r.ok) {
+      const msgs: Record<string, string> = {
+        conversa_encerrada: 'Esta conversa já foi encerrada.',
+        conversa_nao_esta_em_atendimento: 'Só dá pra repassar uma conversa que você esteja atendendo.',
+        voce_nao_esta_atendendo: 'Você precisa estar atendendo esta conversa para repassá-la.',
+        destinatario_igual_remetente: 'Escolha outra pessoa.',
+      };
+      json(res, 409, { erro: msgs[r.erro ?? ''] ?? 'Não foi possível repassar.' });
+      return true;
+    }
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && acao === 'desfazer-repasse') {
+    const r = session.desfazerRepasse({ id: eu.id, nome: eu.nome });
+    if (!r.ok) { json(res, 409, { erro: 'Não há repasse pendente nesta conversa.' }); return true; }
+    json(res, 200, { ok: true });
     return true;
   }
 

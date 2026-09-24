@@ -40,6 +40,19 @@ export interface CallContext {
   transferSetor?: string;
 
   /**
+   * Repasse entre atendentes: quem mandou, para quem, e por quê. Diferente da
+   * fila da IA — aqui já houve atendimento humano e a conversa tem destinatário
+   * definido, então não pode voltar para o bolo geral e perder o contexto.
+   */
+  repasse?: {
+    paraId: string;
+    paraNome: string;
+    deNome: string;
+    motivo: string;
+    em: number;
+  };
+
+  /**
    * Fila de atendimento humano (só chat). Quando entrou (filaEntradaEm) e o
    * escalonamento sonoro/mensagens já disparado (filaNivelEnviado) vivem
    * juntos: sem isso o sweep não sabe se já mandou o aviso de 3/5/8 minutos.

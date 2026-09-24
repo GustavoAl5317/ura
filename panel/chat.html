@@ -1514,6 +1514,20 @@
       return;
     }
 
+    // Repassada por uma colega e ainda sem dono. Quem recebeu vê destacado;
+    // as demais veem também, senão a conversa fica parada se a destinatária
+    // estiver fora.
+    if (d.modo==='humano' && !d.atendenteId && d.repasse){
+      const praMim = d.repasse.paraId === eu.id;
+      el.composer.innerHTML = `<div class="locked busy">
+        <div class="txt"><b>${praMim?'🔔 '+esc(d.repasse.deNome)+' repassou esta conversa pra você'
+                               :'↪️ Repassada para '+esc(d.repasse.paraNome)}</b>
+        <span>Motivo: ${esc(d.repasse.motivo)}${praMim?'':' — se ela não estiver disponível, você pode assumir.'}</span></div>
+        <button class="btn take" id="btnTake">Assumir</button></div>`;
+      if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa.', true);
+      return;
+    }
+
     // Outra atendente está com a conversa
     if (d.modo==='humano' && !meu){
       el.composer.innerHTML = `<div class="locked busy">
@@ -1542,6 +1556,8 @@
 
     el.composer.innerHTML = `<div class="live-bar">
       <span class="note">Você no comando</span>
+      <button class="clip" id="btnRepassar" aria-label="Repassar para outra atendente"
+        title="Repassar para outra atendente">↪️</button>
       <input type="file" id="arq" hidden>
       <button class="clip" id="btnClip" aria-label="Anexar arquivo" title="Anexar arquivo (até 16 MB)">📎</button>
       <button class="mic" id="btnMic" aria-label="Gravar áudio" title="Gravar mensagem de voz">🎙️</button>
@@ -1549,6 +1565,24 @@
       <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
       <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
       <button class="btn back" id="btnBack">Voltar com a IA</button></div>`;
+
+    if ($('btnRepassar')) $('btnRepassar').onclick = async () => {
+      try{
+        const { colegas } = await api('/api/colegas');
+        if (!colegas.length){ toast('Não há outra atendente cadastrada.', true); return; }
+        const lista = colegas.map((c,i)=>`${i+1}. ${c.nome}${c.online?' (online)':''}`).join('\n');
+        const esc1 = prompt(`Repassar para quem?\n\n${lista}\n\nDigite o número:`);
+        if (esc1 === null) return;
+        const alvo = colegas[Number(esc1)-1];
+        if (!alvo){ toast('Número inválido.', true); return; }
+        const motivo = prompt(`Motivo do repasse para ${alvo.nome}:`, 'Cancelamento');
+        if (motivo === null) return;
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/repassar',
+          {method:'POST',body:JSON.stringify({ para_id: alvo.id, motivo })});
+        toast(`Repassado para ${alvo.nome}.`);
+        sigThread=''; sigComposer=''; await carregarDetalhe(false);
+      }catch(ex){ toast(ex.message, true); }
+    };
 
     const txt=$('txt'), send=$('btnSend'), clip=$('btnClip'), arq=$('arq'), mic=$('btnMic'), recTime=$('recTime');
 

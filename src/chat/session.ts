@@ -278,13 +278,73 @@ export class ChatSession {
     this.ctx.filaTipo = undefined;
     this.ctx.filaEntradaEm = undefined;
     this.ctx.filaNivelEnviado = undefined;
+    // Repasse cumprido: quem assumiu (o destinatário ou outra pessoa) encerra o
+    // encaminhamento, senão a conversa ficaria marcada como pendente para
+    // sempre no painel de quem recebeu.
+    const repasse = this.ctx.repasse;
+    this.ctx.repasse = undefined;
     this.record({
       tipo: 'sistema',
-      texto: anterior
+      texto: repasse && repasse.paraId === atendente.id
+        ? `${atendente.nome} assumiu o repasse de ${repasse.deNome} — ${repasse.motivo}`
+        : anterior
         ? `${atendente.nome} assumiu a conversa de ${anterior}`
         : `${atendente.nome} assumiu às ${horaAssumiu} (estava na fila) — IA pausada`,
     });
     logger.info(`[${this.ctx.callId}] painel: ${atendente.nome} assumiu (${this.numero})`);
+    return { ok: true };
+  }
+
+  /**
+   * Repassa a conversa de uma atendente para outra — o caso típico é o
+   * cancelamento, que é tratado por uma pessoa específica.
+   *
+   * Diferente de a outra pessoa simplesmente assumir: aqui a conversa fica
+   * marcada COM DESTINATÁRIO e motivo, aparece destacada para quem recebeu e
+   * some do painel de quem mandou. Sem isso, "passar para a fulana" dependia de
+   * combinar por fora e torcer para ela ver.
+   *
+   * A IA continua pausada durante o repasse: quem manda já estava atendendo, e
+   * devolver o cliente para a IA no meio do assunto seria pior do que a espera.
+   */
+  repassar(
+    de: { id: string; nome: string },
+    para: { id: string; nome: string },
+    motivo: string,
+  ): { ok: boolean; erro?: string } {
+    if (this.encerrada) return { ok: false, erro: 'conversa_encerrada' };
+    if (this.modo !== 'humano') return { ok: false, erro: 'conversa_nao_esta_em_atendimento' };
+    if (this.atendenteId !== de.id) return { ok: false, erro: 'voce_nao_esta_atendendo' };
+    if (para.id === de.id) return { ok: false, erro: 'destinatario_igual_remetente' };
+
+    const texto = motivo.trim() || 'sem motivo informado';
+    this.ctx.repasse = {
+      paraId: para.id, paraNome: para.nome,
+      deNome: de.nome, motivo: texto, em: Date.now(),
+    };
+    // Solta a conversa de quem mandou, mas mantém modo humano: ela sai do painel
+    // dele e entra destacada no de quem recebe, sem a IA voltar a responder.
+    this.atendenteId = undefined;
+    this.atendenteNome = undefined;
+
+    this.record({
+      tipo: 'sistema',
+      texto: `${de.nome} repassou para ${para.nome} — ${texto}`,
+    });
+    logger.info(`[${this.ctx.callId}] painel: repasse ${de.nome} → ${para.nome} (${this.numero})`, {
+      motivo: texto,
+    });
+    return { ok: true };
+  }
+
+  /** Cancela o próprio repasse e retoma a conversa (mandou para a pessoa errada). */
+  desfazerRepasse(atendente: { id: string; nome: string }): { ok: boolean; erro?: string } {
+    const r = this.ctx.repasse;
+    if (!r) return { ok: false, erro: 'sem_repasse_pendente' };
+    this.ctx.repasse = undefined;
+    this.atendenteId = atendente.id;
+    this.atendenteNome = atendente.nome;
+    this.record({ tipo: 'sistema', texto: `${atendente.nome} cancelou o repasse para ${r.paraNome}` });
     return { ok: true };
   }
 
@@ -700,6 +760,7 @@ export class ChatSession {
       filaEntradaEm: this.ctx.filaEntradaEm ?? null,
       filaNivel: this.ctx.filaNivelEnviado ?? null,
       transferSetor: this.ctx.transferSetor ?? null,
+      repasse: this.ctx.repasse ?? null,
       ultimaMsg: ultimo?.texto ?? null,
       ultimaTs: ultimo?.ts ?? this.lastActivity,
       lastActivity: this.lastActivity,
