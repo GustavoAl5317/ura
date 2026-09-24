@@ -580,6 +580,29 @@
           </div>
 
           <div class="card">
+            <div class="card-h">🧾 Serviços cobrados</div>
+            <div class="card-b">
+              <p class="hint" style="margin:0 0 12px">
+                Tabela que a IA usa para informar preços. O que não estiver aqui, ela não sabe
+                precificar — diz que vai verificar e transfere.
+              </p>
+              <form id="novoS" class="frm">
+                <div class="row">
+                  <label>Serviço<input id="sNome" maxlength="80" placeholder="Ex.: Troca de roteador" required></label>
+                  <label>Valor<input id="sValor" maxlength="60" placeholder="Ex.: 40,00 ou 30,00 + cabo" required></label>
+                </div>
+                <label>Instrução para a IA (opcional)
+                  <textarea id="sObs" rows="2" maxlength="600"
+                    placeholder="Ex.: avise antes de agendar; o técnico confirma o valor no local."></textarea></label>
+                <button class="btn primary">Adicionar serviço</button>
+              </form>
+              <table class="tbl" style="margin-top:14px"><thead><tr>
+                <th>Serviço</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
+                <tbody id="sBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+            </div>
+          </div>
+
+          <div class="card">
             <div class="card-h">📶 Planos oferecidos</div>
             <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
           </div>
@@ -904,6 +927,7 @@
   async function carregarConfig(){
     try{
       pintarConfig(await api('/api/configuracoes'));
+      await carregarServicos();
       await carregarAvisos();
     }catch(ex){
       toast(ex.message, true);
@@ -980,6 +1004,62 @@
         inicio:$('aInicio').value, fim:$('aFim').value })});
       $('aTitulo').value=$('aMsg').value=$('aInicio').value=$('aFim').value='';
       await carregarAvisos(); toast('Aviso criado.');
+    }catch(ex){ toast(ex.message, true); }
+  });
+
+
+  // ── Serviços cobrados ───────────────────────────────────
+  async function carregarServicos(){
+    const { servicos } = await api('/api/servicos');
+    $('sBody').innerHTML = servicos.length ? servicos.map(s=>`
+      <tr><td class="urow">
+        <b>${esc(s.nome)}</b>
+        ${s.observacao?`<div class="hint" style="margin-top:4px;max-width:460px">${esc(s.observacao)}</div>`:''}
+      </td>
+      <td><b>${esc(s.valor)}</b></td>
+      <td>${s.ativo?'<span class="pill ok">● Em uso</span>':'<span class="pill">Desativado</span>'}</td>
+      <td><div class="acoes">
+        <button class="mini" data-sv="${esc(s.id)}" data-ac="editar">Editar</button>
+        <button class="mini" data-sv="${esc(s.id)}" data-ac="${s.ativo?'desativar':'ativar'}">${s.ativo?'Desativar':'Ativar'}</button>
+        <button class="mini danger" data-sv="${esc(s.id)}" data-ac="remover">Remover</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="4" class="hint" style="padding:16px">Nenhum serviço cadastrado. A IA dirá que não sabe o preço e transferirá.</td></tr>';
+    servicosCache = servicos;
+  }
+  let servicosCache = [];
+
+  document.addEventListener('click', async (e)=>{
+    const b = e.target.closest('[data-sv]');
+    if (!b) return;
+    const id = b.dataset.sv, ac = b.dataset.ac;
+    const s = servicosCache.find(x=>x.id===id);
+    try{
+      if (ac === 'remover'){
+        if (!confirm(`Remover "${s?.nome}"?\n\nA IA deixa de saber esse preço e passará a transferir quando perguntarem.`)) return;
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'DELETE'});
+      } else if (ac === 'editar'){
+        const valor = prompt(`Valor de "${s.nome}":`, s.valor);
+        if (valor === null) return;
+        const observacao = prompt(
+          `Instrução para a IA ao falar de "${s.nome}" (opcional):`, s.observacao||'');
+        if (observacao === null) return;
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'PATCH',
+          body:JSON.stringify({ valor, observacao })});
+      } else {
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'PATCH',
+          body:JSON.stringify({ ativo: ac === 'ativar' })});
+      }
+      await carregarServicos(); toast('Pronto.');
+    }catch(ex){ toast(ex.message, true); }
+  });
+
+  $('novoS').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/servicos',{method:'POST',body:JSON.stringify({
+        nome:$('sNome').value, valor:$('sValor').value, observacao:$('sObs').value })});
+      $('sNome').value=$('sValor').value=$('sObs').value='';
+      await carregarServicos(); toast('Serviço criado.');
     }catch(ex){ toast(ex.message, true); }
   });
 

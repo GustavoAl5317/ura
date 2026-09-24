@@ -101,36 +101,10 @@ export const CAMPOS: CampoConfig[] = [
     chave: 'taxa_instalacao',
     rotulo: 'Instalação',
     ajuda: 'Taxa de instalação para nova contratação. Uma promoção ativa com taxa própria '
-      + 'substitui este valor enquanto valer.',
+      + 'substitui este valor enquanto valer. Os demais serviços ficam na tabela abaixo.',
     tipo: 'valor', grupo: 'precos',
     padrao: () => config.company.taxaInstalacao,
     valida: validaValor('Instalação'),
-  },
-  {
-    chave: 'taxa_mudanca_endereco',
-    rotulo: 'Mudança de endereço',
-    ajuda: 'Cobrado quando o cliente leva o serviço para outro endereço.',
-    tipo: 'valor', grupo: 'precos',
-    padrao: () => config.company.taxaMudancaEndereco,
-    valida: validaValor('Mudança de endereço'),
-  },
-  {
-    chave: 'taxa_visita_improdutiva',
-    rotulo: 'Visita técnica improdutiva',
-    ajuda: 'Cobrado quando o técnico vai ao local e o problema não era da nossa rede. '
-      + 'A IA avisa o cliente disso ANTES de agendar a visita.',
-    tipo: 'valor', grupo: 'precos',
-    padrao: () => config.company.taxaVisitaImprodutiva,
-    valida: validaValor('Visita improdutiva'),
-  },
-  {
-    chave: 'taxa_repetidor',
-    rotulo: 'Instalação de repetidor (+ cabo)',
-    ajuda: 'Valor da instalação. O cabo é cobrado à parte, conforme a metragem — a IA é '
-      + 'instruída a NUNCA fechar um total nem estimar metragem.',
-    tipo: 'valor', grupo: 'precos',
-    padrao: () => config.company.taxaRepetidor,
-    valida: validaValor('Repetidor'),
   },
 ];
 

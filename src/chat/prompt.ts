@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { blocoAvisosParaPrompt } from './avisos';
+import { blocoServicosParaPrompt } from './servicos';
 import { valor as configValor } from './configuracoes';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
@@ -62,9 +63,10 @@ ${activeEvents.map((e) => `• AVISO: "${e.message}"`).join('\n')}\n`
     try { return configValor(chave) || padrao; } catch { return padrao; }
   };
   const taxaVigente = taxaPromocional ?? preco('taxa_instalacao', config.company.taxaInstalacao);
-  const taxaMudanca = preco('taxa_mudanca_endereco', config.company.taxaMudancaEndereco);
-  const taxaImprodutiva = preco('taxa_visita_improdutiva', config.company.taxaVisitaImprodutiva);
-  const taxaRepetidor = preco('taxa_repetidor', config.company.taxaRepetidor);
+  // Tabela montada a partir do banco: a empresa cria/edita serviço sem deploy.
+  let blocoServicos = '';
+  try { blocoServicos = blocoServicosParaPrompt(taxaVigente); }
+  catch { /* sem banco: prompt segue sem a tabela */ }
   const porEtapa = (etapa: EtapaPromocao) => promocoes.filter((p) => p.etapa === etapa);
   const blocoEtapa = (etapa: EtapaPromocao, titulo: string) => {
     const lista = porEtapa(etapa);
@@ -419,33 +421,7 @@ Se o cliente pedir isenção, desconto, parcelamento da taxa ou prazo menor, voc
 autonomia: use transferir_para_atendente com setor="vendas". Prometer condição que a empresa
 não vai cumprir gera cliente irritado na instalação e cancelamento.
 
-═══ TABELA DE SERVIÇOS COBRADOS ═════════════════════════════════════
-Estes são os ÚNICOS valores de serviço que você pode informar. Não existe outro
-serviço cobrado além destes, e nenhum deles é gratuito.
-
-• Instalação: ${taxaVigente}
-• Mudança de endereço: ${taxaMudanca}
-• Visita técnica improdutiva: ${taxaImprodutiva}
-• Instalação de repetidor: ${taxaRepetidor} MAIS o cabo utilizado
-
-VISITA TÉCNICA IMPRODUTIVA — avise ANTES de agendar visita:
-"É improdutiva quando o técnico vai até o local e o problema não era da nossa rede —
-por exemplo equipamento do cliente, tomada desligada ou fiação interna. Nesse caso há
-uma taxa de ${taxaImprodutiva}."
-Diga isso com naturalidade, ao confirmar o agendamento — não como ameaça. O cliente
-precisa saber antes, senão a cobrança vira reclamação depois. Se o problema for da
-nossa rede, NÃO há cobrança.
-
-REPETIDOR — o valor NÃO é fechado:
-São ${taxaRepetidor} da instalação MAIS o cabo, que depende da metragem
-usada na casa. NUNCA diga um total, nunca estime metragem, nunca diga "fica em torno de".
-Diga: "A instalação do repetidor é ${taxaRepetidor} mais o cabo utilizado,
-que varia conforme a distância. O técnico mede no local e informa o valor exato antes de
-instalar." Se o cliente insistir num valor fechado, transfira para atendente.
-
-Se perguntarem de serviço que não está nesta lista, você NÃO sabe o preço: diga que vai
-verificar e transfira. Chutar valor gera cobrança contestada.
-• Coleta de interessado (nova assinatura / sem cadastro): NOME → CELULAR (WhatsApp c/ DDD) → E-MAIL
+${blocoServicos}• Coleta de interessado (nova assinatura / sem cadastro): NOME → CELULAR (WhatsApp c/ DDD) → E-MAIL
   (opcional; se não tiver, siga). Confirme e use registrar_interesse (nova_assinatura).
 • Sem cobertura: acolha, ofereça cadastrar para avisar quando chegar (registrar_interesse, interesse_cobertura).
 • INTENÇÃO CLARA DE CONTRATAR TEM PRIORIDADE sobre só registrar e seguir a conversa: assim que o

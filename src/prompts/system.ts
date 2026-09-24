@@ -3,8 +3,16 @@ import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
 import { buildFarewellPromptBlock } from '../admin/farewells';
+import { blocoServicosParaPrompt as servicosParaPrompt } from '../chat/servicos';
 
 export function buildSystemPrompt(ctx: CallContext): string {
+  // Tabela de servicos vem do banco do chat, editada pelo painel. Em try/catch
+  // porque a URA de voz roda sem esse banco — sem isso a ligacao quebraria.
+  let blocoServicos = '';
+  try {
+    blocoServicos = servicosParaPrompt(config.company.taxaInstalacao);
+  } catch { /* sem banco: segue sem a tabela */ }
+
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
   const primeiroNome = ctx.cliente?.nome?.split(' ')[0];
@@ -392,34 +400,7 @@ ${config.company.fidelidade}."
 • Pedido de isenção, desconto, parcelamento da taxa ou prazo menor está FORA da sua
   autonomia: diga que vai passar para a equipe comercial avaliar e transfira.
 
-═══ TABELA DE SERVIÇOS COBRADOS ═════════════════════════════════════
-Estes são os ÚNICOS valores de serviço que você pode informar. Não existe outro
-serviço cobrado além destes, e nenhum deles é gratuito.
-
-• Instalação: ${config.company.taxaInstalacao}
-• Mudança de endereço: ${config.company.taxaMudancaEndereco}
-• Visita técnica improdutiva: ${config.company.taxaVisitaImprodutiva}
-• Instalação de repetidor: ${config.company.taxaRepetidor} MAIS o cabo utilizado
-
-• Como você está FALANDO, diga os valores por extenso: "sessenta reais",
-  "cinquenta reais", "trinta reais". Nunca soletre "cinco zero".
-
-• VISITA IMPRODUTIVA — avise ANTES de agendar qualquer visita:
-  "Só preciso te informar que, se o técnico for até aí e o problema não for da nossa
-  rede, por exemplo equipamento seu ou uma tomada desligada, tem uma taxa de trinta reais.
-  Se for da nossa rede, não tem cobrança nenhuma."
-  Diga com naturalidade, não como ameaça. O cliente precisa saber antes, senão a cobrança
-  vira reclamação depois.
-
-• REPETIDOR — o valor NÃO é fechado. São trinta reais MAIS o cabo, que depende da
-  metragem usada na casa. NUNCA diga um total, nunca estime metragem, nunca diga
-  "fica em torno de". Diga: "A instalação do repetidor é trinta reais mais o cabo
-  utilizado, que varia conforme a distância. O técnico mede aí no local e te informa
-  o valor exato antes de instalar." Se insistir num valor fechado, transfira.
-
-• Serviço que não está nesta lista: você NÃO sabe o preço. Diga que vai verificar e
-  transfira. Chutar valor gera cobrança contestada.
-
+${blocoServicos}
 COLETA DE DADOS DO INTERESSADO (nova assinatura ou interesse sem cadastro):
 • Aplica-se a NOVA CONTRATAÇÃO e interesse sem cobertura quando o cliente NÃO está identificado.
 • NÃO se aplica a mudanca_endereco com cliente já identificado por CPF — use o nome do cadastro (seção MUDANÇA DE ENDEREÇO).

@@ -26,6 +26,7 @@ import {
 } from './promocoes';
 import { listarConfiguracoes, salvarConfiguracao, restaurarPadrao, avisoTempos } from './configuracoes';
 import { listarAvisos, criarAviso, atualizarAviso, removerAviso } from './avisos';
+import { listarServicos, criarServico, atualizarServico, removerServico } from './servicos';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -343,7 +344,8 @@ export async function tratarPainel(
   // Muda o comportamento do atendimento inteiro, por isso fica restrito a admin,
   // como usuários e promoções.
   if (p === '/api/configuracoes' || p.startsWith('/api/configuracoes/')
-      || p === '/api/avisos' || p.startsWith('/api/avisos/')) {
+      || p === '/api/avisos' || p.startsWith('/api/avisos/')
+      || p === '/api/servicos' || p.startsWith('/api/servicos/')) {
     if (eu.papel !== 'admin') {
       json(res, 403, { erro: 'Só administradores alteram configurações.' });
       return true;
@@ -405,6 +407,42 @@ export async function tratarPainel(
         const r = atualizarAviso(id, campos);
         if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
         json(res, 200, { ok: true, avisos: listarAvisos() });
+        return true;
+      }
+    }
+
+    if (req.method === 'GET' && p === '/api/servicos') {
+      json(res, 200, { servicos: listarServicos() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/servicos') {
+      const b = await lerCorpo(req);
+      const r = criarServico({ nome: txt(b.nome), valor: txt(b.valor), observacao: txt(b.observacao) });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, servicos: listarServicos() });
+      return true;
+    }
+
+    const mServ = /^\/api\/servicos\/([^/]+)$/.exec(p);
+    if (mServ) {
+      const id = decodeURIComponent(mServ[1]);
+      if (req.method === 'DELETE') {
+        const r = removerServico(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, servicos: listarServicos() });
+        return true;
+      }
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const campos: Record<string, unknown> = {};
+        if (typeof b.nome === 'string') campos.nome = b.nome;
+        if (typeof b.valor === 'string') campos.valor = b.valor;
+        if (typeof b.observacao === 'string') campos.observacao = b.observacao;
+        if (typeof b.ativo === 'boolean') campos.ativo = b.ativo;
+        const r = atualizarServico(id, campos);
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, servicos: listarServicos() });
         return true;
       }
     }

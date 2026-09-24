@@ -95,6 +95,16 @@ CREATE INDEX IF NOT EXISTS ix_arquivos_conversa ON arquivos(conversa);
 
 -- Promoções e campanhas que a equipe cadastra pelo painel. Entram no prompt da
 -- IA conforme a etapa do atendimento; algumas trocam a taxa de instalação.
+CREATE TABLE IF NOT EXISTS servicos (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  valor       TEXT NOT NULL,
+  observacao  TEXT,
+  ordem       INTEGER NOT NULL DEFAULT 0,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave       TEXT PRIMARY KEY,
   valor       TEXT NOT NULL,
@@ -155,6 +165,9 @@ export function initDb(): void {
 
   migrarUsuariosDoJson();
   limparSessoesExpiradas();
+  // Import tardio: servicos.ts importa db.ts, e no topo daria ciclo.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  (require('./servicos') as typeof import('./servicos')).semearServicos();
 
   logger.info(`Banco do atendimento: ${ARQUIVO}`);
 }
