@@ -432,9 +432,14 @@ function resolverFaturaIdPriorizandoVencida(
   // pagar, não uma lista de todos os meses em aberto para decidir.
   const aVencer = titulos.filter((t) => !tituloVencido(t));
   if (aVencer.length > 0) {
-    const maisProxima = [...aVencer].sort(
-      (a, b) => (Date.parse(a.dataVencimento) || Infinity) - (Date.parse(b.dataVencimento) || Infinity),
-    )[0];
+    // parseVencimento, NAO Date.parse: o SGP devolve tanto 2026-09-15 quanto
+    // 15/09/2026, e Date.parse nao entende o segundo — devolvia NaN para todas,
+    // a ordenacao virava arbitraria e o cliente recebia a fatura errada.
+    const maisProxima = [...aVencer].sort((a, b) => {
+      const va = parseVencimento(a.dataVencimento)?.getTime() ?? Infinity;
+      const vb = parseVencimento(b.dataVencimento)?.getTime() ?? Infinity;
+      return va - vb;
+    })[0];
     return maisProxima.id ?? maisProxima.numeroDocumento;
   }
   return undefined;
@@ -2215,6 +2220,32 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const contrato = resolverContratoId(ctx, args.cliente_id, 'abrir_chamado');
     if ('erro' in contrato) return { sucesso: false, ...contrato };
     const contratoId = contrato.contratoId;
+
+    // Contrato suspenso por financeiro: sem internet é CONSEQUÊNCIA do bloqueio,
+    // não defeito de rede. Abrir chamado aqui gera visita técnica que constata o
+    // óbvio, ocupa equipe e ainda dá ao cliente a impressão de que o problema é
+    // nosso. O caminho é o financeiro.
+    const ct = ctx.cliente?.contratos.find((c) => Number(c.contrato) === contratoId)
+      ?? ctx.cliente?.contratos[0];
+    const statusCt = String(ct?.status ?? '');
+    const motivoCt = String(ct?.motivo_status ?? '');
+    const suspenso = /suspens|bloquead/i.test(statusCt);
+    if (suspenso && (/financ/i.test(motivoCt) || ctx.financeiroBloqueado)) {
+      return {
+        sucesso: false,
+        erro: 'contrato_suspenso_por_financeiro',
+        status_contrato: statusCt,
+        motivo_status: motivoCt || null,
+        orientacao:
+          'NÃO abra chamado técnico: o contrato está SUSPENSO POR FINANCEIRO e a falta de '
+          + 'conexão é consequência disso, não defeito. Explique ao cliente com cuidado que a '
+          + 'conexão volta após a regularização, ofereça a segunda via (gerar_segunda_via) e, '
+          + 'se ele insistir em visita técnica ou contestar o débito, transfira para o '
+          + 'financeiro. Só abra chamado se ele relatar um problema que NÃO seja falta de '
+          + 'conexão (ex.: fio partido na rua, caixa arrancada) — nesse caso descreva o '
+          + 'problema físico em `descricao`.',
+      };
+    }
 
     // Trava anti-duplicata: a regra existe no prompt, mas o modelo pula. Como
     // chamado repetido gera visita técnica duplicada, a checagem fica aqui.

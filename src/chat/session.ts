@@ -254,7 +254,14 @@ export class ChatSession {
     // Atendente não escolhe "entrar" na conversa por conta própria — só assume
     // quando a IA decidiu transferir (fila de Atendimento ou de Adesão). Isso
     // impede parar a IA no meio de um atendimento que ela ainda está conduzindo.
-    if (!this.ctx.pendingTransfer) {
+    //
+    // A trava vale só enquanto a IA conduz. Com a conversa JÁ em atendimento
+    // humano a IA está pausada, e exigir transferência pendente prendia a
+    // conversa na primeira atendente: quem assumiu zerou o pendingTransfer, e
+    // ninguém mais conseguia pegar — nem para render em troca de turno, nem
+    // quando a pessoa saía do plantão.
+    const jaEmAtendimentoHumano = this.modo === 'humano' && !this.encerrada;
+    if (!this.ctx.pendingTransfer && !jaEmAtendimentoHumano) {
       return { ok: false, erro: 'sem_transferencia_pendente' };
     }
 
