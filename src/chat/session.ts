@@ -18,7 +18,7 @@ import { logger } from '../logger';
 import { valorNumero } from './configuracoes';
 import { ChatToolRegistry } from './tool-registry';
 import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
-import { MIN_ATE_DEVOLVER, registrarStore } from './atribuicao';
+import { registrarStore } from './atribuicao';
 import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
@@ -351,25 +351,10 @@ export class ChatSession {
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
     this.ctx.atribuicaoAutoEm = Date.now();
-    this.ctx.atendenteRespondeu = false;
     this.record({
       tipo: 'sistema',
       texto: `Conversa direcionada automaticamente para ${atendente.nome} — IA pausada`,
     });
-    this.persistir();
-  }
-
-  /** Devolve à fila a conversa atribuída que ninguém respondeu. */
-  private devolverParaFila(): void {
-    const quem = this.atendenteNome ?? 'a atendente';
-    this.atendenteId = undefined;
-    this.atendenteNome = undefined;
-    this.ctx.atribuicaoAutoEm = undefined;
-    this.record({
-      tipo: 'sistema',
-      texto: `⚠️ ${quem} não respondeu — conversa devolvida para a fila, qualquer atendente pode assumir`,
-    });
-    logger.warn(`[${this.ctx.callId}] atribuição automática sem resposta — devolvida à fila`);
     this.persistir();
   }
 
@@ -420,7 +405,6 @@ export class ChatSession {
     const r = await this.enviar(this.numero, t);
     if (r.enviado) {
       this.history.push({ role: 'assistant', content: t });
-      this.ctx.atendenteRespondeu = true;   // encerra o prazo da atribuição automática
       this.record({ tipo: 'atendente', texto: t, autor: autor ?? this.atendenteNome });
       this.trimHistory();
       this.lastActivity = Date.now();
@@ -541,15 +525,10 @@ export class ChatSession {
     if (!this.ctx.pendingTransfer || !this.ctx.filaEntradaEm) return;
     if (this.encerrada) return;
 
-    if (this.modo === 'humano') {
-      // Atribuída automaticamente e ninguém falou nada: devolve para a fila em
-      // vez de deixar o cliente esperando por uma pessoa que não está lá.
-      if (this.ctx.atribuicaoAutoEm && !this.ctx.atendenteRespondeu
-          && agora - this.ctx.atribuicaoAutoEm >= MIN_ATE_DEVOLVER * 60_000) {
-        this.devolverParaFila();
-      }
-      return;                                           // assumido de verdade
-    }
+    // Conversa com atendente NÃO volta para a fila nem escala: ela pode demorar
+    // para responder, e isso é trabalho normal — não é abandono. A única coisa
+    // que a atendente não pode é puxar conversa que a IA ainda conduz.
+    if (this.modo === 'humano') return;
     if (this.encerrada) return;
     if (!estaNoHorarioComercial()) return;               // fora do expediente não escala sozinho
 
@@ -846,8 +825,14 @@ export class ChatSessionStore {
     setInterval(() => {
       const agora = Date.now();
       for (const [key, s] of this.sessions) {
+        // Conversa com atendente ou esperando na fila NUNCA sai da memória por
+        // tempo: a atendente pode demorar, e a conversa sumindo do painel dela
+        // no meio do atendimento é o mesmo que perder o cliente. Sai da memória
+        // só quando for encerrada de fato.
+        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada;
+
         // Sai da memória por inatividade — o registro fica no banco (auditoria).
-        if (agora - s.lastActivity > idleMs) {
+        if (!comGente && agora - s.lastActivity > idleMs) {
           s.persistir();
           this.sessions.delete(key);
           continue;

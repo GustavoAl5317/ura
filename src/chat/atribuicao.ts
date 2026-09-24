@@ -4,9 +4,8 @@
 // fechar uma venda não espera. Aqui ela já cai na mão de uma pessoa, com nome,
 // e o painel dela destaca na hora.
 //
-// A conversa nunca fica presa em quem não respondeu: se a pessoa escolhida não
-// falar nada dentro do prazo, a conversa volta para a fila e qualquer atendente
-// pode assumir (ver verificarFilaAtendimento).
+// Depois de atribuída, a conversa é dela: atendente pode demorar para responder,
+// e isso é trabalho normal. Se precisar passar adiante, usa o repasse.
 
 import { logger } from '../logger';
 import { usuariosOnline, listarUsuarios } from './auth';
@@ -18,9 +17,6 @@ let store: ChatSessionStore | null = null;
 export function registrarStore(s: ChatSessionStore): void {
   store = s;
 }
-
-/** Minutos sem a atendente responder até a conversa voltar para a fila. */
-export const MIN_ATE_DEVOLVER = 2;
 
 /**
  * Escolhe quem recebe: entre as atendentes ONLINE, a que estiver com menos
