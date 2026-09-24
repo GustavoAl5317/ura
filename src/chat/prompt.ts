@@ -1,4 +1,6 @@
 import { config } from '../config';
+import { blocoAvisosParaPrompt } from './avisos';
+import { valor as configValor } from './configuracoes';
 import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
@@ -14,6 +16,24 @@ import { promocoesAtivas, taxaInstalacaoVigente, type Promocao, type EtapaPromoc
  *  - mensagens curtas, tom acolhedor, uma pergunta por vez, formatação do WhatsApp.
  */
 export function buildChatSystemPrompt(ctx: CallContext): string {
+  // Avisos e instrucoes extras vem do painel. Em try/catch porque a URA de voz
+  // roda sem o banco do chat — sem isso o atendimento inteiro quebraria.
+  let blocoAvisos = '';
+  let blocoExtra = '';
+  try {
+    blocoAvisos = blocoAvisosParaPrompt();
+    const extra = configValor('prompt_extra').trim();
+    if (extra) {
+      blocoExtra = [
+        '',
+        '═══ INSTRUÇÕES ADICIONAIS DA OPERAÇÃO ═══════════════════════════════',
+        'Definidas pela equipe da empresa. Valem sobre as regras gerais acima, mas NÃO',
+        'autorizam prometer condição comercial que o sistema não confirme.',
+        extra,
+      ].join(String.fromCharCode(10));
+    }
+  } catch { /* sem banco: segue sem avisos nem instrucao extra */ }
+
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
   const { name: empresa } = config.company;
@@ -455,5 +475,6 @@ que recebe mais uma pergunta fica mais irritado. Chame transferir_para_atendente
 • Reinício sob demanda: se o cliente PEDIR para reiniciar o equipamento, use reiniciar_onu na hora.
 • Nunca cite concorrentes. Nunca prometa além do que o sistema confirmar.
 • Casos urgentes (idoso, dependência de internet por saúde): priorize e demonstre cuidado.
+${blocoAvisos}${blocoExtra}
 `.trim();
 }

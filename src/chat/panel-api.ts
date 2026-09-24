@@ -24,6 +24,8 @@ import {
   listarPromocoes, criarPromocao, atualizarPromocao, removerPromocao,
   taxaInstalacaoVigente, ETAPAS, type EtapaPromocao,
 } from './promocoes';
+import { listarConfiguracoes, salvarConfiguracao, restaurarPadrao, avisoTempos } from './configuracoes';
+import { listarAvisos, criarAviso, atualizarAviso, removerAviso } from './avisos';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -54,6 +56,17 @@ function lerCorpo(req: http.IncomingMessage, maxBytes = 200_000): Promise<Record
 const MAX_ARQUIVO_BYTES = 16 * 1024 * 1024;
 
 const txt = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/**
+ * Data do <input type="date"> ("AAAA-MM-DD") para epoch ms. O fim inclui o dia
+ * inteiro, senão uma vigência "até dia 25" morreria à meia-noite do dia 25.
+ */
+function diaParaMs(v: unknown, fimDoDia = false): number | null {
+  const s = txt(v).trim();
+  if (!s) return null;
+  const t = Date.parse(fimDoDia ? `${s}T23:59:59` : `${s}T00:00:00`);
+  return Number.isFinite(t) ? t : null;
+}
 
 /** Serve o HTML do painel (arquivo estático em panel/chat.html). */
 function servirPainel(res: http.ServerResponse): void {
@@ -284,21 +297,13 @@ export async function tratarPainel(
 
     if (req.method === 'POST' && p === '/api/promocoes') {
       const b = await lerCorpo(req);
-      // Datas vêm do <input type="date"> como "AAAA-MM-DD"; o fim inclui o dia
-      // inteiro, senão uma campanha "até dia 25" morreria à meia-noite do dia 25.
-      const dia = (v: unknown, fimDoDia = false): number | null => {
-        const s = txt(v).trim();
-        if (!s) return null;
-        const t = Date.parse(fimDoDia ? `${s}T23:59:59` : `${s}T00:00:00`);
-        return Number.isFinite(t) ? t : null;
-      };
       const r = criarPromocao({
         nome: txt(b.nome),
         etapa: txt(b.etapa) as EtapaPromocao,
         mensagem: txt(b.mensagem),
         taxaInstalacao: txt(b.taxaInstalacao) || null,
-        inicio: dia(b.inicio),
-        fim: dia(b.fim, true),
+        inicio: diaParaMs(b.inicio),
+        fim: diaParaMs(b.fim, true),
         criadoPor: eu.nome,
       });
       if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
@@ -331,6 +336,80 @@ export async function tratarPainel(
     }
 
     json(res, 405, { erro: 'metodo_nao_suportado' });
+    return true;
+  }
+
+  // ── Configurações e avisos (somente admin) ───────────────────────────────
+  // Muda o comportamento do atendimento inteiro, por isso fica restrito a admin,
+  // como usuários e promoções.
+  if (p === '/api/configuracoes' || p.startsWith('/api/configuracoes/')
+      || p === '/api/avisos' || p.startsWith('/api/avisos/')) {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores alteram configurações.' });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/configuracoes') {
+      json(res, 200, { campos: listarConfiguracoes(), aviso: avisoTempos() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/configuracoes') {
+      const b = await lerCorpo(req);
+      const r = salvarConfiguracao(txt(b.chave), typeof b.valor === 'string' ? b.valor : '', eu.nome);
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, campos: listarConfiguracoes(), aviso: avisoTempos() });
+      return true;
+    }
+
+    const mRestaurar = /^\/api\/configuracoes\/([a-z0-9_]+)\/padrao$/.exec(p);
+    if (req.method === 'POST' && mRestaurar) {
+      const r = restaurarPadrao(mRestaurar[1]);
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, campos: listarConfiguracoes(), aviso: avisoTempos() });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/avisos') {
+      json(res, 200, { avisos: listarAvisos() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/avisos') {
+      const b = await lerCorpo(req);
+      const r = criarAviso({
+        titulo: txt(b.titulo), mensagem: txt(b.mensagem),
+        inicio: diaParaMs(b.inicio), fim: diaParaMs(b.fim, true),
+        criadoPor: eu.nome,
+      });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, avisos: listarAvisos() });
+      return true;
+    }
+
+    const mAviso = /^\/api\/avisos\/([^/]+)$/.exec(p);
+    if (mAviso) {
+      const id = decodeURIComponent(mAviso[1]);
+      if (req.method === 'DELETE') {
+        const r = removerAviso(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, avisos: listarAvisos() });
+        return true;
+      }
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const campos: Record<string, unknown> = {};
+        if (typeof b.ativo === 'boolean') campos.ativo = b.ativo;
+        if (typeof b.titulo === 'string') campos.titulo = b.titulo;
+        if (typeof b.mensagem === 'string') campos.mensagem = b.mensagem;
+        const r = atualizarAviso(id, campos);
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, avisos: listarAvisos() });
+        return true;
+      }
+    }
+
+    json(res, 404, { erro: 'Rota não encontrada.' });
     return true;
   }
 

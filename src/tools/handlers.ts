@@ -5,6 +5,7 @@ import { whatsapp } from '../integrations/whatsapp';
 import { resolveCelularInformado, resolveCepInformado, resolveCpfInformado } from '../utils/spokenNumbers';
 import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/address';
 import { config } from '../config';
+import { idsDePlanos } from '../chat/configuracoes';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { ToolRegistrar } from './registrar';
@@ -952,8 +953,15 @@ function documentoValido(digitos: string): boolean {
 }
 
 function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
-  const { ids, precoMin, precoMax, max } = config.plans;
-  // 1. Whitelist explícita por .env tem prioridade — preserva a ordem informada
+  const { precoMin, precoMax, max } = config.plans;
+  // Lista do painel, com fallback no .env: o comercial troca o catálogo sem
+  // deploy. Em try/catch porque a URA de voz roda sem o banco do chat.
+  let ids = config.plans.ids;
+  try {
+    const doPainel = idsDePlanos();
+    if (doPainel.length) ids = doPainel;
+  } catch { /* sem banco: vale o .env */ }
+  // 1. Whitelist explícita tem prioridade — preserva a ordem informada
   if (ids.length) {
     const byId = new Map(planos.map((p) => [p.id, p]));
     return ids.map((id) => byId.get(id)).filter((p): p is SgpPlano => !!p);

@@ -382,6 +382,7 @@
     <button class="mitem hidden" data-sec="usuarios" id="mUsuarios">👥<span class="tip">Usuários</span></button>
     <button class="mitem" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
     <button class="mitem hidden" data-sec="promocoes" id="mPromocoes">🏷️<span class="tip">Promoções</span></button>
+    <button class="mitem hidden" data-sec="config" id="mConfig">⚙️<span class="tip">Configurações</span></button>
     <button class="mitem" data-sec="sgp">🔎<i class="wip"></i><span class="tip">Consulta SGP · em desenvolvimento</span></button>
     <button class="mitem" data-sec="contrato">📄<i class="wip"></i><span class="tip">Contrato · em desenvolvimento</span></button>
     <div class="sep"></div>
@@ -554,6 +555,57 @@
             <h3>Cadastradas <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="pResumo"></span></h3>
             <table><thead><tr><th>Promoção</th><th>Quando</th><th>Período</th><th>Situação</th><th></th></tr></thead>
               <tbody id="pBody"><tr><td colspan="5" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" data-sec="config">
+      <div class="page">
+        <header class="page-top">
+          <h2>Configurações</h2>
+          <span class="sub">Ajustes do atendimento sem precisar de programador</span>
+        </header>
+        <div class="page-body">
+          <div id="cfgAviso"></div>
+
+          <div class="card">
+            <div class="card-h">⏱️ Tempos de atendimento</div>
+            <div class="card-b" id="cfgTempos"><span class="hint">Carregando…</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">📶 Planos oferecidos</div>
+            <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">🧠 Instruções da IA</div>
+            <div class="card-b" id="cfgPrompt"><span class="hint">Carregando…</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">📢 Avisos</div>
+            <div class="card-b">
+              <p class="hint" style="margin:0 0 12px">
+                Informações que a IA comunica enquanto estiverem no ar — manutenção programada,
+                feriado, instabilidade conhecida.
+              </p>
+              <form id="novoA" class="frm">
+                <div class="row">
+                  <label>Título<input id="aTitulo" maxlength="80" placeholder="Ex.: Manutenção programada" required></label>
+                  <label>Início (opcional)<input id="aInicio" type="date"></label>
+                  <label>Fim (opcional)<input id="aFim" type="date"></label>
+                </div>
+                <label>Mensagem que a IA deve passar
+                  <textarea id="aMsg" rows="2" maxlength="1500" required
+                    placeholder="Ex.: Haverá manutenção no bairro Centro no dia 25, das 2h às 5h."></textarea></label>
+                <button class="btn primary">Adicionar aviso</button>
+              </form>
+              <table class="tbl" style="margin-top:14px"><thead><tr>
+                <th>Aviso</th><th>Período</th><th>Situação</th><th></th></tr></thead>
+                <tbody id="aBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+            </div>
           </div>
         </div>
       </div>
@@ -794,6 +846,7 @@
     if (sec === 'usuarios') carregarUsuarios();
     if (sec === 'auditoria') carregarAuditoria();
     if (sec === 'promocoes') carregarPromocoes();
+    if (sec === 'config') carregarConfig();
   }
 
   // ── Boot ────────────────────────────────────────────────
@@ -802,11 +855,127 @@
     $('meTip').textContent = `${eu.nome} · sair`;
     $('mUsuarios').classList.toggle('hidden', eu.papel !== 'admin');
     $('mPromocoes').classList.toggle('hidden', eu.papel !== 'admin');
-    if (['usuarios','promocoes'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
+    $('mConfig').classList.toggle('hidden', eu.papel !== 'admin');
+    if (['usuarios','promocoes','config'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
     tick();
     clearInterval(timer);
     timer = setInterval(tick, 3000);
   }
+
+
+  // ── Configurações ───────────────────────────────────────
+  // Campos vêm do servidor com rótulo, ajuda e valor em vigor: a tela não
+  // duplica a lista, senão um campo novo no backend não apareceria aqui.
+  function campoHtml(c){
+    const marca = c.personalizado
+      ? '<span class="pill warn">alterado</span>'
+      : '<span class="pill">padrão</span>';
+    const entrada = c.tipo === 'texto'
+      ? `<textarea id="cf_${esc(c.chave)}" rows="6" maxlength="6000">${esc(c.valor)}</textarea>`
+      : `<input id="cf_${esc(c.chave)}" value="${esc(c.valor)}"${c.tipo==='numero'?` type="number" min="${c.min??0}" max="${c.max??9999}"`:''}>`;
+    return `<div class="cfg-campo" style="margin-bottom:16px">
+      <label style="display:block">
+        <span style="display:flex;align-items:center;gap:8px">${esc(c.rotulo)} ${marca}</span>
+        ${entrada}
+      </label>
+      <div class="hint" style="margin:4px 0 6px">${esc(c.ajuda)}</div>
+      <button class="mini" data-cfg-salvar="${esc(c.chave)}">Salvar</button>
+      ${c.personalizado?`<button class="mini" data-cfg-padrao="${esc(c.chave)}">Voltar ao padrão</button>`:''}
+    </div>`;
+  }
+
+  function pintarConfig(d){
+    const porGrupo = (g) => (d.campos||[]).filter(c=>c.grupo===g).map(campoHtml).join('') || '<span class="hint">—</span>';
+    $('cfgTempos').innerHTML = porGrupo('tempos');
+    $('cfgPlanos').innerHTML = porGrupo('planos');
+    $('cfgPrompt').innerHTML = porGrupo('prompt');
+    // Combinação incoerente de tempos faz o cliente nunca receber o protocolo.
+    // É falha silenciosa, então avisa em vez de deixar quebrado sem sinal.
+    $('cfgAviso').innerHTML = d.aviso
+      ? `<div class="erro" style="margin-bottom:14px">⚠️ ${esc(d.aviso)}</div>` : '';
+  }
+
+  async function carregarConfig(){
+    try{
+      pintarConfig(await api('/api/configuracoes'));
+      await carregarAvisos();
+    }catch(ex){
+      toast(ex.message, true);
+      $('cfgAviso').innerHTML = `<div class="erro">Não consegui carregar: ${esc(ex.message)}.
+        Se a aba é nova, falta atualizar o serviço (npm run build e reiniciar).</div>`;
+    }
+  }
+
+  async function carregarAvisos(){
+    const { avisos } = await api('/api/avisos');
+    const dia = (ms) => ms ? new Date(ms).toLocaleDateString('pt-BR') : '';
+    $('aBody').innerHTML = avisos.length ? avisos.map(a=>{
+      const agora = Date.now();
+      const venceu = a.fim && a.fim < agora;
+      const naoComecou = a.inicio && a.inicio > agora;
+      const sit = !a.ativo ? '<span class="pill">Desativado</span>'
+        : venceu ? '<span class="pill warn">Encerrado</span>'
+        : naoComecou ? '<span class="pill">Agendado</span>'
+        : '<span class="pill ok">● No ar</span>';
+      const periodo = (a.inicio||a.fim)
+        ? `${dia(a.inicio)||'—'} até ${dia(a.fim)||'—'}`
+        : '<span class="hint">sem prazo</span>';
+      return `<tr><td class="urow"><b>${esc(a.titulo)}</b>
+        <div class="hint" style="margin-top:4px;max-width:460px">${esc(a.mensagem)}</div></td>
+        <td class="hint">${periodo}</td><td>${sit}</td>
+        <td><div class="acoes">
+          <button class="mini" data-av="${esc(a.id)}" data-ac="${a.ativo?'desativar':'ativar'}">${a.ativo?'Desativar':'Ativar'}</button>
+          <button class="mini danger" data-av="${esc(a.id)}" data-ac="remover">Remover</button>
+        </div></td></tr>`;
+    }).join('') : '<tr><td colspan="4" class="hint" style="padding:16px">Nenhum aviso cadastrado.</td></tr>';
+  }
+
+  document.addEventListener('click', async (e)=>{
+    const salvar = e.target.closest('[data-cfg-salvar]');
+    if (salvar){
+      const chave = salvar.dataset.cfgSalvar;
+      try{
+        const d = await api('/api/configuracoes',{method:'POST',
+          body:JSON.stringify({ chave, valor: $('cf_'+chave).value })});
+        pintarConfig(d); toast('Salvo.');
+      }catch(ex){ toast(ex.message, true); }
+      return;
+    }
+    const padrao = e.target.closest('[data-cfg-padrao]');
+    if (padrao){
+      if (!confirm('Voltar esta configuração ao valor padrão do sistema?')) return;
+      try{
+        pintarConfig(await api('/api/configuracoes/'+padrao.dataset.cfgPadrao+'/padrao',{method:'POST'}));
+        toast('Voltou ao padrão.');
+      }catch(ex){ toast(ex.message, true); }
+      return;
+    }
+    const av = e.target.closest('[data-av]');
+    if (av){
+      const id = av.dataset.av, ac = av.dataset.ac;
+      try{
+        if (ac === 'remover'){
+          if (!confirm('Remover este aviso?')) return;
+          await api('/api/avisos/'+encodeURIComponent(id),{method:'DELETE'});
+        } else {
+          await api('/api/avisos/'+encodeURIComponent(id),{method:'PATCH',
+            body:JSON.stringify({ ativo: ac === 'ativar' })});
+        }
+        await carregarAvisos(); toast('Pronto.');
+      }catch(ex){ toast(ex.message, true); }
+    }
+  });
+
+  $('novoA').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/avisos',{method:'POST',body:JSON.stringify({
+        titulo:$('aTitulo').value, mensagem:$('aMsg').value,
+        inicio:$('aInicio').value, fim:$('aFim').value })});
+      $('aTitulo').value=$('aMsg').value=$('aInicio').value=$('aFim').value='';
+      await carregarAvisos(); toast('Aviso criado.');
+    }catch(ex){ toast(ex.message, true); }
+  });
 
   // ── Usuários ────────────────────────────────────────────
   async function carregarUsuarios(){

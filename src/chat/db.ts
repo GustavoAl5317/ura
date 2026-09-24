@@ -95,6 +95,24 @@ CREATE INDEX IF NOT EXISTS ix_arquivos_conversa ON arquivos(conversa);
 
 -- Promoções e campanhas que a equipe cadastra pelo painel. Entram no prompt da
 -- IA conforme a etapa do atendimento; algumas trocam a taxa de instalação.
+CREATE TABLE IF NOT EXISTS configuracoes (
+  chave       TEXT PRIMARY KEY,
+  valor       TEXT NOT NULL,
+  atualizado  INTEGER NOT NULL,
+  por         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS avisos (
+  id          TEXT PRIMARY KEY,
+  titulo      TEXT NOT NULL,
+  mensagem    TEXT NOT NULL,
+  inicio      INTEGER,
+  fim         INTEGER,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   INTEGER NOT NULL,
+  criado_por  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS promocoes (
   id              TEXT PRIMARY KEY,
   nome            TEXT NOT NULL,

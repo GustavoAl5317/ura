@@ -15,6 +15,7 @@ import { whatsapp } from '../integrations/whatsapp';
 import { whatsappCloud } from '../integrations/whatsapp-cloud';
 import { config } from '../config';
 import { logger } from '../logger';
+import { valorNumero } from './configuracoes';
 import { ChatToolRegistry } from './tool-registry';
 import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
 import { buildChatSystemPrompt } from './prompt';
@@ -376,8 +377,9 @@ export class ChatSession {
    * store tirar a sessão da memória.
    */
   async verificarInatividade(agora: number): Promise<boolean> {
-    const pingMs = config.chat.inatividadePingMin * 60_000;
-    const fecharMs = config.chat.inatividadeFecharMin * 60_000;
+    // Do painel, com fallback no .env: o Lucas ajusta sem precisar de deploy.
+    const pingMs = valorNumero('inatividade_ping_min') * 60_000;
+    const fecharMs = valorNumero('inatividade_fechar_min') * 60_000;
     if (!pingMs) return false;                       // 0 desliga o recurso
     if (this.modo === 'humano') return false;        // atendente decide a hora de fechar
     if (this.encerrada) return false;
