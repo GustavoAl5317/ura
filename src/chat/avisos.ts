@@ -1,7 +1,10 @@
-// Avisos operacionais que a IA deve comunicar: manutenção programada, mudança
-// de horário, feriado, instabilidade conhecida. Diferente de promoções — aqui
-// não há etapa nem condição comercial, é informação que vale para quem escrever
-// enquanto o aviso estiver no ar.
+// Orientações temporárias para a IA: data comemorativa, manutenção programada,
+// feriado, instabilidade conhecida, postura que a operação quer naquele período.
+//
+// NÃO é mensagem pronta. O que se cadastra aqui é o que a IA deve CONSIDERAR, e
+// ela escreve com as próprias palavras no momento em que couber. "Hoje é Dia dos
+// Pais, pode desejar boas festas a quem falar disso" funciona; um texto fixo
+// para ela repetir a cada conversa soaria robótico e apareceria fora de hora.
 
 import crypto from 'crypto';
 import { db } from './db';
@@ -10,7 +13,8 @@ import { logger } from '../logger';
 export interface Aviso {
   id: string;
   titulo: string;
-  mensagem: string;
+  /** O que a IA deve fazer/considerar — não um texto para repetir literalmente. */
+  instrucao: string;
   inicio: number | null;
   fim: number | null;
   ativo: boolean;
@@ -22,7 +26,7 @@ function linha(r: Record<string, unknown>): Aviso {
   return {
     id: String(r.id),
     titulo: String(r.titulo),
-    mensagem: String(r.mensagem),
+    instrucao: String(r.mensagem),
     inicio: r.inicio === null || r.inicio === undefined ? null : Number(r.inicio),
     fim: r.fim === null || r.fim === undefined ? null : Number(r.fim),
     ativo: Number(r.ativo) === 1,
@@ -50,48 +54,54 @@ export function avisosVigentes(agora = Date.now()): Aviso[] {
 export function blocoAvisosParaPrompt(agora = Date.now()): string {
   const ativos = avisosVigentes(agora);
   if (!ativos.length) return '';
-  const itens = ativos.map((a) => `• ${a.titulo}: ${a.mensagem}`).join('\n');
-  return `\n═══ AVISOS EM VIGOR ═════════════════════════════════════════════════\n`
-    + `Informe ao cliente quando for pertinente ao que ele perguntar. Não force o assunto\n`
-    + `nem repita o aviso a cada mensagem — diga uma vez, quando fizer sentido.\n${itens}\n`;
+  const itens = ativos.map((a) => `• ${a.titulo}: ${a.instrucao}`).join(String.fromCharCode(10));
+  return [
+    '',
+    '═══ ORIENTAÇÕES EM VIGOR ════════════════════════════════════════════',
+    'Isto NÃO é texto para copiar e colar: é orientação para VOCÊ seguir, com as suas',
+    'palavras, no momento em que fizer sentido na conversa. Não force o assunto, não',
+    'repita a cada mensagem e não anuncie de cara se não vier ao caso.',
+    itens,
+    '',
+  ].join(String.fromCharCode(10));
 }
 
 export function criarAviso(d: {
-  titulo: string; mensagem: string;
+  titulo: string; instrucao: string;
   inicio?: number | null; fim?: number | null; criadoPor?: string;
 }): { ok: true; aviso: Aviso } | { ok: false; erro: string } {
   const titulo = d.titulo?.trim();
-  const mensagem = d.mensagem?.trim();
-  if (!titulo) return { ok: false, erro: 'Informe um título.' };
-  if (!mensagem) return { ok: false, erro: 'Informe a mensagem do aviso.' };
-  if (mensagem.length > 1500) return { ok: false, erro: 'Mensagem muito longa (máx. 1500 caracteres).' };
+  const mensagem = d.instrucao?.trim();
+  if (!titulo) return { ok: false, erro: 'Informe um nome para a orientação.' };
+  if (!mensagem) return { ok: false, erro: 'Escreva a orientação que a IA deve seguir.' };
+  if (mensagem.length > 1500) return { ok: false, erro: 'Orientação muito longa (máx. 1500 caracteres).' };
   if (d.inicio && d.fim && d.fim < d.inicio) {
     return { ok: false, erro: 'A data final é anterior à inicial.' };
   }
 
   const aviso: Aviso = {
-    id: crypto.randomUUID(), titulo, mensagem,
+    id: crypto.randomUUID(), titulo, instrucao: mensagem,
     inicio: d.inicio ?? null, fim: d.fim ?? null,
     ativo: true, criadoEm: Date.now(), criadoPor: d.criadoPor ?? null,
   };
   db().prepare(
     `INSERT INTO avisos (id, titulo, mensagem, inicio, fim, ativo, criado_em, criado_por)
      VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-  ).run(aviso.id, aviso.titulo, aviso.mensagem, aviso.inicio, aviso.fim, aviso.criadoEm, aviso.criadoPor);
+  ).run(aviso.id, aviso.titulo, aviso.instrucao, aviso.inicio, aviso.fim, aviso.criadoEm, aviso.criadoPor);
   logger.info('[avisos] criado', { id: aviso.id, titulo, por: aviso.criadoPor });
   return { ok: true, aviso };
 }
 
 export function atualizarAviso(
   id: string,
-  campos: { titulo?: string; mensagem?: string; inicio?: number | null; fim?: number | null; ativo?: boolean },
+  campos: { titulo?: string; instrucao?: string; inicio?: number | null; fim?: number | null; ativo?: boolean },
 ): { ok: boolean; erro?: string } {
   const atual = listarAvisos().find((a) => a.id === id);
   if (!atual) return { ok: false, erro: 'Aviso não encontrado.' };
 
   const titulo = campos.titulo?.trim() ?? atual.titulo;
-  const mensagem = campos.mensagem?.trim() ?? atual.mensagem;
-  if (!titulo || !mensagem) return { ok: false, erro: 'Título e mensagem não podem ficar em branco.' };
+  const mensagem = campos.instrucao?.trim() ?? atual.instrucao;
+  if (!titulo || !mensagem) return { ok: false, erro: 'Nome e orientação não podem ficar em branco.' };
 
   const inicio = campos.inicio === undefined ? atual.inicio : campos.inicio;
   const fim = campos.fim === undefined ? atual.fim : campos.fim;

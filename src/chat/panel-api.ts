@@ -404,7 +404,7 @@ export async function tratarPainel(
     if (req.method === 'POST' && p === '/api/avisos') {
       const b = await lerCorpo(req);
       const r = criarAviso({
-        titulo: txt(b.titulo), mensagem: txt(b.mensagem),
+        titulo: txt(b.titulo), instrucao: txt(b.instrucao),
         inicio: diaParaMs(b.inicio), fim: diaParaMs(b.fim, true),
         criadoPor: eu.nome,
       });
@@ -427,7 +427,7 @@ export async function tratarPainel(
         const campos: Record<string, unknown> = {};
         if (typeof b.ativo === 'boolean') campos.ativo = b.ativo;
         if (typeof b.titulo === 'string') campos.titulo = b.titulo;
-        if (typeof b.mensagem === 'string') campos.mensagem = b.mensagem;
+        if (typeof b.instrucao === 'string') campos.instrucao = b.instrucao;
         const r = atualizarAviso(id, campos);
         if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
         json(res, 200, { ok: true, avisos: listarAvisos() });
@@ -572,15 +572,11 @@ export async function tratarPainel(
     !session.atendenteId || session.atendenteId === eu.id || eu.papel === 'admin';
 
   if (req.method === 'POST' && acao === 'intervir') {
-    // Admin pode tomar a conversa de outra atendente; atendente comum, não.
-    // Conversa SEM dono não está sendo atendida por ninguém — é o caso do
-    // repasse, em que quem mandou já soltou. Sem esta ressalva a destinatária
-    // levava "fulana já está atendendo" com atendenteNome vazio.
-    if (session.modo === 'humano' && session.atendenteId
-        && session.atendenteId !== eu.id && eu.papel !== 'admin') {
-      json(res, 409, { erro: `${session.atendenteNome} já está atendendo esta conversa.` });
-      return true;
-    }
+    // Qualquer atendente pode assumir, inclusive uma conversa que outra esteja
+    // atendendo — turno acaba, alguém sai, e travar isso em admin obrigava a
+    // equipe a chamar o gestor para uma troca banal. A troca fica registrada no
+    // histórico ("X assumiu a conversa de Y"), que é o controle que importa.
+    
     const r = session.intervir({ id: eu.id, nome: eu.nome });
     if (!r.ok) {
       json(res, 409, {

@@ -293,7 +293,30 @@
   .chk input{width:15px;height:15px;accent-color:var(--green);margin:0;flex:none}
   .chk .on{font-style:normal;font-size:10.5px;color:var(--green);font-weight:600}
 
-  @media (max-width:720px){ .cfg-grid{grid-template-columns:1fr} }
+  /* Seções: em vez de uma pilha de cards iguais, blocos com titulo e
+     descricao, separando "o que a IA fala" de "como o atendimento funciona". */
+  .cfg-sec{margin-bottom:26px}
+  .cfg-sec > h3{margin:0 0 3px;font-size:13px;font-weight:700;color:var(--ink);
+    display:flex;align-items:center;gap:7px}
+  .cfg-sec > .sub-sec{margin:0 0 12px;font-size:12px;color:var(--muted);line-height:1.5}
+
+  /* Dica com hover: o texto longo nao cabe na ajuda de cada campo sem virar
+     parede de texto, mas a pessoa precisa dele na primeira vez que usa. */
+  .dica{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+    border-radius:50%;background:var(--line-2);color:var(--surface);font-size:11px;font-weight:700;
+    cursor:help;position:relative;flex:none}
+  .dica:hover{background:var(--green)}
+  /* position:fixed porque os cards tem overflow:hidden — com position:absolute
+     o balao era recortado e a dica simplesmente nao aparecia. As coordenadas
+     sao calculadas no hover (ver setaBalao). */
+  .dica .balao{display:none;position:fixed;width:320px;max-width:78vw;
+    padding:11px 13px;background:var(--ink);color:#fff;border-radius:9px;
+    font-size:12px;font-weight:400;line-height:1.55;text-align:left;letter-spacing:0;
+    box-shadow:0 6px 22px rgba(11,20,26,.28);z-index:400;white-space:normal}
+  .dica .balao b{color:#8fe3c9}
+  .dica:hover .balao,.dica:focus-within .balao{display:block}
+
+  @media (max-width:720px){ .cfg-grid{grid-template-columns:1fr} .dica .balao{width:250px} }
 
   .card{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
   .card h3{margin:0;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:10px 13px;background:var(--panel);border-bottom:1px solid var(--line)}
@@ -625,75 +648,85 @@
         <div class="page-body">
           <div id="cfgAviso"></div>
 
-          <div class="card">
-            <div class="card-h">⏱️ Tempos de atendimento</div>
-            <div class="card-b" id="cfgTempos"><span class="hint">Carregando…</span></div>
-          </div>
+          <div class="cfg-sec">
+            <h3>💬 O que a IA fala</h3>
+            <p class="sub-sec">Valores, orientações e instruções que ela usa ao conversar com o cliente.</p>
 
-          <div class="card">
-            <div class="card-h">💰 Preços dos serviços</div>
-            <div class="card-b" id="cfgPrecos"><span class="hint">Carregando…</span></div>
-          </div>
+            <div class="card">
+              <div class="card-h">💰 Preços dos serviços</div>
+              <div class="card-b" id="cfgPrecos"><span class="hint">Carregando…</span></div>
+            </div>
 
-          <div class="card">
-            <div class="card-h">🎯 Para quem vai cada atendimento</div>
-            <div class="card-b" id="cfgRoteamento"><span class="hint">Carregando…</span></div>
-          </div>
+            <div class="card">
+              <div class="card-h">🧾 Serviços cobrados</div>
+              <div class="card-b">
+                <p class="hint" style="margin:0 0 12px">
+                  Tabela que a IA usa para informar preços. O que não estiver aqui, ela não sabe
+                  precificar — diz que vai verificar e transfere.
+                </p>
+                <form id="novoS" class="frm">
+                  <div class="row">
+                    <label>Serviço<input id="sNome" maxlength="80" placeholder="Ex.: Troca de roteador" required></label>
+                    <label>Valor<input id="sValor" maxlength="60" placeholder="Ex.: 40,00 ou 30,00 + cabo" required></label>
+                  </div>
+                  <label>Instrução para a IA (opcional)
+                    <textarea id="sObs" rows="2" maxlength="600"
+                      placeholder="Ex.: avise antes de agendar; o técnico confirma o valor no local."></textarea></label>
+                  <button class="btn primary">Adicionar serviço</button>
+                </form>
+                <table class="tbl" style="margin-top:14px"><thead><tr>
+                  <th>Serviço</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
+                  <tbody id="sBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+              </div>
+            </div>
 
-          <div class="card">
-            <div class="card-h">🧾 Serviços cobrados</div>
-            <div class="card-b">
-              <p class="hint" style="margin:0 0 12px">
-                Tabela que a IA usa para informar preços. O que não estiver aqui, ela não sabe
-                precificar — diz que vai verificar e transfere.
-              </p>
-              <form id="novoS" class="frm">
-                <div class="row">
-                  <label>Serviço<input id="sNome" maxlength="80" placeholder="Ex.: Troca de roteador" required></label>
-                  <label>Valor<input id="sValor" maxlength="60" placeholder="Ex.: 40,00 ou 30,00 + cabo" required></label>
-                </div>
-                <label>Instrução para a IA (opcional)
-                  <textarea id="sObs" rows="2" maxlength="600"
-                    placeholder="Ex.: avise antes de agendar; o técnico confirma o valor no local."></textarea></label>
-                <button class="btn primary">Adicionar serviço</button>
-              </form>
-              <table class="tbl" style="margin-top:14px"><thead><tr>
-                <th>Serviço</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
-                <tbody id="sBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+            <div class="card">
+              <div class="card-h">📢 Orientações temporárias <span class="dica">?<span class="balao">Não é mensagem pronta: é o que a IA deve <b>considerar</b>, escrito com as palavras dela na hora certa.<br><br><b>Ex.:</b> “Hoje é Dia dos Pais. Se o cliente mencionar a data, pode desejar. Não puxe o assunto em reclamação.”<br><br>Vale enquanto estiver no ar, e some sozinha no fim do período.</span></span></div>
+              <div class="card-b">
+                <p class="hint" style="margin:0 0 12px">
+                  Data comemorativa, manutenção programada, instabilidade conhecida. A IA segue isto
+                  com as palavras dela, quando fizer sentido — não repete um texto pronto.
+                </p>
+                <form id="novoA" class="frm">
+                  <div class="row">
+                    <label>Nome<input id="aTitulo" maxlength="80" placeholder="Ex.: Dia dos Pais" required></label>
+                    <label>Início (opcional)<input id="aInicio" type="date"></label>
+                    <label>Fim (opcional)<input id="aFim" type="date"></label>
+                  </div>
+                  <label>O que a IA deve considerar
+                    <textarea id="aMsg" rows="3" maxlength="1500" required
+                      placeholder="Ex.: Hoje é Dia dos Pais. Se o cliente mencionar a data, pode desejar um feliz Dia dos Pais. Não puxe o assunto em reclamação."></textarea></label>
+                  <button class="btn primary">Adicionar orientação</button>
+                </form>
+                <table class="tbl" style="margin-top:14px"><thead><tr>
+                  <th>Orientação</th><th>Período</th><th>Situação</th><th></th></tr></thead>
+                  <tbody id="aBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">📶 Planos oferecidos</div>
+              <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">🧠 Instruções adicionais para a IA <span class="dica">?<span class="balao"><b>O que é:</b> um texto que entra no fim das instruções da IA, no WhatsApp e no telefone.<br><br><b>Funciona para</b> acrescentar orientação, ajustar o tom ou cobrir assunto que ela não sabe. Ex.: “Trate todo cliente por você”.<br><br><b>Não funciona para</b> contrariar regra que já existe — preço, gratuidade, quando transferir. Nesses casos use os blocos próprios desta página, senão o resultado fica imprevisível.<br><br><b>Não muda</b> o que as ferramentas fazem, só o que ela escreve.</span></span></div>
+              <div class="card-b" id="cfgPrompt"><span class="hint">Carregando…</span></div>
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-h">📶 Planos oferecidos</div>
-            <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
-          </div>
+          <div class="cfg-sec">
+            <h3>⚙️ Como o atendimento funciona</h3>
+            <p class="sub-sec">Para quem vão as conversas e em quanto tempo o sistema age sozinho.</p>
 
-          <div class="card">
-            <div class="card-h">🧠 Instruções da IA</div>
-            <div class="card-b" id="cfgPrompt"><span class="hint">Carregando…</span></div>
-          </div>
+            <div class="card">
+              <div class="card-h">🎯 Para quem vai cada atendimento</div>
+              <div class="card-b" id="cfgRoteamento"><span class="hint">Carregando…</span></div>
+            </div>
 
-          <div class="card">
-            <div class="card-h">📢 Avisos</div>
-            <div class="card-b">
-              <p class="hint" style="margin:0 0 12px">
-                Informações que a IA comunica enquanto estiverem no ar — manutenção programada,
-                feriado, instabilidade conhecida.
-              </p>
-              <form id="novoA" class="frm">
-                <div class="row">
-                  <label>Título<input id="aTitulo" maxlength="80" placeholder="Ex.: Manutenção programada" required></label>
-                  <label>Início (opcional)<input id="aInicio" type="date"></label>
-                  <label>Fim (opcional)<input id="aFim" type="date"></label>
-                </div>
-                <label>Mensagem que a IA deve passar
-                  <textarea id="aMsg" rows="2" maxlength="1500" required
-                    placeholder="Ex.: Haverá manutenção no bairro Centro no dia 25, das 2h às 5h."></textarea></label>
-                <button class="btn primary">Adicionar aviso</button>
-              </form>
-              <table class="tbl" style="margin-top:14px"><thead><tr>
-                <th>Aviso</th><th>Período</th><th>Situação</th><th></th></tr></thead>
-                <tbody id="aBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+            <div class="card">
+              <div class="card-h">⏱️ Tempos de atendimento</div>
+              <div class="card-b" id="cfgTempos"><span class="hint">Carregando…</span></div>
             </div>
           </div>
         </div>
@@ -952,6 +985,25 @@
   }
 
 
+  // Balão da dica: como ele é position:fixed (para escapar do overflow dos
+  // cards), a posição precisa ser calculada na hora, e presa à tela para não
+  // sair pela borda em janela estreita.
+  function setaBalao(dica){
+    const b = dica.querySelector('.balao');
+    if (!b) return;
+    b.style.display = 'block';
+    const r = dica.getBoundingClientRect(), bb = b.getBoundingClientRect();
+    const acima = r.top > bb.height + 16;
+    b.style.top = (acima ? r.top - bb.height - 9 : r.bottom + 9) + 'px';
+    let x = r.left + r.width/2 - bb.width/2;
+    x = Math.max(10, Math.min(x, window.innerWidth - bb.width - 10));
+    b.style.left = x + 'px';
+  }
+  document.addEventListener('mouseover', (e)=>{
+    const d = e.target.closest('.dica');
+    if (d) setaBalao(d);
+  });
+
   // ── Configurações ───────────────────────────────────────
   // Campos vêm do servidor com rótulo, ajuda e valor em vigor: a tela não
   // duplica a lista, senão um campo novo no backend não apareceria aqui.
@@ -1107,7 +1159,7 @@
         ? `${dia(a.inicio)||'—'} até ${dia(a.fim)||'—'}`
         : '<span class="hint">sem prazo</span>';
       return `<tr><td class="urow"><b>${esc(a.titulo)}</b>
-        <div class="hint" style="margin-top:4px;max-width:460px">${esc(a.mensagem)}</div></td>
+        <div class="hint" style="margin-top:4px;max-width:460px">${esc(a.instrucao)}</div></td>
         <td class="hint">${periodo}</td><td>${sit}</td>
         <td><div class="acoes">
           <button class="mini" data-av="${esc(a.id)}" data-ac="${a.ativo?'desativar':'ativar'}">${a.ativo?'Desativar':'Ativar'}</button>
@@ -1136,7 +1188,7 @@
     e.preventDefault();
     try{
       await api('/api/avisos',{method:'POST',body:JSON.stringify({
-        titulo:$('aTitulo').value, mensagem:$('aMsg').value,
+        titulo:$('aTitulo').value, instrucao:$('aMsg').value,
         inicio:$('aInicio').value, fim:$('aFim').value })});
       $('aTitulo').value=$('aMsg').value=$('aInicio').value=$('aFim').value='';
       await carregarAvisos(); toast('Aviso criado.');
@@ -1685,8 +1737,9 @@
     if (d.modo==='humano' && !meu){
       el.composer.innerHTML = `<div class="locked busy">
         <div class="txt"><b>${esc(d.atendenteNome||'Outra atendente')} está atendendo</b>
-        <span>Você pode acompanhar, mas só quem assumiu escreve para o cliente.</span></div>
-        ${eu.papel==='admin'?'<button class="btn ghost" id="btnForce">Assumir mesmo assim</button>':''}
+        <span>Só quem assumiu escreve para o cliente. Se precisar render, pode assumir —
+        a troca fica registrada no histórico.</span></div>
+        <button class="btn ghost" id="btnForce">Assumir mesmo assim</button>
       </div>`;
       if ($('btnForce')) $('btnForce').onclick = () => acao('intervir','Você assumiu a conversa.');
       return;
