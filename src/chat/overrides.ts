@@ -36,8 +36,14 @@ export function registerChatOverrides(registry: ChatToolRegistry, ctx: CallConte
     const setor = String(args.setor ?? 'outro');
     ctx.transferMotivo = motivo;
     ctx.transferSummary = resumo;
-    entrarNaFila(ctx, 'atendimento', setor);
-    ctx.log.push(`Transferência (chat): ${motivo} [${setor}]`);
+    // Vendas vai para a FILA DE ADESÃO, não para a de atendimento: é a fila que
+    // o time comercial acompanha. Antes, quem pedia instalação caía no bolo do
+    // suporte e só chegava à adesão no fim do fluxo, via registrar_interesse —
+    // depois de a IA levantar endereço, viabilidade, planos, nome, celular e
+    // e-mail. Quem quer contratar precisa de gente, não de formulário.
+    const fila = setor === 'vendas' ? 'adesao' : 'atendimento';
+    entrarNaFila(ctx, fila, setor);
+    ctx.log.push(`Transferência (chat): ${motivo} [${setor}] → fila ${fila}`);
     logger.info(`[${ctx.callId}] Transferência solicitada (chat): ${motivo} [${setor}]`);
 
     const foraDoHorario = !estaNoHorarioComercial();
