@@ -366,7 +366,17 @@ export async function tratarPainel(
     }
 
     if (req.method === 'GET' && p === '/api/configuracoes') {
-      json(res, 200, { campos: listarConfiguracoes(), aviso: avisoTempos() });
+      const online = usuariosOnline();
+      json(res, 200, {
+        campos: listarConfiguracoes(),
+        aviso: avisoTempos(),
+        // Para montar as caixas de "quem recebe cada tipo". Só atendentes: a
+        // conta de administração não entra no rodízio.
+        atendentes: listarUsuarios()
+          .filter((u) => u.papel === 'atendente' && u.ativo !== false)
+          .map((u) => ({ id: u.id, nome: u.nome, online: online.has(u.id) }))
+          .sort((a, b) => a.nome.localeCompare(b.nome)),
+      });
       return true;
     }
 

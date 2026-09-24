@@ -54,7 +54,7 @@ export function registerChatOverrides(
     // alguém puxar. Quem está fechando uma contratação não espera. Se não
     // houver ninguém online, segue na fila com o escalonamento de sempre — e
     // se a pessoa escolhida não responder, a conversa volta para todos.
-    const atribuida = sessao ? atribuirAutomaticamente(sessao) : false;
+    const atribuida = sessao ? atribuirAutomaticamente(sessao, setor) : false;
     ctx.log.push(`Transferência (chat): ${motivo} [${setor}] → fila ${fila}`
       + (atribuida ? ' (atribuída automaticamente)' : ''));
     logger.info(`[${ctx.callId}] Transferência solicitada (chat): ${motivo} [${setor}]`);
@@ -115,7 +115,7 @@ export function registerChatOverrides(
       // a transferência para humano, pra não perder a venda por ninguém ver.
       if (tipo === 'nova_assinatura' && !falhou) {
         entrarNaFila(ctx, 'adesao', 'vendas');
-        if (sessao) atribuirAutomaticamente(sessao);
+        if (sessao) atribuirAutomaticamente(sessao, 'vendas');
         ctx.transferMotivo = 'Adesão — nova assinatura';
         ctx.log.push('Cliente encaminhado para a FILA DE ADESÃO (nova assinatura)');
         logger.info(`[${ctx.callId}] Fila de adesão (chat): nova assinatura`);

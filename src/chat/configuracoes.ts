@@ -11,14 +11,14 @@ import { db } from './db';
 import { config } from '../config';
 import { logger } from '../logger';
 
-export type TipoCampo = 'texto' | 'numero' | 'lista_numeros' | 'valor';
+export type TipoCampo = 'texto' | 'numero' | 'lista_numeros' | 'valor' | 'atendentes';
 
 export interface CampoConfig {
   chave: string;
   rotulo: string;
   ajuda: string;
   tipo: TipoCampo;
-  grupo: 'tempos' | 'planos' | 'prompt' | 'precos';
+  grupo: 'tempos' | 'planos' | 'prompt' | 'precos' | 'roteamento';
   /** Valor em vigor quando o painel nunca gravou nada. */
   padrao: () => string;
   min?: number;
@@ -106,6 +106,46 @@ export const CAMPOS: CampoConfig[] = [
     padrao: () => config.company.taxaInstalacao,
     valida: validaValor('Instalação'),
   },
+  // ── Para quem vai cada tipo de atendimento ───────────────────────────────
+  // Vazio = qualquer atendente online. Preenchido = só as pessoas escolhidas,
+  // e a conversa só cai em quem estiver online entre elas; se nenhuma estiver,
+  // volta a valer qualquer atendente, senão o cliente ficaria esperando por
+  // alguém que não está.
+  {
+    chave: 'roteamento_vendas',
+    rotulo: 'Vendas e adesão',
+    ajuda: 'Quem recebe quem quer contratar ou instalar. Deixe sem marcar para qualquer atendente.',
+    tipo: 'atendentes', grupo: 'roteamento',
+    padrao: () => '',
+  },
+  {
+    chave: 'roteamento_suporte',
+    rotulo: 'Suporte técnico',
+    ajuda: 'Quem recebe problema de conexão, lentidão e equipamento.',
+    tipo: 'atendentes', grupo: 'roteamento',
+    padrao: () => '',
+  },
+  {
+    chave: 'roteamento_financeiro',
+    rotulo: 'Financeiro',
+    ajuda: 'Quem recebe fatura, pagamento, negociação e cobrança.',
+    tipo: 'atendentes', grupo: 'roteamento',
+    padrao: () => '',
+  },
+  {
+    chave: 'roteamento_cancelamento',
+    rotulo: 'Cancelamento e retenção',
+    ajuda: 'Quem recebe pedido de cancelamento. Costuma ser uma pessoa específica.',
+    tipo: 'atendentes', grupo: 'roteamento',
+    padrao: () => '',
+  },
+  {
+    chave: 'roteamento_outro',
+    rotulo: 'Demais assuntos',
+    ajuda: 'Quem recebe o que não se encaixa nos anteriores.',
+    tipo: 'atendentes', grupo: 'roteamento',
+    padrao: () => '',
+  },
 ];
 
 const porChave = new Map(CAMPOS.map((c) => [c.chave, c]));
@@ -130,6 +170,16 @@ export function valorNumero(chave: string): number {
   const campo = porChave.get(chave);
   if (!Number.isFinite(n)) return Number(campo?.padrao() ?? 0);
   return n;
+}
+
+/**
+ * Atendentes escolhidas para um setor. Lista vazia = sem restrição.
+ * `setor` vem da IA (vendas/suporte/financeiro/cancelamento/outro).
+ */
+export function atendentesDoSetor(setor: string): string[] {
+  const chave = `roteamento_${(setor || 'outro').toLowerCase()}`;
+  const bruto = porChave.has(chave) ? valor(chave) : '';
+  return bruto.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 export function idsDePlanos(): number[] {
