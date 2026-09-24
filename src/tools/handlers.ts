@@ -269,9 +269,23 @@ function tituloVencido(t: SgpTitulo): boolean {
   return diasAtrasoEfetivo(t) > 0;
 }
 
+/**
+ * Separa E ORDENA. O SGP devolve os títulos em ordem própria, e sem ordenar
+ * aqui um cliente com faturas até 2027 podia ter a de 2027 no topo — a IA
+ * anunciava aquela como "a próxima". Pior: consultar_financeiro corta a lista
+ * (slice), então a fatura realmente mais próxima podia nem chegar à IA.
+ *
+ * Vencidas: mais atrasada primeiro (é a que se cobra).
+ * A vencer: vencimento mais próximo primeiro (é a "próxima fatura").
+ */
 function separarTitulos(tits: SgpTitulo[]): { vencidas: SgpTitulo[]; aVencer: SgpTitulo[] } {
-  const vencidas = tits.filter(tituloVencido);
-  const aVencer = tits.filter((t) => !tituloVencido(t));
+  const quando = (t: SgpTitulo): number => parseVencimento(t.dataVencimento)?.getTime() ?? Infinity;
+
+  const vencidas = tits.filter(tituloVencido)
+    .sort((a, b) => diasAtrasoEfetivo(b) - diasAtrasoEfetivo(a));
+  const aVencer = tits.filter((t) => !tituloVencido(t))
+    .sort((a, b) => quando(a) - quando(b));
+
   return { vencidas, aVencer };
 }
 
@@ -1309,6 +1323,10 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       total_a_vencer_falado: aVencer.length > 0
         ? valorPorExtenso(valorTotalAVencer)
         : null,
+      // Listas JÁ ORDENADAS (ver separarTitulos): [0] é a mais atrasada e a
+      // próxima a vencer, respectivamente. Dito no retorno para a IA não
+      // escolher por conta própria.
+      ordem: 'faturas_vencidas[0] = mais atrasada; faturas_a_vencer[0] = PRÓXIMA a vencer',
       faturas_vencidas: vencidas.slice(0, 5).map(mapFaturaResumo),
       faturas_a_vencer: aVencer.slice(0, 3).map(mapFaturaResumo),
       faturas: vencidas.slice(0, 5).map(mapFaturaResumo),
@@ -1944,7 +1962,12 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       };
     }
 
-    const abertas = titulos.filter((t) => String(t.status).toLowerCase().includes('aberto'));
+    // Ordena antes de escolher: sem isso "a próxima parcela" era simplesmente a
+    // primeira que o SGP devolveu, que pode ser de qualquer mês do acordo.
+    const abertas = titulos
+      .filter((t) => String(t.status).toLowerCase().includes('aberto'))
+      .sort((a, b) => (parseVencimento(a.dataVencimento)?.getTime() ?? Infinity)
+                    - (parseVencimento(b.dataVencimento)?.getTime() ?? Infinity));
     const proxima = abertas[0];
 
     return {
