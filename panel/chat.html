@@ -1342,7 +1342,7 @@
       return (b.ultimaTs||b.lastActivity) - (a.ultimaTs||a.lastActivity);
     });
 
-    const sig = atual+'|'+filaAtiva+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,
+    const sig = atual+'|'+filaAtiva+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.atendenteId,c.encerrada,c.pendingTransfer,
       c.filaTipo,nivelDaFila(c),c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
     if (sig===sigLista) return;
     sigLista = sig;
@@ -1360,7 +1360,12 @@
       const nivel = nivelDaFila(c);
       const critico = nivel === 4;
       const filaLabel = c.filaTipo ? (FILA_LABEL[c.filaTipo]||c.filaTipo) : 'transferir';
+      // Humano SEM dono: ninguém está com a conversa. Sem esta linha a etiqueta
+      // saía VAZIA e a conversa passava por atendida — foi assim que um cliente
+      // ficou esperando sem ninguém nela.
+      const semDono = human && !c.atendenteId && !c.encerrada;
       const tag = c.encerrada ? '<span class="tag off">encerrada</span>'
+        : semDono ? '<span class="tag alert">⚠️ sem atendente</span>'
         : c.pendingTransfer ? `<span class="tag alert${critico?' critico':''}">${critico?'🚨 ':''}${esc(filaLabel)}${nivel>1?' · '+nivel:''}</span>`
         : human ? `<span class="tag human">${meu?'você':esc((c.atendenteNome||'').split(' ')[0])}</span>`
         : '<span class="tag ia">IA</span>';
