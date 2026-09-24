@@ -30,8 +30,25 @@ export function escolherAtendente(): { id: string; nome: string } | null {
   if (!store) return null;
 
   const online = usuariosOnline();
-  const candidatas = listarUsuarios().filter((u) => online.has(u.id) && u.ativo !== false);
-  if (!candidatas.length) return null;
+
+  // SÓ quem tem papel de atendente. A conta de administração fica logada no
+  // painel o dia todo sem ninguém atendendo por ela — uma conversa direcionada
+  // para lá some da vista de todo mundo. Já aconteceu: uma conversa foi parar
+  // na conta "aquitelecom" e o cliente ficou sem resposta.
+  const candidatas = listarUsuarios()
+    .filter((u) => u.papel === 'atendente' && online.has(u.id) && u.ativo !== false);
+
+  if (!candidatas.length) {
+    // Sem atendente online, a conversa fica na FILA, onde todo mundo vê e o
+    // escalonamento cobra. Atribuir a um admin só esconderia a espera.
+    const adminsOnline = listarUsuarios().filter((u) => u.papel === 'admin' && online.has(u.id)).length;
+    if (adminsOnline) {
+      logger.info('atribuição automática: só admin online — mantendo na fila, que todos veem', {
+        adminsOnline,
+      });
+    }
+    return null;
+  }
 
   const conversas = store.list();
   const carga = (id: string): number =>
