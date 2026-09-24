@@ -11,14 +11,14 @@ import { db } from './db';
 import { config } from '../config';
 import { logger } from '../logger';
 
-export type TipoCampo = 'texto' | 'numero' | 'lista_numeros';
+export type TipoCampo = 'texto' | 'numero' | 'lista_numeros' | 'valor';
 
 export interface CampoConfig {
   chave: string;
   rotulo: string;
   ajuda: string;
   tipo: TipoCampo;
-  grupo: 'tempos' | 'planos' | 'prompt';
+  grupo: 'tempos' | 'planos' | 'prompt' | 'precos';
   /** Valor em vigor quando o painel nunca gravou nada. */
   padrao: () => string;
   min?: number;
@@ -29,6 +29,17 @@ export interface CampoConfig {
 
 const naoVazio = (rotulo: string) => (v: string): string | null =>
   v.trim() ? null : `${rotulo} não pode ficar em branco.`;
+
+/**
+ * Preço é texto livre de propósito: a IA fala "60,00", e o dia que for "isenta"
+ * ou "sob consulta" precisa caber. Mas não pode ficar em branco nem virar um
+ * texto enorme — a IA lê isso como valor e repete ao cliente.
+ */
+const validaValor = (rotulo: string) => (v: string): string | null => {
+  if (!v.trim()) return `${rotulo}: informe o valor (ex.: 60,00).`;
+  if (v.length > 40) return `${rotulo}: valor muito longo.`;
+  return null;
+};
 
 export const CAMPOS: CampoConfig[] = [
   // ── Tempos de atendimento ────────────────────────────────────────────────
@@ -82,6 +93,44 @@ export const CAMPOS: CampoConfig[] = [
     tipo: 'texto', grupo: 'prompt',
     padrao: () => '',
     valida: (v) => (v.length > 6000 ? 'Máximo de 6000 caracteres.' : null),
+  },
+  // ── Preços dos serviços ──────────────────────────────────────────────────
+  // Preço muda, e a IA não pode inventar: já prometeu instalação gratuita a um
+  // cliente quando a taxa é cobrada.
+  {
+    chave: 'taxa_instalacao',
+    rotulo: 'Instalação',
+    ajuda: 'Taxa de instalação para nova contratação. Uma promoção ativa com taxa própria '
+      + 'substitui este valor enquanto valer.',
+    tipo: 'valor', grupo: 'precos',
+    padrao: () => config.company.taxaInstalacao,
+    valida: validaValor('Instalação'),
+  },
+  {
+    chave: 'taxa_mudanca_endereco',
+    rotulo: 'Mudança de endereço',
+    ajuda: 'Cobrado quando o cliente leva o serviço para outro endereço.',
+    tipo: 'valor', grupo: 'precos',
+    padrao: () => config.company.taxaMudancaEndereco,
+    valida: validaValor('Mudança de endereço'),
+  },
+  {
+    chave: 'taxa_visita_improdutiva',
+    rotulo: 'Visita técnica improdutiva',
+    ajuda: 'Cobrado quando o técnico vai ao local e o problema não era da nossa rede. '
+      + 'A IA avisa o cliente disso ANTES de agendar a visita.',
+    tipo: 'valor', grupo: 'precos',
+    padrao: () => config.company.taxaVisitaImprodutiva,
+    valida: validaValor('Visita improdutiva'),
+  },
+  {
+    chave: 'taxa_repetidor',
+    rotulo: 'Instalação de repetidor (+ cabo)',
+    ajuda: 'Valor da instalação. O cabo é cobrado à parte, conforme a metragem — a IA é '
+      + 'instruída a NUNCA fechar um total nem estimar metragem.',
+    tipo: 'valor', grupo: 'precos',
+    padrao: () => config.company.taxaRepetidor,
+    valida: validaValor('Repetidor'),
   },
 ];
 

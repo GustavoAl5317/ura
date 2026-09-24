@@ -280,6 +280,11 @@ export const config = {
     prazoInstalacao: opt('COMPANY_PRAZO_INSTALACAO', 'até 24 horas úteis'),
     fidelidade: opt('COMPANY_FIDELIDADE', '12 meses'),
     formasPagamentoTaxa: opt('COMPANY_PAGAMENTO_TAXA', 'pix ou boleto'),
+    // Tabela de serviços cobrados. Mesma razão da taxa de instalação: a IA não
+    // pode inventar preço, e preço muda sem virar deploy.
+    taxaMudancaEndereco: opt('COMPANY_TAXA_MUDANCA_ENDERECO', '50,00'),
+    taxaVisitaImprodutiva: opt('COMPANY_TAXA_VISITA_IMPRODUTIVA', '30,00'),
+    taxaRepetidor: opt('COMPANY_TAXA_REPETIDOR', '30,00'),
     googleReviewUrl: opt(
       'COMPANY_GOOGLE_REVIEW_URL',
       'https://google.com/maps/place//data=!4m3!3m2!1s0x7c74c7bb6ad70fd:0xafe6989ac47d4bc0!12e1?source=g.page.m.ad._',

@@ -575,6 +575,11 @@
           </div>
 
           <div class="card">
+            <div class="card-h">💰 Preços dos serviços</div>
+            <div class="card-b" id="cfgPrecos"><span class="hint">Carregando…</span></div>
+          </div>
+
+          <div class="card">
             <div class="card-h">📶 Planos oferecidos</div>
             <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
           </div>
@@ -887,6 +892,7 @@
   function pintarConfig(d){
     const porGrupo = (g) => (d.campos||[]).filter(c=>c.grupo===g).map(campoHtml).join('') || '<span class="hint">—</span>';
     $('cfgTempos').innerHTML = porGrupo('tempos');
+    $('cfgPrecos').innerHTML = porGrupo('precos');
     $('cfgPlanos').innerHTML = porGrupo('planos');
     $('cfgPrompt').innerHTML = porGrupo('prompt');
     // Combinação incoerente de tempos faz o cliente nunca receber o protocolo.
