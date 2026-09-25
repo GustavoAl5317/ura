@@ -1755,8 +1755,23 @@
             <button class="btn take" id="btnTake">Assumir</button></div>`
         : `<div class="locked">
             <div class="txt"><b>🔒 A IA está conduzindo este atendimento</b>
-            <span>Só dá pra assumir depois que ela transferir — não é possível interferir por conta própria.</span></div></div>`;
+            <span>Só dá pra assumir depois que ela transferir — não é possível interferir por conta própria.</span></div>
+            ${eu.papel==='admin'?'<button class="btn ghost" id="btnTransferir" title="Para quando a IA não transferiu quem pediu atendente">Transferir para atendente</button>':''}
+          </div>`;
       if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa. A IA está pausada.', true);
+      // Supervisão (admin): tira da IA a conversa que ela deveria ter
+      // transferido. Passa pela transferência normal — fila, atribuição e
+      // aviso ao cliente —, não é "puxar" a conversa.
+      if ($('btnTransferir')) $('btnTransferir').onclick = async () => {
+        if (!confirm(`Transferir esta conversa para um atendente?
+
+Ela sai da IA e vai para a fila (ou direto para uma atendente online), e o cliente é avisado.`)) return;
+        try{
+          await api('/api/conversas/'+encodeURIComponent(atual)+'/transferir',{method:'POST',body:'{}'});
+          toast('Conversa transferida.');
+          sigThread=''; sigComposer=''; await carregarDetalhe(false);
+        }catch(ex){ toast(ex.message, true); }
+      };
       return;
     }
 

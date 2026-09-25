@@ -535,7 +535,7 @@ export async function tratarPainel(
   // 'enviar-arquivo'/'enviar-audio' vêm antes de 'enviar' na alternância: a
   // regex é gulosa da esquerda e casaria só o prefixo, jogando o resto para
   // dentro da chave.
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|transferir|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -608,6 +608,28 @@ export async function tratarPainel(
         destinatario_igual_remetente: 'Escolha outra pessoa.',
       };
       json(res, 409, { erro: msgs[r.erro ?? ''] ?? 'Não foi possível repassar.' });
+      return true;
+    }
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  // Supervisão: tira da IA uma conversa em que ela falhou em transferir.
+  // Só admin — a regra de que atendente não pega conversa da IA continua.
+  if (req.method === 'POST' && acao === 'transferir') {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores transferem uma conversa que está com a IA.' });
+      return true;
+    }
+    const b = await lerCorpo(req);
+    const r = await session.transferirPorSupervisao({ nome: eu.nome }, txt(b.motivo));
+    if (!r.ok) {
+      const msgs: Record<string, string> = {
+        conversa_encerrada: 'Esta conversa já foi encerrada.',
+        ja_esta_com_atendente: 'Esta conversa já está com uma atendente.',
+        ja_esta_na_fila: 'Esta conversa já está na fila de atendimento.',
+      };
+      json(res, 409, { erro: msgs[r.erro ?? ''] ?? 'Não foi possível transferir.' });
       return true;
     }
     json(res, 200, { ok: true });

@@ -725,6 +725,37 @@ export class ChatSession {
   }
 
   /**
+   * Transferência feita pelo painel (supervisão). Para quando a IA falha em
+   * transferir alguém que pediu atendente — sem isto a conversa ficava presa:
+   * atendente não pode pegar conversa que a IA conduz, e a IA não transferia.
+   *
+   * Não é "puxar" a conversa: passa pelo mesmo caminho da transferência da IA
+   * (fila, atribuição automática, aviso ao cliente).
+   */
+  async transferirPorSupervisao(quem: { nome: string }, motivo?: string): Promise<{ ok: boolean; erro?: string }> {
+    if (this.encerrada) return { ok: false, erro: 'conversa_encerrada' };
+    if (this.modo !== 'ia') return { ok: false, erro: 'ja_esta_com_atendente' };
+    if (this.ctx.pendingTransfer) return { ok: false, erro: 'ja_esta_na_fila' };
+
+    const pedidoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente')?.texto ?? '';
+    const args = {
+      motivo: motivo?.trim() || 'Transferência pelo painel',
+      setor: 'outro',
+      resumo: `Transferida pelo painel por ${quem.nome}. Última mensagem do cliente: `
+        + `"${pedidoCliente.slice(0, 300)}".`,
+    };
+    const resultado = await this.registry.dispatch('transferir_para_atendente', args);
+    this.record({
+      tipo: 'tool',
+      tool: { name: 'transferir_para_atendente', args, resultado: JSON.stringify(resultado ?? {}).slice(0, 2500) },
+    });
+    this.record({ tipo: 'sistema', texto: `${quem.nome} transferiu a conversa pelo painel.` });
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] painel: ${quem.nome} transferiu para atendente (${this.numero})`);
+    return { ok: true };
+  }
+
+  /**
    * O modelo às vezes ESCREVE que vai transferir ("Vou transferir você para um
    * atendente. *Transferindo...*") sem chamar transferir_para_atendente. O
    * cliente acha que está na fila, ninguém é avisado e a conversa fica parada
