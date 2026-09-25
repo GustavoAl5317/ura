@@ -33,6 +33,43 @@ function linha(r: Record<string, unknown>): Servico {
 }
 
 /**
+ * Serviços que a empresa informou, com valores do .env. Serve para semear o
+ * banco na primeira subida E como tabela quando não há banco — a URA de voz
+ * roda em outra máquina, sem o banco do chat. Sem este fallback o prompt de
+ * voz ficava só com a instalação, e a regra "fora da lista você não sabe o
+ * preço" fazia a URA dizer que não sabia o valor da visita improdutiva.
+ */
+export function servicosPadrao(): Array<Omit<Servico, 'id' | 'ativo'>> {
+  return [
+    {
+      nome: 'Mudança de endereço',
+      valor: config.company.taxaMudancaEndereco,
+      observacao: null,
+      ordem: 1,
+    },
+    {
+      nome: 'Visita técnica improdutiva',
+      valor: config.company.taxaVisitaImprodutiva,
+      observacao:
+        'Avise ANTES de agendar qualquer visita, com naturalidade e nunca como ameaça: '
+        + 'é cobrada quando o técnico vai até o local e o problema NÃO era da nossa rede '
+        + '(equipamento do cliente, tomada desligada, fiação interna). Se o problema for '
+        + 'da nossa rede, NÃO há cobrança — diga isso na mesma frase.',
+      ordem: 2,
+    },
+    {
+      nome: 'Instalação de repetidor',
+      valor: `${config.company.taxaRepetidor} + cabo utilizado`,
+      observacao:
+        'O valor NÃO é fechado. NUNCA diga um total, nunca estime metragem, nunca diga '
+        + '"fica em torno de". Explique que o técnico mede no local e informa o valor exato '
+        + 'antes de instalar. Se o cliente insistir num valor fechado, transfira.',
+      ordem: 3,
+    },
+  ];
+}
+
+/**
  * Primeira execução: cria a tabela com os serviços que a empresa já informou.
  * Sem isso o sistema subiria sem saber nenhum preço, e a IA voltaria a dizer que
  * não sabe — pior do que a versão anterior, que tinha os valores fixos.
@@ -45,33 +82,7 @@ export function semearServicos(): void {
     const { n } = db().prepare('SELECT COUNT(*) AS n FROM servicos').get() as { n: number };
     if (n > 0) return;
 
-    const iniciais: Array<Omit<Servico, 'id' | 'ativo'>> = [
-      {
-        nome: 'Mudança de endereço',
-        valor: config.company.taxaMudancaEndereco,
-        observacao: null,
-        ordem: 1,
-      },
-      {
-        nome: 'Visita técnica improdutiva',
-        valor: config.company.taxaVisitaImprodutiva,
-        observacao:
-          'Avise ANTES de agendar qualquer visita, com naturalidade e nunca como ameaça: '
-          + 'é cobrada quando o técnico vai até o local e o problema NÃO era da nossa rede '
-          + '(equipamento do cliente, tomada desligada, fiação interna). Se o problema for '
-          + 'da nossa rede, NÃO há cobrança — diga isso na mesma frase.',
-        ordem: 2,
-      },
-      {
-        nome: 'Instalação de repetidor',
-        valor: `${config.company.taxaRepetidor} + cabo utilizado`,
-        observacao:
-          'O valor NÃO é fechado. NUNCA diga um total, nunca estime metragem, nunca diga '
-          + '"fica em torno de". Explique que o técnico mede no local e informa o valor exato '
-          + 'antes de instalar. Se o cliente insistir num valor fechado, transfira.',
-        ordem: 3,
-      },
-    ];
+    const iniciais = servicosPadrao();
 
     const stmt = db().prepare(
       'INSERT INTO servicos (id, nome, valor, observacao, ordem, ativo, criado_em) VALUES (?,?,?,?,?,1,?)',
@@ -159,10 +170,13 @@ export function removerServico(id: string): { ok: boolean; erro?: string } {
  * fora (promoção pode isentá-la).
  */
 export function blocoServicosParaPrompt(taxaInstalacao: string): string {
-  let ativos: Servico[] = [];
+  let ativos: Array<Pick<Servico, 'nome' | 'valor' | 'observacao'>>;
   try {
     ativos = servicosAtivos();
-  } catch { /* sem banco: sai só a instalação */ }
+  } catch {
+    // Sem banco (URA de voz em outra máquina): usa a tabela padrão do .env.
+    ativos = servicosPadrao();
+  }
 
   const linhas = [`• Instalação: ${taxaInstalacao}`];
   const instrucoes: string[] = [];
