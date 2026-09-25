@@ -70,6 +70,13 @@ export class CallSession {
    * que é o "a URA fica teclando" e o "a voz trava" ao mesmo tempo.
    */
   private vozAtiva = 0;
+  /**
+   * A primeira fala da URA (a saudação) já saiu. Antes disso o vigia de
+   * silêncio não pode agir: se o cliente fala logo que atende, a saudação é
+   * interrompida, nada fica tocando, e 12 s depois o vigia concluía "silêncio"
+   * — a URA abria a ligação com "você ainda está na linha?" antes do bom dia.
+   */
+  private saudacaoFeita = false;
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
@@ -318,6 +325,7 @@ export class CallSession {
 
     this.rt.on('textDone', (text: string) => {
       if (text.trim()) {
+        this.saudacaoFeita = true;
         this.assistantTextInResponse = true;
         this.clearResponseStallWatchdog();
         this.clearPostToolSpeechWatchdog();
@@ -1175,10 +1183,18 @@ export class CallSession {
     ) {
       return;
     }
+    // Antes da saudação não existe "silêncio do cliente" — só adia o vigia.
+    if (!this.saudacaoFeita) {
+      this.resetSilenceTimer();
+      return;
+    }
     this.silenceWarningsCount++;
     if (this.silenceWarningsCount === 1) {
       logger.warn(`[${this.ctx.callId}] Silêncio prolongado — perguntando se cliente ainda está na linha`);
-      this.rt.injectSystemNote('O cliente está em silêncio absoluto. Pergunte de forma breve e direta se ele ainda está na linha e aguarde a resposta.');
+      // A nota fica no contexto: se o cliente falar antes da próxima resposta,
+      // ela já está velha. Sem a ressalva, a URA respondia "você ainda está na
+      // linha?" logo depois de o cliente ter falado.
+      this.rt.injectSystemNote('O cliente está em silêncio. Pergunte de forma breve e direta se ele ainda está na linha e aguarde a resposta. SE o cliente tiver dito qualquer coisa depois desta instrução, IGNORE-A e responda ao que ele disse.');
       this.resetSilenceTimer();
     } else {
       logger.warn(`[${this.ctx.callId}] Silêncio prolongado (segunda vez) — encerrando ligação por inatividade`);
