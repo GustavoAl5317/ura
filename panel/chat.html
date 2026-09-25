@@ -156,6 +156,13 @@
   .fchip i{font-style:normal;font-size:11px;font-variant-numeric:tabular-nums;opacity:.75}
   .fchip[data-fila="atendimento"][aria-pressed="true"],
   .fchip[data-fila="adesao"][aria-pressed="true"]{background:var(--take-soft);color:var(--take);border-color:var(--take-line)}
+  .msg .del{
+    position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;
+    background:#fff;border:1px solid var(--line-2);color:var(--muted);font-size:13px;
+    display:none;place-items:center;box-shadow:0 1px 3px rgba(11,20,26,.18);z-index:2;
+  }
+  .msg:hover .del{display:grid}
+  .msg .del:hover{background:var(--danger-soft);color:var(--danger);border-color:#f3c9c4}
   .tag.alert{background:var(--danger-soft);color:var(--danger)}
   .tag.alert.critico{background:var(--danger);color:#fff;animation:pulse 1s infinite}
   .conv.critico{background:var(--danger-soft)}
@@ -232,6 +239,85 @@
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.35)}50%{box-shadow:0 0 0 6px rgba(192,57,43,0)}}
 
   .dossie-body{flex:1;overflow-y:auto;padding:16px}
+
+  /* ── Formulários (Configurações, Promoções, Avisos, Serviços) ──────────
+     Estas classes eram usadas no HTML mas não tinham CSS nenhum: os campos
+     saíam com o visual cru do navegador, de larguras diferentes e sem
+     alinhamento. */
+  .frm{display:flex;flex-direction:column;gap:12px}
+  .frm label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;
+    color:var(--muted);letter-spacing:.01em;min-width:0}
+  .frm input,.frm select,.frm textarea{
+    width:100%;box-sizing:border-box;border:1px solid var(--line-2);border-radius:8px;
+    padding:9px 11px;font-size:14px;font-weight:400;color:var(--ink);background:var(--surface);
+    transition:border-color .12s,box-shadow .12s}
+  .frm input:focus,.frm select:focus,.frm textarea:focus{
+    outline:0;border-color:var(--green);box-shadow:0 0 0 3px rgba(0,168,132,.14)}
+  .frm textarea{resize:vertical;line-height:1.45;font-family:var(--sans)}
+  .frm .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+  /* .btn do painel e de largura total; nestes formularios precisa ser inline. */
+  .frm .btn{align-self:flex-start;width:auto;flex:none;padding-inline:20px}
+
+  /* ── Página de configurações ─────────────────────────────────────────── */
+  .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px 22px}
+  .cfg-campo{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .cfg-campo .topo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cfg-campo .nome{font-size:12.5px;font-weight:600;color:var(--ink)}
+  .cfg-campo input,.cfg-campo textarea{
+    width:100%;box-sizing:border-box;border:1px solid var(--line-2);border-radius:8px;
+    padding:9px 11px;font-size:14px;color:var(--ink);background:var(--surface);
+    transition:border-color .12s,box-shadow .12s}
+  .cfg-campo input:focus,.cfg-campo textarea:focus{
+    outline:0;border-color:var(--green);box-shadow:0 0 0 3px rgba(0,168,132,.14)}
+  .cfg-campo textarea{resize:vertical;line-height:1.5;font-family:var(--sans)}
+  /* Campo mexido e ainda não salvo: sem isso a pessoa fecha a aba achando
+     que salvou. */
+  .cfg-campo.sujo input,.cfg-campo.sujo textarea{border-color:var(--take-line);background:var(--take-soft)}
+  .cfg-campo .ajuda{font-size:11.5px;line-height:1.45;color:var(--muted)}
+  .cfg-campo.largo{grid-column:1/-1}
+
+  .cfg-rodape{display:flex;align-items:center;gap:10px;margin-top:16px;
+    padding-top:13px;border-top:1px solid var(--line)}
+  .cfg-rodape .btn{width:auto;flex:none;padding-inline:22px}
+  .cfg-rodape .estado{font-size:12px;color:var(--muted)}
+  .cfg-rodape .estado.sujo{color:var(--take);font-weight:600}
+
+  .cfg-aviso{display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;padding:11px 13px;
+    border:1px solid var(--take-line);background:var(--take-soft);border-radius:9px;
+    font-size:12.5px;line-height:1.5;color:var(--ink)}
+
+  .chk-lista{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px 12px;
+    padding:10px 12px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface)}
+  .chk{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;color:var(--ink);
+    cursor:pointer;padding:3px 0}
+  .chk input{width:15px;height:15px;accent-color:var(--green);margin:0;flex:none}
+  .chk .on{font-style:normal;font-size:10.5px;color:var(--green);font-weight:600}
+
+  /* Seções: em vez de uma pilha de cards iguais, blocos com titulo e
+     descricao, separando "o que a IA fala" de "como o atendimento funciona". */
+  .cfg-sec{margin-bottom:26px}
+  .cfg-sec > h3{margin:0 0 3px;font-size:13px;font-weight:700;color:var(--ink);
+    display:flex;align-items:center;gap:7px}
+  .cfg-sec > .sub-sec{margin:0 0 12px;font-size:12px;color:var(--muted);line-height:1.5}
+
+  /* Dica com hover: o texto longo nao cabe na ajuda de cada campo sem virar
+     parede de texto, mas a pessoa precisa dele na primeira vez que usa. */
+  .dica{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+    border-radius:50%;background:var(--line-2);color:var(--surface);font-size:11px;font-weight:700;
+    cursor:help;position:relative;flex:none}
+  .dica:hover{background:var(--green)}
+  /* position:fixed porque os cards tem overflow:hidden — com position:absolute
+     o balao era recortado e a dica simplesmente nao aparecia. As coordenadas
+     sao calculadas no hover (ver setaBalao). */
+  .dica .balao{display:none;position:fixed;width:320px;max-width:78vw;
+    padding:11px 13px;background:var(--ink);color:#fff;border-radius:9px;
+    font-size:12px;font-weight:400;line-height:1.55;text-align:left;letter-spacing:0;
+    box-shadow:0 6px 22px rgba(11,20,26,.28);z-index:400;white-space:normal}
+  .dica .balao b{color:#8fe3c9}
+  .dica:hover .balao,.dica:focus-within .balao{display:block}
+
+  @media (max-width:720px){ .cfg-grid{grid-template-columns:1fr} .dica .balao{width:250px} }
+
   .card{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
   .card h3{margin:0;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:10px 13px;background:var(--panel);border-bottom:1px solid var(--line)}
   .card .body{padding:12px 13px}
@@ -373,7 +459,9 @@
     <div class="mk" id="menuMk">AQ</div>
     <button class="mitem" data-sec="atendimento" aria-current="true">💬<span class="tip">Atendimento</span></button>
     <button class="mitem hidden" data-sec="usuarios" id="mUsuarios">👥<span class="tip">Usuários</span></button>
-    <button class="mitem hidden" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
+    <button class="mitem" data-sec="auditoria" id="mAuditoria">📋<span class="tip">Auditoria</span></button>
+    <button class="mitem hidden" data-sec="promocoes" id="mPromocoes">🏷️<span class="tip">Promoções</span></button>
+    <button class="mitem hidden" data-sec="config" id="mConfig">⚙️<span class="tip">Configurações</span></button>
     <button class="mitem" data-sec="sgp">🔎<i class="wip"></i><span class="tip">Consulta SGP · em desenvolvimento</span></button>
     <button class="mitem" data-sec="contrato">📄<i class="wip"></i><span class="tip">Contrato · em desenvolvimento</span></button>
     <div class="sep"></div>
@@ -504,6 +592,146 @@
         <div class="modal-body" id="aModalBody"></div>
       </div>
     </div>
+
+    <!-- ── Promoções ── -->
+    <section class="sec" data-sec="promocoes">
+      <div class="page">
+        <header class="page-top">
+          <h2>Promoções</h2>
+          <span class="sub">Mensagens e condições que a IA usa em cada etapa</span>
+          <span class="sub" id="pTaxa" style="margin-left:auto"></span>
+        </header>
+        <div class="page-body">
+          <div class="sheet">
+            <h3>Nova promoção</h3>
+            <form id="novaP">
+              <div class="form-row">
+                <div class="field"><label for="pNome">Nome (interno)</label>
+                  <input id="pNome" placeholder="Ex.: Natal 2026" required></div>
+                <div class="field"><label for="pEtapa">Quando usar</label>
+                  <select id="pEtapa"></select></div>
+                <div class="field"><label for="pInicio">Início (opcional)</label>
+                  <input id="pInicio" type="date"></div>
+                <div class="field"><label for="pFim">Fim (opcional)</label>
+                  <input id="pFim" type="date"></div>
+              </div>
+              <div class="form-row" style="grid-template-columns:2fr 1fr">
+                <div class="field"><label for="pMsg">Mensagem que a IA deve usar</label>
+                  <textarea id="pMsg" rows="3" required
+                    style="width:100%;border:1px solid var(--line-2);border-radius:7px;padding:10px 13px;font-size:14.5px;resize:vertical"
+                    placeholder="Ex.: Nesta semana a taxa de instalação está isenta! 🎉"></textarea></div>
+                <div class="field"><label for="pTaxaNova">Taxa de instalação (opcional)</label>
+                  <input id="pTaxaNova" placeholder="Ex.: isenta, ou 0,00">
+                  <span class="hint" style="display:block;margin-top:6px">Preencha só se esta promoção MUDA o valor da taxa. Em branco = mantém o padrão.</span></div>
+              </div>
+              <div class="form-foot">
+                <button class="primary" type="submit">Adicionar</button>
+                <span class="hint">Sem datas, vale até você desativar.</span>
+              </div>
+            </form>
+          </div>
+          <div class="sheet">
+            <h3>Cadastradas <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0" id="pResumo"></span></h3>
+            <table><thead><tr><th>Promoção</th><th>Quando</th><th>Período</th><th>Situação</th><th></th></tr></thead>
+              <tbody id="pBody"><tr><td colspan="5" class="hint" style="padding:20px 18px">Carregando…</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" data-sec="config">
+      <div class="page">
+        <header class="page-top">
+          <h2>Configurações</h2>
+          <span class="sub">Ajustes do atendimento sem precisar de programador</span>
+        </header>
+        <div class="page-body">
+          <div id="cfgAviso"></div>
+
+          <div class="cfg-sec">
+            <h3>💬 O que a IA fala</h3>
+            <p class="sub-sec">Valores, orientações e instruções que ela usa ao conversar com o cliente.</p>
+
+            <div class="card">
+              <div class="card-h">💰 Preços dos serviços</div>
+              <div class="card-b" id="cfgPrecos"><span class="hint">Carregando…</span></div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">🧾 Serviços cobrados</div>
+              <div class="card-b">
+                <p class="hint" style="margin:0 0 12px">
+                  Tabela que a IA usa para informar preços. O que não estiver aqui, ela não sabe
+                  precificar — diz que vai verificar e transfere.
+                </p>
+                <form id="novoS" class="frm">
+                  <div class="row">
+                    <label>Serviço<input id="sNome" maxlength="80" placeholder="Ex.: Troca de roteador" required></label>
+                    <label>Valor<input id="sValor" maxlength="60" placeholder="Ex.: 40,00 ou 30,00 + cabo" required></label>
+                  </div>
+                  <label>Instrução para a IA (opcional)
+                    <textarea id="sObs" rows="2" maxlength="600"
+                      placeholder="Ex.: avise antes de agendar; o técnico confirma o valor no local."></textarea></label>
+                  <button class="btn primary">Adicionar serviço</button>
+                </form>
+                <table class="tbl" style="margin-top:14px"><thead><tr>
+                  <th>Serviço</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
+                  <tbody id="sBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">📢 Orientações temporárias <span class="dica">?<span class="balao">Não é mensagem pronta: é o que a IA deve <b>considerar</b>, escrito com as palavras dela na hora certa.<br><br><b>Ex.:</b> “Hoje é Dia dos Pais. Se o cliente mencionar a data, pode desejar. Não puxe o assunto em reclamação.”<br><br>Vale enquanto estiver no ar, e some sozinha no fim do período.</span></span></div>
+              <div class="card-b">
+                <p class="hint" style="margin:0 0 12px">
+                  Data comemorativa, manutenção programada, instabilidade conhecida. A IA segue isto
+                  com as palavras dela, quando fizer sentido — não repete um texto pronto.
+                </p>
+                <form id="novoA" class="frm">
+                  <div class="row">
+                    <label>Nome<input id="aTitulo" maxlength="80" placeholder="Ex.: Dia dos Pais" required></label>
+                    <label>Início (opcional)<input id="aInicio" type="date"></label>
+                    <label>Fim (opcional)<input id="aFim" type="date"></label>
+                  </div>
+                  <label>O que a IA deve considerar
+                    <textarea id="aMsg" rows="3" maxlength="1500" required
+                      placeholder="Ex.: Hoje é Dia dos Pais. Se o cliente mencionar a data, pode desejar um feliz Dia dos Pais. Não puxe o assunto em reclamação."></textarea></label>
+                  <button class="btn primary">Adicionar orientação</button>
+                </form>
+                <table class="tbl" style="margin-top:14px"><thead><tr>
+                  <th>Orientação</th><th>Período</th><th>Situação</th><th></th></tr></thead>
+                  <tbody id="aBody"><tr><td colspan="4" class="hint" style="padding:16px">Carregando…</td></tr></tbody></table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">📶 Planos oferecidos</div>
+              <div class="card-b" id="cfgPlanos"><span class="hint">Carregando…</span></div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">🧠 Instruções adicionais para a IA <span class="dica">?<span class="balao"><b>O que é:</b> um texto que entra no fim das instruções da IA, no WhatsApp e no telefone.<br><br><b>Funciona para</b> acrescentar orientação, ajustar o tom ou cobrir assunto que ela não sabe. Ex.: “Trate todo cliente por você”.<br><br><b>Não funciona para</b> contrariar regra que já existe — preço, gratuidade, quando transferir. Nesses casos use os blocos próprios desta página, senão o resultado fica imprevisível.<br><br><b>Não muda</b> o que as ferramentas fazem, só o que ela escreve.</span></span></div>
+              <div class="card-b" id="cfgPrompt"><span class="hint">Carregando…</span></div>
+            </div>
+          </div>
+
+          <div class="cfg-sec">
+            <h3>⚙️ Como o atendimento funciona</h3>
+            <p class="sub-sec">Para quem vão as conversas e em quanto tempo o sistema age sozinho.</p>
+
+            <div class="card">
+              <div class="card-h">🎯 Para quem vai cada atendimento</div>
+              <div class="card-b" id="cfgRoteamento"><span class="hint">Carregando…</span></div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">⏱️ Tempos de atendimento</div>
+              <div class="card-b" id="cfgTempos"><span class="hint">Carregando…</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section class="sec" data-sec="sgp">
       <div class="page">
@@ -739,6 +967,8 @@
     document.querySelectorAll('.sec').forEach((s)=>s.dataset.on = String(s.dataset.sec===sec));
     if (sec === 'usuarios') carregarUsuarios();
     if (sec === 'auditoria') carregarAuditoria();
+    if (sec === 'promocoes') carregarPromocoes();
+    if (sec === 'config') carregarConfig();
   }
 
   // ── Boot ────────────────────────────────────────────────
@@ -746,12 +976,279 @@
     $('meIni').textContent = iniciais(eu.nome);
     $('meTip').textContent = `${eu.nome} · sair`;
     $('mUsuarios').classList.toggle('hidden', eu.papel !== 'admin');
-    $('mAuditoria').classList.toggle('hidden', eu.papel !== 'admin');
-    if ((secao === 'usuarios' || secao === 'auditoria') && eu.papel !== 'admin') irPara('atendimento');
+    $('mPromocoes').classList.toggle('hidden', eu.papel !== 'admin');
+    $('mConfig').classList.toggle('hidden', eu.papel !== 'admin');
+    if (['usuarios','promocoes','config'].includes(secao) && eu.papel !== 'admin') irPara('atendimento');
     tick();
     clearInterval(timer);
     timer = setInterval(tick, 3000);
   }
+
+
+  // Balão da dica: como ele é position:fixed (para escapar do overflow dos
+  // cards), a posição precisa ser calculada na hora, e presa à tela para não
+  // sair pela borda em janela estreita.
+  function setaBalao(dica){
+    const b = dica.querySelector('.balao');
+    if (!b) return;
+    b.style.display = 'block';
+    const r = dica.getBoundingClientRect(), bb = b.getBoundingClientRect();
+    const acima = r.top > bb.height + 16;
+    b.style.top = (acima ? r.top - bb.height - 9 : r.bottom + 9) + 'px';
+    let x = r.left + r.width/2 - bb.width/2;
+    x = Math.max(10, Math.min(x, window.innerWidth - bb.width - 10));
+    b.style.left = x + 'px';
+  }
+  document.addEventListener('mouseover', (e)=>{
+    const d = e.target.closest('.dica');
+    if (d) setaBalao(d);
+  });
+
+  // ── Configurações ───────────────────────────────────────
+  // Campos vêm do servidor com rótulo, ajuda e valor em vigor: a tela não
+  // duplica a lista, senão um campo novo no backend não apareceria aqui.
+  let cfgCampos = [], cfgAtendentes = [];
+
+  function campoHtml(c){
+    const id = 'cf_' + c.chave;
+    const marca = c.personalizado ? '<span class="pill warn">alterado</span>' : '';
+    let entrada;
+    if (c.tipo === 'texto'){
+      entrada = `<textarea id="${id}" rows="7" maxlength="6000">${esc(c.valor)}</textarea>`;
+    } else if (c.tipo === 'atendentes'){
+      // Caixas em vez de campo de texto: ninguém deveria precisar saber o id
+      // interno de um usuário para configurar encaminhamento.
+      const marcados = String(c.valor||'').split(',').map(s=>s.trim()).filter(Boolean);
+      entrada = cfgAtendentes.length
+        ? `<div class="chk-lista" id="${id}">` + cfgAtendentes.map(a=>`
+            <label class="chk"><input type="checkbox" value="${esc(a.id)}"
+              ${marcados.includes(a.id)?'checked':''}>
+              <span>${esc(a.nome)}${a.online?' <i class="on">● online</i>':''}</span></label>`).join('')
+          + `</div>`
+        : `<div class="hint" id="${id}">Nenhum atendente cadastrado. Crie contas com papel
+             <b>atendente</b> em Usuários — a conta de administração não recebe atendimento.</div>`;
+    } else {
+      const attr = c.tipo==='numero' ? ` type="number" min="${c.min??0}" max="${c.max??9999}"` : '';
+      entrada = `<input id="${id}" value="${esc(c.valor)}"${attr}>`;
+    }
+    const largo = (c.tipo === 'texto' || c.tipo === 'atendentes') ? ' largo' : '';
+    return `<div class="cfg-campo${largo}" data-chave="${esc(c.chave)}">
+      <div class="topo"><span class="nome">${esc(c.rotulo)}</span>${marca}</div>
+      ${entrada}
+      <div class="ajuda">${esc(c.ajuda)}</div>
+    </div>`;
+  }
+
+  function grupoHtml(grupo, destino){
+    const campos = cfgCampos.filter(c=>c.grupo===grupo);
+    if (!campos.length){ $(destino).innerHTML = '<span class="hint">—</span>'; return; }
+    const temAlterado = campos.some(c=>c.personalizado);
+    $(destino).innerHTML =
+      `<div class="cfg-grid">${campos.map(campoHtml).join('')}</div>
+       <div class="cfg-rodape">
+         <button class="btn primary" data-salvar="${esc(grupo)}">Salvar</button>
+         ${temAlterado?`<button class="btn ghost" data-padrao="${esc(grupo)}">Restaurar padrão</button>`:''}
+         <span class="estado" data-estado="${esc(grupo)}"></span>
+       </div>`;
+  }
+
+  function pintarConfig(d){
+    cfgCampos = d.campos || [];
+    cfgAtendentes = d.atendentes || [];
+    grupoHtml('tempos','cfgTempos');
+    grupoHtml('precos','cfgPrecos');
+    grupoHtml('roteamento','cfgRoteamento');
+    grupoHtml('planos','cfgPlanos');
+    grupoHtml('prompt','cfgPrompt');
+    // Combinação incoerente de tempos faz o cliente nunca receber o protocolo.
+    // É falha silenciosa, então avisa em vez de deixar quebrado sem sinal.
+    $('cfgAviso').innerHTML = d.aviso
+      ? `<div class="cfg-aviso"><span>⚠️</span><span>${esc(d.aviso)}</span></div>` : '';
+  }
+
+  /** Valor atual de um campo na tela (checkbox vira lista separada por vírgula). */
+  function valorDoCampo(chave){
+    const el = $('cf_' + chave);
+    if (!el) return null;
+    if (el.classList && el.classList.contains('chk-lista')){
+      return [...el.querySelectorAll('input:checked')].map(i=>i.value).join(',');
+    }
+    if (el.tagName === 'DIV') return null;      // sem atendentes cadastrados
+    return el.value;
+  }
+
+  async function carregarConfig(){
+    try{
+      pintarConfig(await api('/api/configuracoes'));
+      await carregarServicos();
+      await carregarAvisos();
+    }catch(ex){
+      toast(ex.message, true);
+      $('cfgAviso').innerHTML = `<div class="cfg-aviso"><span>⚠️</span><span>
+        Não consegui carregar: ${esc(ex.message)}. Se a aba é nova, falta atualizar o
+        serviço (npm run build e reiniciar).</span></div>`;
+    }
+  }
+
+  // Marca visualmente o que foi mexido e ainda não salvo — sem isso a pessoa
+  // fecha a aba achando que salvou.
+  document.addEventListener('input', (e)=>{
+    const campo = e.target.closest('.cfg-campo');
+    if (!campo) return;
+    campo.classList.add('sujo');
+    const grupo = campo.closest('.card')?.querySelector('[data-estado]');
+    if (grupo){ grupo.textContent = 'alterações não salvas'; grupo.classList.add('sujo'); }
+  });
+  document.addEventListener('change', (e)=>{
+    if (e.target.type === 'checkbox') document.dispatchEvent(new Event('input'));
+    const campo = e.target.closest('.cfg-campo');
+    if (!campo) return;
+    campo.classList.add('sujo');
+    const st = campo.closest('.card')?.querySelector('[data-estado]');
+    if (st){ st.textContent = 'alterações não salvas'; st.classList.add('sujo'); }
+  });
+
+  document.addEventListener('click', async (e)=>{
+    const salvar = e.target.closest('[data-salvar]');
+    if (salvar){
+      const grupo = salvar.dataset.salvar;
+      const campos = cfgCampos.filter(c=>c.grupo===grupo);
+      try{
+        let ultimo = null;
+        for (const c of campos){
+          const v = valorDoCampo(c.chave);
+          if (v === null || v === c.valor) continue;   // não mexeu
+          ultimo = await api('/api/configuracoes',{method:'POST',
+            body:JSON.stringify({ chave:c.chave, valor:v })});
+        }
+        if (!ultimo){ toast('Nada mudou.'); return; }
+        pintarConfig(ultimo); toast('Salvo.');
+      }catch(ex){ toast(ex.message, true); }
+      return;
+    }
+    const padrao = e.target.closest('[data-padrao]');
+    if (padrao){
+      const grupo = padrao.dataset.padrao;
+      const alterados = cfgCampos.filter(c=>c.grupo===grupo && c.personalizado);
+      if (!alterados.length) return;
+      if (!confirm(`Restaurar ${alterados.length} configuração(ões) deste bloco ao padrão do sistema?`)) return;
+      try{
+        let ultimo = null;
+        for (const c of alterados){
+          ultimo = await api('/api/configuracoes/'+c.chave+'/padrao',{method:'POST'});
+        }
+        if (ultimo) pintarConfig(ultimo);
+        toast('Voltou ao padrão.');
+      }catch(ex){ toast(ex.message, true); }
+    }
+  });
+
+  // ── Avisos ──────────────────────────────────────────────
+  async function carregarAvisos(){
+    const { avisos } = await api('/api/avisos');
+    const dia = (ms) => ms ? new Date(ms).toLocaleDateString('pt-BR') : '';
+    $('aBody').innerHTML = avisos.length ? avisos.map(a=>{
+      const agora = Date.now();
+      const venceu = a.fim && a.fim < agora;
+      const naoComecou = a.inicio && a.inicio > agora;
+      const sit = !a.ativo ? '<span class="pill">Desativado</span>'
+        : venceu ? '<span class="pill warn">Encerrado</span>'
+        : naoComecou ? '<span class="pill">Agendado</span>'
+        : '<span class="pill ok">● No ar</span>';
+      const periodo = (a.inicio||a.fim)
+        ? `${dia(a.inicio)||'—'} até ${dia(a.fim)||'—'}`
+        : '<span class="hint">sem prazo</span>';
+      return `<tr><td class="urow"><b>${esc(a.titulo)}</b>
+        <div class="hint" style="margin-top:4px;max-width:460px">${esc(a.instrucao)}</div></td>
+        <td class="hint">${periodo}</td><td>${sit}</td>
+        <td><div class="acoes">
+          <button class="mini" data-av="${esc(a.id)}" data-ac="${a.ativo?'desativar':'ativar'}">${a.ativo?'Desativar':'Ativar'}</button>
+          <button class="mini danger" data-av="${esc(a.id)}" data-ac="remover">Remover</button>
+        </div></td></tr>`;
+    }).join('') : '<tr><td colspan="4" class="hint" style="padding:16px">Nenhum aviso cadastrado.</td></tr>';
+  }
+
+  document.addEventListener('click', async (e)=>{
+    const av = e.target.closest('[data-av]');
+    if (!av) return;
+    const id = av.dataset.av, ac = av.dataset.ac;
+    try{
+      if (ac === 'remover'){
+        if (!confirm('Remover este aviso?')) return;
+        await api('/api/avisos/'+encodeURIComponent(id),{method:'DELETE'});
+      } else {
+        await api('/api/avisos/'+encodeURIComponent(id),{method:'PATCH',
+          body:JSON.stringify({ ativo: ac === 'ativar' })});
+      }
+      await carregarAvisos(); toast('Pronto.');
+    }catch(ex){ toast(ex.message, true); }
+  });
+
+  $('novoA').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/avisos',{method:'POST',body:JSON.stringify({
+        titulo:$('aTitulo').value, instrucao:$('aMsg').value,
+        inicio:$('aInicio').value, fim:$('aFim').value })});
+      $('aTitulo').value=$('aMsg').value=$('aInicio').value=$('aFim').value='';
+      await carregarAvisos(); toast('Aviso criado.');
+    }catch(ex){ toast(ex.message, true); }
+  });
+
+  // ── Serviços cobrados ───────────────────────────────────
+  async function carregarServicos(){
+    const { servicos } = await api('/api/servicos');
+    $('sBody').innerHTML = servicos.length ? servicos.map(s=>`
+      <tr><td class="urow">
+        <b>${esc(s.nome)}</b>
+        ${s.observacao?`<div class="hint" style="margin-top:4px;max-width:460px">${esc(s.observacao)}</div>`:''}
+      </td>
+      <td><b>${esc(s.valor)}</b></td>
+      <td>${s.ativo?'<span class="pill ok">● Em uso</span>':'<span class="pill">Desativado</span>'}</td>
+      <td><div class="acoes">
+        <button class="mini" data-sv="${esc(s.id)}" data-ac="editar">Editar</button>
+        <button class="mini" data-sv="${esc(s.id)}" data-ac="${s.ativo?'desativar':'ativar'}">${s.ativo?'Desativar':'Ativar'}</button>
+        <button class="mini danger" data-sv="${esc(s.id)}" data-ac="remover">Remover</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="4" class="hint" style="padding:16px">Nenhum serviço cadastrado. A IA dirá que não sabe o preço e transferirá.</td></tr>';
+    servicosCache = servicos;
+  }
+  let servicosCache = [];
+
+  document.addEventListener('click', async (e)=>{
+    const b = e.target.closest('[data-sv]');
+    if (!b) return;
+    const id = b.dataset.sv, ac = b.dataset.ac;
+    const s = servicosCache.find(x=>x.id===id);
+    try{
+      if (ac === 'remover'){
+        if (!confirm(`Remover "${s?.nome}"?\n\nA IA deixa de saber esse preço e passará a transferir quando perguntarem.`)) return;
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'DELETE'});
+      } else if (ac === 'editar'){
+        const valor = prompt(`Valor de "${s.nome}":`, s.valor);
+        if (valor === null) return;
+        const observacao = prompt(
+          `Instrução para a IA ao falar de "${s.nome}" (opcional):`, s.observacao||'');
+        if (observacao === null) return;
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'PATCH',
+          body:JSON.stringify({ valor, observacao })});
+      } else {
+        await api('/api/servicos/'+encodeURIComponent(id),{method:'PATCH',
+          body:JSON.stringify({ ativo: ac === 'ativar' })});
+      }
+      await carregarServicos(); toast('Pronto.');
+    }catch(ex){ toast(ex.message, true); }
+  });
+
+  $('novoS').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/servicos',{method:'POST',body:JSON.stringify({
+        nome:$('sNome').value, valor:$('sValor').value, observacao:$('sObs').value })});
+      $('sNome').value=$('sValor').value=$('sObs').value='';
+      await carregarServicos(); toast('Serviço criado.');
+    }catch(ex){ toast(ex.message, true); }
+  });
 
   // ── Usuários ────────────────────────────────────────────
   async function carregarUsuarios(){
@@ -840,6 +1337,96 @@
       setTimeout(mostrarLogin, 900);
     }catch(ex){ toast(ex.message,true); }
   };
+
+
+  // ── Promoções ───────────────────────────────────────────
+  let etapasPromo = [];
+
+  async function carregarPromocoes(){
+    try{
+      const d = await api('/api/promocoes');
+      etapasPromo = d.etapas || [];
+      if (!$('pEtapa').options.length){
+        $('pEtapa').innerHTML = etapasPromo.map(e=>`<option value="${esc(e.valor)}">${esc(e.rotulo)}</option>`).join('');
+      }
+      if (!etapasPromo.length){
+        // O HTML é servido direto do disco: um `git pull` sozinho atualiza esta
+        // tela sem atualizar a API. Sem este aviso, o select fica vazio e parece
+        // bug da tela, quando o que falta é `npm run build` + restart.
+        $('pEtapa').innerHTML = '<option value="">— servidor não respondeu as etapas —</option>';
+        toast('O servidor não devolveu as etapas. Falta atualizar o serviço (npm run build + restart).', true);
+      }
+      $('pTaxa').textContent = d.taxaVigente === d.taxaPadrao
+        ? `Taxa de instalação em vigor: ${d.taxaVigente}`
+        : `Taxa PROMOCIONAL em vigor: ${d.taxaVigente} (padrão: ${d.taxaPadrao})`;
+
+      const rotulo = (v)=> (etapasPromo.find(e=>e.valor===v)||{}).rotulo || v;
+      const dia = (ts)=> ts ? new Date(ts).toLocaleDateString('pt-BR') : null;
+      const agora = Date.now();
+
+      $('pResumo').textContent = `· ${d.promocoes.length} cadastrada(s)`;
+      $('pBody').innerHTML = d.promocoes.length ? d.promocoes.map((p)=>{
+        const venceu = p.fim && agora > p.fim;
+        const naoComecou = p.inicio && agora < p.inicio;
+        const valendo = p.ativa && !venceu && !naoComecou;
+        const situacao = !p.ativa ? '<span class="pill">Desativada</span>'
+          : venceu ? '<span class="pill warn">Período encerrado</span>'
+          : naoComecou ? '<span class="pill">Agendada</span>'
+          : '<span class="pill ok">● Valendo agora</span>';
+        const periodo = (p.inicio || p.fim)
+          ? `${dia(p.inicio)||'—'} até ${dia(p.fim)||'—'}`
+          : '<span class="hint">sem prazo</span>';
+        return `<tr>
+          <td class="urow"><b>${esc(p.nome)}</b>
+            <div class="hint" style="margin-top:4px;max-width:420px">${esc(p.mensagem)}</div>
+            ${p.taxaInstalacao?`<div style="margin-top:5px"><span class="pill warn">taxa: ${esc(p.taxaInstalacao)}</span></div>`:''}</td>
+          <td class="hint">${esc(rotulo(p.etapa))}</td>
+          <td class="hint">${periodo}</td>
+          <td>${situacao}</td>
+          <td><div class="acts">
+            <button class="mini" data-p="${esc(p.id)}" data-a="toggle" data-v="${p.ativa?'0':'1'}">${p.ativa?'Desativar':'Ativar'}</button>
+            <button class="mini danger" data-p="${esc(p.id)}" data-a="remover">Remover</button>
+          </div></td></tr>`;
+      }).join('') : '<tr><td colspan="5" class="hint" style="padding:20px 18px">Nenhuma promoção cadastrada. A IA usa as condições padrão.</td></tr>';
+    }catch(ex){
+      // Erro fica NA TELA, não só num toast que some: quem abre esta aba e vê
+      // campos vazios precisa saber que o servidor recusou, e por quê.
+      toast(ex.message, true);
+      $('pEtapa').innerHTML = '<option value="">— indisponível —</option>';
+      $('pBody').innerHTML = `<tr><td colspan="5" class="erro" style="margin:14px">
+        Não consegui carregar as promoções: ${esc(ex.message)}<br>
+        Se a aba é nova, o serviço provavelmente ainda não foi atualizado
+        (<code>npm run build</code> e reiniciar).</td></tr>`;
+    }
+  }
+
+  $('novaP').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    try{
+      await api('/api/promocoes',{method:'POST',body:JSON.stringify({
+        nome:$('pNome').value, etapa:$('pEtapa').value, mensagem:$('pMsg').value,
+        taxaInstalacao:$('pTaxaNova').value, inicio:$('pInicio').value, fim:$('pFim').value })});
+      $('pNome').value=$('pMsg').value=$('pTaxaNova').value=$('pInicio').value=$('pFim').value='';
+      toast('Promoção adicionada. A IA já passa a usar.');
+      carregarPromocoes();
+    }catch(ex){ toast(ex.message,true); }
+  });
+
+  $('pBody').addEventListener('click', async (e)=>{
+    const b = e.target.closest('button[data-p]'); if(!b) return;
+    const id=b.dataset.p, a=b.dataset.a;
+    try{
+      if (a==='toggle'){
+        await api('/api/promocoes/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({ativa:b.dataset.v==='1'})});
+        toast(b.dataset.v==='1'?'Promoção ativada.':'Promoção desativada.');
+      } else {
+        if (!confirm('Remover esta promoção? A IA para de usá-la imediatamente.')) return;
+        await api('/api/promocoes/'+encodeURIComponent(id),{method:'DELETE'});
+        toast('Promoção removida.');
+      }
+      carregarPromocoes();
+    }catch(ex){ toast(ex.message,true); }
+  });
 
   // ── Auditoria ───────────────────────────────────────────
   async function carregarAuditoria(){
@@ -942,7 +1529,7 @@
       return (b.ultimaTs||b.lastActivity) - (a.ultimaTs||a.lastActivity);
     });
 
-    const sig = atual+'|'+filaAtiva+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.encerrada,c.pendingTransfer,
+    const sig = atual+'|'+filaAtiva+'|'+vis.map((c)=>[c.key,c.modo,c.atendenteNome,c.atendenteId,c.encerrada,c.pendingTransfer,
       c.filaTipo,nivelDaFila(c),c.ultimaTs,c.ultimaMsg,c.clienteNome].join('~')).join('|');
     if (sig===sigLista) return;
     sigLista = sig;
@@ -960,7 +1547,12 @@
       const nivel = nivelDaFila(c);
       const critico = nivel === 4;
       const filaLabel = c.filaTipo ? (FILA_LABEL[c.filaTipo]||c.filaTipo) : 'transferir';
+      // Humano SEM dono: ninguém está com a conversa. Sem esta linha a etiqueta
+      // saía VAZIA e a conversa passava por atendida — foi assim que um cliente
+      // ficou esperando sem ninguém nela.
+      const semDono = human && !c.atendenteId && !c.encerrada;
       const tag = c.encerrada ? '<span class="tag off">encerrada</span>'
+        : semDono ? '<span class="tag alert">⚠️ sem atendente</span>'
         : c.pendingTransfer ? `<span class="tag alert${critico?' critico':''}">${critico?'🚨 ':''}${esc(filaLabel)}${nivel>1?' · '+nivel:''}</span>`
         : human ? `<span class="tag human">${meu?'você':esc((c.atendenteNome||'').split(' ')[0])}</span>`
         : '<span class="tag ia">IA</span>';
@@ -1066,15 +1658,33 @@
         ${ab?`<pre><b>enviado</b>\n${esc(args)}\n\n<b>retorno</b>\n${esc(ev.tool.resultado)}</pre>`:''}
       </div>`;
     }
+    const btnDel = `<button class="del" data-del="${ev.id}" title="Ocultar da conversa">×</button>`;
     if (ev.tipo==='cliente')
-      return `<div class="msg left"><div class="bub">${anexo(ev.arquivo)}${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
+      return `<div class="msg left">${btnDel}<div class="bub">${anexo(ev.arquivo)}${esc(ev.texto)}<span class="time">${hora(ev.ts)}</span></div></div>`;
     const humano = ev.tipo==='atendente';
-    return `<div class="msg right ${humano?'by-human':''}"><div class="bub">
+    return `<div class="msg right ${humano?'by-human':''}">${btnDel}<div class="bub">
       <b class="who">${humano?esc(ev.autor||'Atendente'):'IA'}</b>${anexo(ev.arquivo)}${esc(ev.texto)}
       <span class="time">${hora(ev.ts)}</span></div></div>`;
   }
 
-  el.wall.addEventListener('click',(e)=>{
+  el.wall.addEventListener('click', async (e)=>{
+    const del = e.target.closest('button[data-del]');
+    if (del){
+      // Template literal em vez de aspas simples: a quebra de linha da
+      // confirmação já quebrou o script inteiro uma vez, e script quebrado
+      // aqui derruba até o login (o form volta a submeter nativo).
+      if (!confirm(
+        'Ocultar esta mensagem da conversa?\n\n'
+        + 'Ela sai desta tela mas CONTINUA na auditoria. '
+        + 'Não é apagada do WhatsApp do cliente — o WhatsApp não permite isso pela API.'
+      )) return;
+      try{
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/eventos/'+del.dataset.del,{method:'DELETE'});
+        toast('Mensagem ocultada. Continua na auditoria.');
+        sigThread=''; await carregarDetalhe(false);
+      }catch(ex){ toast(ex.message,true); }
+      return;
+    }
     const t=e.target.closest('.tool'); if(!t) return;
     const id=Number(t.dataset.id);
     abertos.has(id)?abertos.delete(id):abertos.add(id);
@@ -1096,12 +1706,40 @@
       return;
     }
 
+    // Repassada por uma colega e ainda sem dono. Quem recebeu vê destacado;
+    // as demais veem também, senão a conversa fica parada se a destinatária
+    // estiver fora.
+    // Conversa em atendimento humano SEM dono: ninguém está com ela. Pode ter
+    // vindo de repasse ou de uma atribuição que se soltou. Tem que aparecer
+    // como disponível — antes caía no bloco de baixo e mostrava "Outra
+    // atendente está atendendo" com o nome VAZIO, então ninguém assumia e o
+    // cliente ficava esperando sem ninguém na conversa.
+    if (d.modo==='humano' && !d.atendenteId){
+      if (!d.repasse){
+        el.composer.innerHTML = `<div class="locked busy">
+          <div class="txt"><b>⚠️ Esta conversa está sem atendente</b>
+          <span>O cliente está aguardando e ninguém assumiu. Assuma para continuar.</span></div>
+          <button class="btn take" id="btnTake">Assumir</button></div>`;
+        if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa.', true);
+        return;
+      }
+      const praMim = d.repasse.paraId === eu.id;
+      el.composer.innerHTML = `<div class="locked busy">
+        <div class="txt"><b>${praMim?'🔔 '+esc(d.repasse.deNome)+' repassou esta conversa pra você'
+                               :'↪️ Repassada para '+esc(d.repasse.paraNome)}</b>
+        <span>Motivo: ${esc(d.repasse.motivo)}${praMim?'':' — se ela não estiver disponível, você pode assumir.'}</span></div>
+        <button class="btn take" id="btnTake">Assumir</button></div>`;
+      if ($('btnTake')) $('btnTake').onclick = () => acao('intervir','Você assumiu a conversa.', true);
+      return;
+    }
+
     // Outra atendente está com a conversa
     if (d.modo==='humano' && !meu){
       el.composer.innerHTML = `<div class="locked busy">
         <div class="txt"><b>${esc(d.atendenteNome||'Outra atendente')} está atendendo</b>
-        <span>Você pode acompanhar, mas só quem assumiu escreve para o cliente.</span></div>
-        ${eu.papel==='admin'?'<button class="btn ghost" id="btnForce">Assumir mesmo assim</button>':''}
+        <span>Só quem assumiu escreve para o cliente. Se precisar render, pode assumir —
+        a troca fica registrada no histórico.</span></div>
+        <button class="btn ghost" id="btnForce">Assumir mesmo assim</button>
       </div>`;
       if ($('btnForce')) $('btnForce').onclick = () => acao('intervir','Você assumiu a conversa.');
       return;
@@ -1124,6 +1762,8 @@
 
     el.composer.innerHTML = `<div class="live-bar">
       <span class="note">Você no comando</span>
+      <button class="clip" id="btnRepassar" aria-label="Repassar para outra atendente"
+        title="Repassar para outra atendente">↪️</button>
       <input type="file" id="arq" hidden>
       <button class="clip" id="btnClip" aria-label="Anexar arquivo" title="Anexar arquivo (até 16 MB)">📎</button>
       <button class="mic" id="btnMic" aria-label="Gravar áudio" title="Gravar mensagem de voz">🎙️</button>
@@ -1131,6 +1771,24 @@
       <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
       <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
       <button class="btn back" id="btnBack">Voltar com a IA</button></div>`;
+
+    if ($('btnRepassar')) $('btnRepassar').onclick = async () => {
+      try{
+        const { colegas } = await api('/api/colegas');
+        if (!colegas.length){ toast('Não há outra atendente cadastrada.', true); return; }
+        const lista = colegas.map((c,i)=>`${i+1}. ${c.nome}${c.online?' (online)':''}`).join('\n');
+        const esc1 = prompt(`Repassar para quem?\n\n${lista}\n\nDigite o número:`);
+        if (esc1 === null) return;
+        const alvo = colegas[Number(esc1)-1];
+        if (!alvo){ toast('Número inválido.', true); return; }
+        const motivo = prompt(`Motivo do repasse para ${alvo.nome}:`, 'Cancelamento');
+        if (motivo === null) return;
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/repassar',
+          {method:'POST',body:JSON.stringify({ para_id: alvo.id, motivo })});
+        toast(`Repassado para ${alvo.nome}.`);
+        sigThread=''; sigComposer=''; await carregarDetalhe(false);
+      }catch(ex){ toast(ex.message, true); }
+    };
 
     const txt=$('txt'), send=$('btnSend'), clip=$('btnClip'), arq=$('arq'), mic=$('btnMic'), recTime=$('recTime');
 
@@ -1223,7 +1881,9 @@
           fr.readAsDataURL(blob);
         });
         await api('/api/conversas/'+encodeURIComponent(atual)+'/enviar-audio',{
-          method:'POST', body: JSON.stringify({ base64 }),
+          // Manda o mimeType junto: é o que revela o que o navegador gravou
+          // quando o áudio não toca no aparelho do cliente.
+          method:'POST', body: JSON.stringify({ base64, mimeType: blob.type || '' }),
         });
         toast('Áudio enviado.');
         await carregarDetalhe(true);

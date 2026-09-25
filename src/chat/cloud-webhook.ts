@@ -85,6 +85,34 @@ interface CloudValue {
   statuses?: unknown[];
 }
 
+/** Status de entrega vindo da Meta (sent/delivered/read/failed). */
+interface CloudStatus {
+  id?: string;
+  status?: string;
+  recipient_id?: string;
+  errors?: Array<{ code?: number; title?: string; message?: string; error_data?: unknown }>;
+}
+
+/**
+ * Registra o que aconteceu com cada mensagem depois de aceita. Só `failed`
+ * vira erro no log: sent/delivered/read são o caminho normal e encheriam o
+ * journal sem acrescentar nada.
+ */
+function registrarStatus(statuses: unknown[]): void {
+  for (const s of statuses as CloudStatus[]) {
+    if (!s || typeof s !== 'object') continue;
+    if (s.status !== 'failed') {
+      logger.debug('[cloud] status de mensagem', { id: s.id, status: s.status });
+      continue;
+    }
+    logger.error('[cloud] MENSAGEM FALHOU na entrega', {
+      messageId: s.id,
+      para: s.recipient_id,
+      erros: JSON.stringify(s.errors ?? []).slice(0, 600),
+    });
+  }
+}
+
 function textoDaMensagem(m: CloudMessage): string {
   return (
     m.text?.body ||
@@ -117,7 +145,12 @@ export async function processarCloudPayload(
       const phoneNumberId = value.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
 
-      // Ignora eventos de status (entregue/lido) — só tratamos mensagens.
+      // Status de entrega: a Meta avisa aqui quando uma mensagem que ela
+      // ACEITOU (devolveu messageId) falhou depois, no processamento ou na
+      // entrega. Sem registrar isto, "o áudio não chega" fica sem explicação —
+      // do nosso lado o envio parece ter dado certo.
+      if (value.statuses?.length) registrarStatus(value.statuses);
+
       if (!value.messages?.length) continue;
 
       // Allowlist de números atendidos.
@@ -150,14 +183,32 @@ async function tratarMensagemCloud(
   let deAudio = false;
 
   // Mensagem de voz: baixa o áudio pela Cloud API e transcreve.
+  let audioCliente: PanelEvent['arquivo'];
   if (!texto && config.chat.transcribeEnabled && msg.type === 'audio' && msg.audio?.id) {
     const midia = await whatsappCloud.baixarMidia(msg.audio.id);
     if (midia?.base64) {
+      // Guarda o áudio ORIGINAL: a transcrição erra, e a atendente precisa poder
+      // ouvir o que o cliente realmente disse — principalmente em reclamação.
+      try {
+        const buffer = Buffer.from(midia.base64, 'base64');
+        const mimetype = midia.mimetype || msg.audio.mime_type || 'audio/ogg';
+        audioCliente = salvarArquivo(
+          `${phoneNumberId}:${remoteJid}`, 'entrada',
+          `audio-cliente.${extensaoPeloMime(mimetype)}`, mimetype, buffer,
+        );
+      } catch (err) {
+        logger.warn('[cloud] não consegui guardar o áudio do cliente', { err: String(err) });
+      }
       texto = (await transcreverAudio(midia.base64, midia.mimetype ?? msg.audio.mime_type)) ?? '';
     }
     if (texto) {
       deAudio = true;
       logger.info(`[cloud] 🎙️  [${phoneNumberId}] ${numero} (áudio): ${texto}`);
+    } else if (audioCliente) {
+      // Transcrição falhou mas o áudio existe: a atendente ainda pode ouvir no
+      // painel, então registra em vez de descartar a mensagem.
+      logger.warn(`[cloud] áudio de ${numero} sem transcrição — guardado para ouvir no painel`);
+      deAudio = true;
     } else {
       await enviar(numero, 'Recebi seu áudio, mas não consegui entender por aqui 😕 Pode me mandar por escrito, por favor?');
       return;
@@ -182,7 +233,8 @@ async function tratarMensagemCloud(
     }
   }
 
-  if (!texto && !arquivo) return;                        // reação, status etc. — nada útil aqui
+  // Áudio sem transcrição ainda é mensagem: o arquivo existe e a atendente ouve.
+  if (!texto && !arquivo && !audioCliente) return;       // reação, status etc. — nada útil aqui
 
   if (msg.type !== 'audio') {
     logger.info(`[cloud] ⬇️  [${phoneNumberId}] ${numero}: ${texto || '(sem texto)'}`);
@@ -196,7 +248,7 @@ async function tratarMensagemCloud(
   session.enviarAudio = senderAudioCloud(phoneNumberId);
 
   try {
-    await session.handle(texto, pushName, { deAudio, arquivo });
+    await session.handle(texto, pushName, { deAudio, arquivo: arquivo ?? audioCliente });
   } catch (err: unknown) {
     logger.error('[cloud] erro ao processar mensagem', {
       phoneNumberId,

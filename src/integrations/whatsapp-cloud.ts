@@ -30,6 +30,19 @@ export function tipoDaMidia(mimetype: string): TipoMidia {
   return 'document';
 }
 
+/**
+ * A Meta aceita OGG só com Opus — a documentação diz literalmente
+ * "audio/ogg (OPUS codecs only; base audio/ogg not supported)". Declarando
+ * apenas `audio/ogg`, o arquivo sobe e o WhatsApp Web até reproduz (o
+ * navegador decodifica sozinho), mas o player nativo do iPhone recusa com
+ * "Este áudio não está mais disponível". Explicitar o codec resolve.
+ */
+export function mimetypeParaEnvio(mimetype: string): string {
+  const limpo = mimetype.trim().toLowerCase();
+  if (limpo === 'audio/ogg') return 'audio/ogg; codecs=opus';
+  return mimetype;
+}
+
 export class WhatsAppCloudClient {
   private http: AxiosInstance | null = null;
 
@@ -105,13 +118,15 @@ export class WhatsAppCloudClient {
     if (!phoneNumberId) return { enviado: false, motivo: 'sem_phone_number_id' };
 
     const tipo = tipoDaMidia(arq.mimetype);
+    // OGG precisa declarar o codec, senão o iPhone não reproduz (ver mimetypeParaEnvio).
+    const mime = mimetypeParaEnvio(arq.mimetype);
 
     let mediaId: string;
     try {
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
-      form.append('type', arq.mimetype);
-      form.append('file', new Blob([new Uint8Array(arq.buffer)], { type: arq.mimetype }), arq.nome);
+      form.append('type', mime);
+      form.append('file', new Blob([new Uint8Array(arq.buffer)], { type: mime }), arq.nome);
 
       // Content-Type é definido pelo FormData (precisa do boundary) — sobrescreve o padrão JSON.
       const up = await this.client.post(`/${phoneNumberId}/media`, form, {

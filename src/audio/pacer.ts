@@ -5,6 +5,19 @@ export const SLIN_CHUNK_BYTES = 320; // 20 ms @ 8 kHz 16-bit mono
 export const SLIN_TICK_MS = 20;
 export const SILENCE_CHUNK = Buffer.alloc(SLIN_CHUNK_BYTES);
 
+/** Quantos frames repetir para disfarçar um gap do TTS antes de cair no silêncio. */
+const MAX_HOLD_TICKS = 5;   // 100 ms
+
+/** Copia o frame com o volume reduzido — usado no fade do disfarce. */
+function atenuar(frame: Buffer, ganho: number): Buffer {
+  const g = Math.max(0, Math.min(1, ganho));
+  const out = Buffer.allocUnsafe(frame.length);
+  for (let i = 0; i + 1 < frame.length; i += 2) {
+    out.writeInt16LE(Math.round(frame.readInt16LE(i) * g), i);
+  }
+  return out;
+}
+
 export interface AudioPacerOptions {
   /** Pré-buffer inicial (ms) — aguarda fila encher antes de começar a tocar */
   preBufferMs: number;
@@ -247,10 +260,23 @@ export class AudioPacer {
       } else {
         this.underrun = true;
         this.underrunTicks++;
-        // Durante TTS (holdStream), repete último frame em gaps do ElevenLabs — evita chiado
-        const maxHold = this.holdStream ? 150 : 2;
-        const hold = this.holdStream && this.hasLastFrame && this.underrunTicks <= maxHold;
-        out = hold ? this.lastFrame : SILENCE_CHUNK;
+        // Gap no TTS: repetir o último frame disfarça o buraco, mas SÓ por pouco
+        // tempo. Repetindo 150 vezes (3 s) o mesmo trecho de 20 ms, o cliente
+        // ouve um zumbido travado — era isso o "a voz da URA trava". Telefonia
+        // costuma ocultar 3–5 frames; acima disso o ouvido percebe.
+        //
+        // Além de encurtar, o volume cai a cada repetição: o silêncio chega
+        // suave em vez de cortar no meio de uma vogal.
+        const hold = this.holdStream && this.hasLastFrame
+          && this.underrunTicks <= MAX_HOLD_TICKS;
+        out = hold ? atenuar(this.lastFrame, 1 - this.underrunTicks / (MAX_HOLD_TICKS + 1))
+                   : SILENCE_CHUNK;
+
+        if (this.underrunTicks === MAX_HOLD_TICKS + 1 && this.holdStream) {
+          logger.warn('Pacer: TTS sem áudio além do disfarce — cliente ouvindo silêncio', {
+            msDeGap: this.underrunTicks * SLIN_TICK_MS,
+          });
+        }
       }
     }
 

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
 import { logger } from '../logger';
-import type { ChatSessionStore } from './session';
+import { ocultarMensagem, type ChatSessionStore } from './session';
 import {
   autenticar, login as fazerLogin, logout as encerrarSessao,
   cookieSessao, cookieLimpo, usuarioPublico,
@@ -19,7 +19,14 @@ import {
   conversasRecentesPainel, detalheConversaPainel,
 } from './repo';
 import { buscarArquivo } from './arquivos';
-import { paraOggOpus } from './audio-transcode';
+import { paraOggOpus, paraM4aAac } from './audio-transcode';
+import {
+  listarPromocoes, criarPromocao, atualizarPromocao, removerPromocao,
+  taxaInstalacaoVigente, ETAPAS, type EtapaPromocao,
+} from './promocoes';
+import { listarConfiguracoes, salvarConfiguracao, restaurarPadrao, avisoTempos } from './configuracoes';
+import { listarAvisos, criarAviso, atualizarAviso, removerAviso } from './avisos';
+import { listarServicos, criarServico, atualizarServico, removerServico } from './servicos';
 
 function json(res: http.ServerResponse, status: number, body: unknown, cookie?: string): void {
   const headers: Record<string, string> = {
@@ -50,6 +57,17 @@ function lerCorpo(req: http.IncomingMessage, maxBytes = 200_000): Promise<Record
 const MAX_ARQUIVO_BYTES = 16 * 1024 * 1024;
 
 const txt = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/**
+ * Data do <input type="date"> ("AAAA-MM-DD") para epoch ms. O fim inclui o dia
+ * inteiro, senão uma vigência "até dia 25" morreria à meia-noite do dia 25.
+ */
+function diaParaMs(v: unknown, fimDoDia = false): number | null {
+  const s = txt(v).trim();
+  if (!s) return null;
+  const t = Date.parse(fimDoDia ? `${s}T23:59:59` : `${s}T00:00:00`);
+  return Number.isFinite(t) ? t : null;
+}
 
 /** Serve o HTML do painel (arquivo estático em panel/chat.html). */
 function servirPainel(res: http.ServerResponse): void {
@@ -124,6 +142,34 @@ export async function tratarPainel(
       empresa: config.company.name,
       agente: config.company.agentName,
     });
+    return true;
+  }
+
+  // ── Colegas para quem repassar ───────────────────────────────────────────
+  // Só id e nome, e quem está online: a atendente comum não pode ver a gestão de
+  // usuários, mas precisa saber para quem mandar.
+  if (req.method === 'GET' && p === '/api/colegas') {
+    const online = usuariosOnline();
+    json(res, 200, {
+      colegas: listarUsuarios()
+        .filter((u) => u.id !== eu.id && u.ativo !== false)
+        .map((u) => ({ id: u.id, nome: u.nome, online: online.has(u.id) }))
+        .sort((a, b) => Number(b.online) - Number(a.online) || a.nome.localeCompare(b.nome)),
+    });
+    return true;
+  }
+
+  // ── Ocultar uma mensagem da tela de atendimento ──────────────────────────
+  // Some da conversa mas CONTINUA no banco e na auditoria: a trilha não pode
+  // ser destruída. Não apaga do WhatsApp do cliente — a Cloud API não permite.
+  const mOcultar = /^\/api\/conversas\/(.+)\/eventos\/(\d+)$/.exec(p);
+  if (req.method === 'DELETE' && mOcultar) {
+    const chave = decodeURIComponent(mOcultar[1]);
+    const eventoId = Number(mOcultar[2]);
+    const ok = ocultarMensagem(store.find(chave), chave, eventoId);
+    if (!ok) { json(res, 404, { erro: 'Mensagem não encontrada.' }); return true; }
+    logger.info('[painel] mensagem ocultada da conversa', { chave, eventoId, por: eu.nome });
+    json(res, 200, { ok: true });
     return true;
   }
 
@@ -247,12 +293,193 @@ export async function tratarPainel(
     return true;
   }
 
-  // ── Auditoria ────────────────────────────────────────────────────────────
-  if (p.startsWith('/api/auditoria')) {
+  // ── Promoções e campanhas ────────────────────────────────────────────────
+  if (p === '/api/promocoes' || p.startsWith('/api/promocoes/')) {
     if (eu.papel !== 'admin') {
-      json(res, 403, { erro: 'Só administradores acessam a auditoria.' });
+      json(res, 403, { erro: 'Só administradores cadastram promoções.' });
       return true;
     }
+
+    if (req.method === 'GET' && p === '/api/promocoes') {
+      json(res, 200, {
+        promocoes: listarPromocoes(),
+        etapas: ETAPAS,
+        taxaPadrao: config.company.taxaInstalacao,
+        taxaVigente: taxaInstalacaoVigente() ?? config.company.taxaInstalacao,
+      });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/promocoes') {
+      const b = await lerCorpo(req);
+      const r = criarPromocao({
+        nome: txt(b.nome),
+        etapa: txt(b.etapa) as EtapaPromocao,
+        mensagem: txt(b.mensagem),
+        taxaInstalacao: txt(b.taxaInstalacao) || null,
+        inicio: diaParaMs(b.inicio),
+        fim: diaParaMs(b.fim, true),
+        criadoPor: eu.nome,
+      });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      logger.info('[painel] promoção criada', { nome: r.promocao.nome, etapa: r.promocao.etapa, por: eu.nome });
+      json(res, 201, { promocao: r.promocao });
+      return true;
+    }
+
+    const mP = /^\/api\/promocoes\/([^/]+)$/.exec(p);
+    if (mP) {
+      const id = decodeURIComponent(mP[1]);
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const r = atualizarPromocao(id, {
+          ativa: typeof b.ativa === 'boolean' ? b.ativa : undefined,
+          mensagem: b.mensagem !== undefined ? txt(b.mensagem) : undefined,
+          taxaInstalacao: b.taxaInstalacao !== undefined ? txt(b.taxaInstalacao) : undefined,
+        });
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        const r = removerPromocao(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        logger.info('[painel] promoção removida', { id, por: eu.nome });
+        json(res, 200, { ok: true });
+        return true;
+      }
+    }
+
+    json(res, 405, { erro: 'metodo_nao_suportado' });
+    return true;
+  }
+
+  // ── Configurações e avisos (somente admin) ───────────────────────────────
+  // Muda o comportamento do atendimento inteiro, por isso fica restrito a admin,
+  // como usuários e promoções.
+  if (p === '/api/configuracoes' || p.startsWith('/api/configuracoes/')
+      || p === '/api/avisos' || p.startsWith('/api/avisos/')
+      || p === '/api/servicos' || p.startsWith('/api/servicos/')) {
+    if (eu.papel !== 'admin') {
+      json(res, 403, { erro: 'Só administradores alteram configurações.' });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/configuracoes') {
+      const online = usuariosOnline();
+      json(res, 200, {
+        campos: listarConfiguracoes(),
+        aviso: avisoTempos(),
+        // Para montar as caixas de "quem recebe cada tipo". Só atendentes: a
+        // conta de administração não entra no rodízio.
+        atendentes: listarUsuarios()
+          .filter((u) => u.papel === 'atendente' && u.ativo !== false)
+          .map((u) => ({ id: u.id, nome: u.nome, online: online.has(u.id) }))
+          .sort((a, b) => a.nome.localeCompare(b.nome)),
+      });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/configuracoes') {
+      const b = await lerCorpo(req);
+      const r = salvarConfiguracao(txt(b.chave), typeof b.valor === 'string' ? b.valor : '', eu.nome);
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, campos: listarConfiguracoes(), aviso: avisoTempos() });
+      return true;
+    }
+
+    const mRestaurar = /^\/api\/configuracoes\/([a-z0-9_]+)\/padrao$/.exec(p);
+    if (req.method === 'POST' && mRestaurar) {
+      const r = restaurarPadrao(mRestaurar[1]);
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, campos: listarConfiguracoes(), aviso: avisoTempos() });
+      return true;
+    }
+
+    if (req.method === 'GET' && p === '/api/avisos') {
+      json(res, 200, { avisos: listarAvisos() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/avisos') {
+      const b = await lerCorpo(req);
+      const r = criarAviso({
+        titulo: txt(b.titulo), instrucao: txt(b.instrucao),
+        inicio: diaParaMs(b.inicio), fim: diaParaMs(b.fim, true),
+        criadoPor: eu.nome,
+      });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, avisos: listarAvisos() });
+      return true;
+    }
+
+    const mAviso = /^\/api\/avisos\/([^/]+)$/.exec(p);
+    if (mAviso) {
+      const id = decodeURIComponent(mAviso[1]);
+      if (req.method === 'DELETE') {
+        const r = removerAviso(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, avisos: listarAvisos() });
+        return true;
+      }
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const campos: Record<string, unknown> = {};
+        if (typeof b.ativo === 'boolean') campos.ativo = b.ativo;
+        if (typeof b.titulo === 'string') campos.titulo = b.titulo;
+        if (typeof b.instrucao === 'string') campos.instrucao = b.instrucao;
+        const r = atualizarAviso(id, campos);
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, avisos: listarAvisos() });
+        return true;
+      }
+    }
+
+    if (req.method === 'GET' && p === '/api/servicos') {
+      json(res, 200, { servicos: listarServicos() });
+      return true;
+    }
+
+    if (req.method === 'POST' && p === '/api/servicos') {
+      const b = await lerCorpo(req);
+      const r = criarServico({ nome: txt(b.nome), valor: txt(b.valor), observacao: txt(b.observacao) });
+      if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+      json(res, 200, { ok: true, servicos: listarServicos() });
+      return true;
+    }
+
+    const mServ = /^\/api\/servicos\/([^/]+)$/.exec(p);
+    if (mServ) {
+      const id = decodeURIComponent(mServ[1]);
+      if (req.method === 'DELETE') {
+        const r = removerServico(id);
+        if (!r.ok) { json(res, 404, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, servicos: listarServicos() });
+        return true;
+      }
+      if (req.method === 'PATCH') {
+        const b = await lerCorpo(req);
+        const campos: Record<string, unknown> = {};
+        if (typeof b.nome === 'string') campos.nome = b.nome;
+        if (typeof b.valor === 'string') campos.valor = b.valor;
+        if (typeof b.observacao === 'string') campos.observacao = b.observacao;
+        if (typeof b.ativo === 'boolean') campos.ativo = b.ativo;
+        const r = atualizarServico(id, campos);
+        if (!r.ok) { json(res, 400, { erro: r.erro }); return true; }
+        json(res, 200, { ok: true, servicos: listarServicos() });
+        return true;
+      }
+    }
+
+    json(res, 404, { erro: 'Rota não encontrada.' });
+    return true;
+  }
+
+  // ── Auditoria ────────────────────────────────────────────────────────────
+  // Aberta a TODA a equipe, não só a admin: quem atende precisa ver o histórico
+  // do cliente que acabou de escrever — sem isso, pede de novo tudo o que já foi
+  // dito na conversa anterior. Continua sendo leitura; ninguém apaga nada aqui.
+  if (p.startsWith('/api/auditoria')) {
 
     const num = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
     const filtro = {
@@ -308,7 +535,7 @@ export async function tratarPainel(
   // 'enviar-arquivo'/'enviar-audio' vêm antes de 'enviar' na alternância: a
   // regex é gulosa da esquerda e casaria só o prefixo, jogando o resto para
   // dentro da chave.
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -345,11 +572,11 @@ export async function tratarPainel(
     !session.atendenteId || session.atendenteId === eu.id || eu.papel === 'admin';
 
   if (req.method === 'POST' && acao === 'intervir') {
-    // Admin pode tomar a conversa de outra atendente; atendente comum, não.
-    if (session.modo === 'humano' && session.atendenteId !== eu.id && eu.papel !== 'admin') {
-      json(res, 409, { erro: `${session.atendenteNome} já está atendendo esta conversa.` });
-      return true;
-    }
+    // Qualquer atendente pode assumir, inclusive uma conversa que outra esteja
+    // atendendo — turno acaba, alguém sai, e travar isso em admin obrigava a
+    // equipe a chamar o gestor para uma troca banal. A troca fica registrada no
+    // histórico ("X assumiu a conversa de Y"), que é o controle que importa.
+    
     const r = session.intervir({ id: eu.id, nome: eu.nome });
     if (!r.ok) {
       json(res, 409, {
@@ -358,6 +585,39 @@ export async function tratarPainel(
       return true;
     }
     json(res, 200, { ok: true, modo: session.modo });
+    return true;
+  }
+
+  // Repasse entre atendentes (ex.: cancelamento é tratado por outra pessoa).
+  if (req.method === 'POST' && acao === 'repassar') {
+    const b = await lerCorpo(req);
+    const paraId = txt(b.para_id);
+    const alvo = listarUsuarios().find((u) => u.id === paraId);
+    if (!alvo) { json(res, 400, { erro: 'Escolha para quem repassar.' }); return true; }
+
+    const r = session.repassar(
+      { id: eu.id, nome: eu.nome },
+      { id: alvo.id, nome: alvo.nome },
+      txt(b.motivo),
+    );
+    if (!r.ok) {
+      const msgs: Record<string, string> = {
+        conversa_encerrada: 'Esta conversa já foi encerrada.',
+        conversa_nao_esta_em_atendimento: 'Só dá pra repassar uma conversa que você esteja atendendo.',
+        voce_nao_esta_atendendo: 'Você precisa estar atendendo esta conversa para repassá-la.',
+        destinatario_igual_remetente: 'Escolha outra pessoa.',
+      };
+      json(res, 409, { erro: msgs[r.erro ?? ''] ?? 'Não foi possível repassar.' });
+      return true;
+    }
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && acao === 'desfazer-repasse') {
+    const r = session.desfazerRepasse({ id: eu.id, nome: eu.nome });
+    if (!r.ok) { json(res, 409, { erro: 'Não há repasse pendente nesta conversa.' }); return true; }
+    json(res, 200, { ok: true });
     return true;
   }
 
@@ -433,6 +693,12 @@ export async function tratarPainel(
     const MAX_AUDIO_BYTES = 8 * 1024 * 1024;                   // mensagem de voz não passa disso
     const body = await lerCorpo(req, Math.ceil(MAX_AUDIO_BYTES * 1.4));
     const base64 = txt(body.base64);
+    // O formato varia com o navegador da atendente (Chrome grava webm/opus,
+    // Safari grava mp4/aac) — saber qual chegou é o que permite reproduzir o
+    // problema quando o áudio não toca no aparelho do cliente.
+    logger.info('[painel] áudio recebido do navegador', {
+      key, mimeType: txt(body.mimeType) || '(não informado)', bytesBase64: base64.length,
+    });
     if (!base64) {
       json(res, 400, { ok: false, erro: 'Gravação vazia. Tente de novo.' });
       return true;
@@ -448,16 +714,20 @@ export async function tratarPainel(
       return true;
     }
 
-    // O navegador grava em webm/opus (ou mp4/aac no Safari) — WhatsApp só
-    // reconhece OGG/Opus como mensagem de voz nativa.
-    const ogg = paraOggOpus(bruto);
-    if (!ogg) {
+    // O navegador grava em webm/opus (ou mp4/aac no Safari) e o WhatsApp não
+    // aceita esses contêineres direto. Converte para o formato configurado:
+    // m4a toca no iPhone, ogg vira nota de voz (ver CHAT_AUDIO_ATENDENTE_FORMATO).
+    const comoOgg = config.chat.audioAtendenteFormato === 'ogg';
+    const convertido = comoOgg ? paraOggOpus(bruto) : paraM4aAac(bruto);
+    if (!convertido) {
       json(res, 500, { ok: false, erro: 'Não consegui converter o áudio. Tente gravar de novo.' });
       return true;
     }
 
     const r = await session.enviarArquivoComoAtendente(
-      { nome: 'audio.ogg', mimetype: 'audio/ogg', buffer: ogg },
+      comoOgg
+        ? { nome: 'audio.ogg', mimetype: 'audio/ogg', buffer: convertido }
+        : { nome: 'audio.m4a', mimetype: 'audio/mp4', buffer: convertido },
       eu.nome,
     );
     if (!r.enviado) {
@@ -465,7 +735,9 @@ export async function tratarPainel(
       json(res, 400, { ok: false, erro: motivoLegivel(r.motivo) });
       return true;
     }
-    logger.info('[painel] áudio enviado', { key, bytes: ogg.length, por: eu.nome });
+    logger.info('[painel] áudio enviado', {
+      key, formato: comoOgg ? 'ogg' : 'm4a', bytes: convertido.length, por: eu.nome,
+    });
     json(res, 200, { ok: true });
     return true;
   }

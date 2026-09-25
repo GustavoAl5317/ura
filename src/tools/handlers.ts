@@ -5,6 +5,7 @@ import { whatsapp } from '../integrations/whatsapp';
 import { resolveCelularInformado, resolveCepInformado, resolveCpfInformado } from '../utils/spokenNumbers';
 import { looksLikeEnderecoFalado, tryRecoverFromCepConfusion } from '../utils/address';
 import { config } from '../config';
+import { idsDePlanos } from '../chat/configuracoes';
 import { logger } from '../logger';
 import type { CallContext } from '../session/context';
 import type { ToolRegistrar } from './registrar';
@@ -268,9 +269,23 @@ function tituloVencido(t: SgpTitulo): boolean {
   return diasAtrasoEfetivo(t) > 0;
 }
 
+/**
+ * Separa E ORDENA. O SGP devolve os títulos em ordem própria, e sem ordenar
+ * aqui um cliente com faturas até 2027 podia ter a de 2027 no topo — a IA
+ * anunciava aquela como "a próxima". Pior: consultar_financeiro corta a lista
+ * (slice), então a fatura realmente mais próxima podia nem chegar à IA.
+ *
+ * Vencidas: mais atrasada primeiro (é a que se cobra).
+ * A vencer: vencimento mais próximo primeiro (é a "próxima fatura").
+ */
 function separarTitulos(tits: SgpTitulo[]): { vencidas: SgpTitulo[]; aVencer: SgpTitulo[] } {
-  const vencidas = tits.filter(tituloVencido);
-  const aVencer = tits.filter((t) => !tituloVencido(t));
+  const quando = (t: SgpTitulo): number => parseVencimento(t.dataVencimento)?.getTime() ?? Infinity;
+
+  const vencidas = tits.filter(tituloVencido)
+    .sort((a, b) => diasAtrasoEfetivo(b) - diasAtrasoEfetivo(a));
+  const aVencer = tits.filter((t) => !tituloVencido(t))
+    .sort((a, b) => quando(a) - quando(b));
+
   return { vencidas, aVencer };
 }
 
@@ -389,18 +404,21 @@ function orientacaoFinanceiro(params: {
   if (vencidas.length > 0 && (contratoSuspenso || bloqueioFinanceiro)) {
     orientacao = prefixoSuspensao +
       `Há ${vencidas.length} fatura(s) VENCIDA(s). Informe valor e vencimento da vencida e ` +
-      'ofereça segunda via/PIX (faturas_vencidas[].id). NÃO envie faturas a vencer sem o cliente pedir.';
+      'ofereça segunda via/PIX chamando gerar_segunda_via SEM fatura_id (o sistema pega a mais atrasada). ' +
+      'Envie UMA fatura, não várias. NÃO envie faturas a vencer sem o cliente pedir.';
   } else if (vencidas.length > 0) {
-    orientacao = `Há ${vencidas.length} fatura(s) vencida(s). Só ofereça segunda via da vencida se o assunto for pagamento, ` +
-      'corte ou suspensão. Não liste nem envie faturas a vencer automaticamente.';
+    orientacao = `Há ${vencidas.length} fatura(s) vencida(s). Só ofereça segunda via se o assunto for pagamento, ` +
+      'corte ou suspensão — e nesse caso chame gerar_segunda_via SEM fatura_id, que envia UMA só. ' +
+      'Não liste nem envie faturas a vencer automaticamente.';
   } else if (aVencer.length > 0 && contratoSuspenso && bloqueioFinanceiro) {
     orientacao = prefixoSuspensao +
       'Há fatura(s) em aberto sem data vencida. Explique a suspensão; se o cliente pedir boleto, ' +
-      'liste faturas_a_vencer e use gerar_segunda_via com fatura_id.';
+      'chame gerar_segunda_via SEM fatura_id — o sistema já escolhe a certa. NÃO liste as faturas.';
   } else if (aVencer.length > 0) {
     orientacao = 'Há fatura(s) a vencer, mas NENHUMA vencida. NÃO ofereça boleto automaticamente. ' +
-      'Se o cliente pedir fatura: informe que não há vencida, pergunte qual deseja, ' +
-      'liste faturas_a_vencer (valor e vencimento) e use gerar_segunda_via com fatura_id escolhida.';
+      'Se o cliente PEDIR a fatura: chame gerar_segunda_via SEM fatura_id — o sistema envia a MAIS ' +
+      'PRÓXIMA do vencimento. NÃO liste as faturas nem pergunte qual ele quer: quem pede "meu boleto" ' +
+      'quer o próximo a pagar, não um menu. Só use fatura_id se ele pedir explicitamente outro mês.';
   } else if (contratoSuspenso) {
     orientacao = prefixoSuspensao +
       'Sem faturas em aberto no sistema. NÃO ofereça boleto. ' +
@@ -422,6 +440,22 @@ function resolverFaturaIdPriorizandoVencida(
   if (vencidas.length > 0) {
     const maisAtrasada = [...vencidas].sort((a, b) => diasAtrasoEfetivo(b) - diasAtrasoEfetivo(a))[0];
     return maisAtrasada.id ?? maisAtrasada.numeroDocumento;
+  }
+
+  // Sem vencida, manda a MAIS PRÓXIMA do vencimento. Antes devolvia a lista
+  // inteira para o cliente escolher — quem pede "meu boleto" quer o próximo a
+  // pagar, não uma lista de todos os meses em aberto para decidir.
+  const aVencer = titulos.filter((t) => !tituloVencido(t));
+  if (aVencer.length > 0) {
+    // parseVencimento, NAO Date.parse: o SGP devolve tanto 2026-09-15 quanto
+    // 15/09/2026, e Date.parse nao entende o segundo — devolvia NaN para todas,
+    // a ordenacao virava arbitraria e o cliente recebia a fatura errada.
+    const maisProxima = [...aVencer].sort((a, b) => {
+      const va = parseVencimento(a.dataVencimento)?.getTime() ?? Infinity;
+      const vb = parseVencimento(b.dataVencimento)?.getTime() ?? Infinity;
+      return va - vb;
+    })[0];
+    return maisProxima.id ?? maisProxima.numeroDocumento;
   }
   return undefined;
 }
@@ -519,13 +553,27 @@ function resolverWhatsAppCliente(
     return { numero: null, motivo: 'celular_nao_informado' };
   }
 
-  // No chat o número É o remetente da conversa: ele provou ter WhatsApp ao
-  // escrever. Validar formato aqui rejeita wa_id legítimo — o Brasil tem
-  // números antigos sem o nono dígito (55 + DDD + 8) — e faz a IA pedir ao
-  // cliente um número que ela já tem na mão.
-  if (ctx.canal === 'chat' && ctx.celularWhatsApp && !informado) {
-    const d = ctx.celularWhatsApp.replace(/\D/g, '');
-    if (d.length >= 10) return { numero: d };
+  // No chat, SEMPRE o número da conversa — sem exceção.
+  //
+  // É o único número comprovadamente válido: a pessoa acabou de escrever dele.
+  // Qualquer outro é aposta, e quando falha o cliente não recebe nada e ninguém
+  // fica sabendo. Um cliente de (85) 8806-6590 digitou o próprio número quando a
+  // IA perguntou, a validação recusou por ter 10 dígitos (número antigo, sem o
+  // nono) e ela respondeu que não conseguia enviar o boleto.
+  //
+  // Se o cliente pedir outro número, isso é assunto de atendente humana, que
+  // consegue confirmar o envio — a IA não consegue.
+  if (ctx.canal === 'chat' && ctx.celularWhatsApp) {
+    const daConversa = ctx.celularWhatsApp.replace(/\D/g, '');
+    if (daConversa.length >= 10) {
+      const digitado = informado?.replace(/\D/g, '');
+      if (digitado && digitado !== daConversa) {
+        logger.info(`[${ctx.callId}] chat: ignorando celular informado, usando o da conversa`, {
+          informado: digitado, usado: daConversa,
+        });
+      }
+      return { numero: daConversa };
+    }
   }
 
   const resolvido = resolveCelularInformado(tel, ctx.lastClientSpeech);
@@ -922,14 +970,26 @@ function nomeParaConfirmacao(nome: string): { nomeContrato: string; nomeFalado: 
   return { nomeContrato, nomeFalado };
 }
 
-/** Extrai só dígitos do CPF informado (com ou sem pontuação). */
+/** Extrai só dígitos do documento informado (com ou sem pontuação). */
 function cpfDigitos(raw: string): string {
   return raw.replace(/\D/g, '');
 }
 
+/** CPF tem 11 dígitos, CNPJ tem 14 — a base tem cliente pessoa jurídica nos dois formatos. */
+function documentoValido(digitos: string): boolean {
+  return digitos.length === 11 || digitos.length === 14;
+}
+
 function filtrarPlanosComerciais(planos: SgpPlano[]): SgpPlano[] {
-  const { ids, precoMin, precoMax, max } = config.plans;
-  // 1. Whitelist explícita por .env tem prioridade — preserva a ordem informada
+  const { precoMin, precoMax, max } = config.plans;
+  // Lista do painel, com fallback no .env: o comercial troca o catálogo sem
+  // deploy. Em try/catch porque a URA de voz roda sem o banco do chat.
+  let ids = config.plans.ids;
+  try {
+    const doPainel = idsDePlanos();
+    if (doPainel.length) ids = doPainel;
+  } catch { /* sem banco: vale o .env */ }
+  // 1. Whitelist explícita tem prioridade — preserva a ordem informada
   if (ids.length) {
     const byId = new Map(planos.map((p) => [p.id, p]));
     return ids.map((id) => byId.get(id)).filter((p): p is SgpPlano => !!p);
@@ -974,7 +1034,7 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const cpfAtual = ctx.cliente ? cpfDigitos(ctx.cliente.cpfcnpj) : '';
     if (
       cpfAtual
-      && digitos.length === 11
+      && documentoValido(digitos)
       && digitos !== cpfAtual
       && args.confirmar_troca !== true
     ) {
@@ -984,21 +1044,25 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
         cliente_atual: ctx.cliente?.nome ?? null,
         mensagem:
           `Você já está atendendo ${ctx.cliente?.nome ?? 'este cliente'} nesta conversa e agora `
-          + 'veio um CPF diferente. PERGUNTE ao cliente se ele quer falar sobre OUTRO cadastro '
-          + '(outra casa, outro titular) ou se apenas digitou errado. Só depois do "sim" dele, '
-          + 'chame de novo com confirmar_troca=true. NÃO troque de cadastro por conta própria.',
+          + 'veio um documento diferente. PERGUNTE ao cliente se ele quer falar sobre OUTRO cadastro '
+          + '(outra casa, outro titular, outra empresa) ou se apenas digitou errado. Só depois do '
+          + '"sim" dele, chame de novo com confirmar_troca=true. NÃO troque de cadastro por conta própria.',
       };
     }
 
-    if (digitos.length !== 11) {
+    if (!documentoValido(digitos)) {
       return {
         encontrado: false,
-        erro: 'cpf_invalido',
+        erro: 'documento_invalido',
         digitos_recebidos: digitos.length,
         mensagem:
           digitos.length < 11
-            ? `CPF incompleto: ${digitos.length} dígitos (precisa 11). Confira se expandiu todos os grupos — ex.: "800-669-690-00" = 800 + 669 + 690 + 00 = onze dígitos.`
-            : `CPF com dígitos a mais (${digitos.length}). Confirme com o cliente e tente de novo.`,
+            ? `Documento incompleto: ${digitos.length} dígitos. CPF tem 11 e CNPJ tem 14. `
+              + 'Confira se expandiu todos os grupos — ex.: "800-669-690-00" = 800 + 669 + 690 + 00 = onze dígitos.'
+            : digitos.length < 14
+            ? `Recebi ${digitos.length} dígitos, que não fecha CPF (11) nem CNPJ (14). `
+              + 'Confirme o documento com o cliente e tente de novo.'
+            : `Documento com dígitos a mais (${digitos.length}). Confirme com o cliente e tente de novo.`,
       };
     }
 
@@ -1273,6 +1337,10 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       total_a_vencer_falado: aVencer.length > 0
         ? valorPorExtenso(valorTotalAVencer)
         : null,
+      // Listas JÁ ORDENADAS (ver separarTitulos): [0] é a mais atrasada e a
+      // próxima a vencer, respectivamente. Dito no retorno para a IA não
+      // escolher por conta própria.
+      ordem: 'faturas_vencidas[0] = mais atrasada; faturas_a_vencer[0] = PRÓXIMA a vencer',
       faturas_vencidas: vencidas.slice(0, 5).map(mapFaturaResumo),
       faturas_a_vencer: aVencer.slice(0, 3).map(mapFaturaResumo),
       faturas: vencidas.slice(0, 5).map(mapFaturaResumo),
@@ -1908,7 +1976,12 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       };
     }
 
-    const abertas = titulos.filter((t) => String(t.status).toLowerCase().includes('aberto'));
+    // Ordena antes de escolher: sem isso "a próxima parcela" era simplesmente a
+    // primeira que o SGP devolveu, que pode ser de qualquer mês do acordo.
+    const abertas = titulos
+      .filter((t) => String(t.status).toLowerCase().includes('aberto'))
+      .sort((a, b) => (parseVencimento(a.dataVencimento)?.getTime() ?? Infinity)
+                    - (parseVencimento(b.dataVencimento)?.getTime() ?? Infinity));
     const proxima = abertas[0];
 
     return {
@@ -2192,6 +2265,32 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
     const contrato = resolverContratoId(ctx, args.cliente_id, 'abrir_chamado');
     if ('erro' in contrato) return { sucesso: false, ...contrato };
     const contratoId = contrato.contratoId;
+
+    // Contrato suspenso por financeiro: sem internet é CONSEQUÊNCIA do bloqueio,
+    // não defeito de rede. Abrir chamado aqui gera visita técnica que constata o
+    // óbvio, ocupa equipe e ainda dá ao cliente a impressão de que o problema é
+    // nosso. O caminho é o financeiro.
+    const ct = ctx.cliente?.contratos.find((c) => Number(c.contrato) === contratoId)
+      ?? ctx.cliente?.contratos[0];
+    const statusCt = String(ct?.status ?? '');
+    const motivoCt = String(ct?.motivo_status ?? '');
+    const suspenso = /suspens|bloquead/i.test(statusCt);
+    if (suspenso && (/financ/i.test(motivoCt) || ctx.financeiroBloqueado)) {
+      return {
+        sucesso: false,
+        erro: 'contrato_suspenso_por_financeiro',
+        status_contrato: statusCt,
+        motivo_status: motivoCt || null,
+        orientacao:
+          'NÃO abra chamado técnico: o contrato está SUSPENSO POR FINANCEIRO e a falta de '
+          + 'conexão é consequência disso, não defeito. Explique ao cliente com cuidado que a '
+          + 'conexão volta após a regularização, ofereça a segunda via (gerar_segunda_via) e, '
+          + 'se ele insistir em visita técnica ou contestar o débito, transfira para o '
+          + 'financeiro. Só abra chamado se ele relatar um problema que NÃO seja falta de '
+          + 'conexão (ex.: fio partido na rua, caixa arrancada) — nesse caso descreva o '
+          + 'problema físico em `descricao`.',
+      };
+    }
 
     // Trava anti-duplicata: a regra existe no prompt, mas o modelo pula. Como
     // chamado repetido gera visita técnica duplicada, a checagem fica aqui.

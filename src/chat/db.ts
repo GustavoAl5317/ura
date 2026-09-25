@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS eventos (
   tool_name      TEXT,
   tool_args      TEXT,
   tool_resultado TEXT,
-  arquivo_json   TEXT
+  arquivo_json   TEXT,
+  oculto         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_eventos_conversa ON eventos(conversa, id);
 CREATE INDEX IF NOT EXISTS ix_eventos_ts ON eventos(ts DESC);
@@ -91,6 +92,50 @@ CREATE TABLE IF NOT EXISTS arquivos (
   criado_em  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_arquivos_conversa ON arquivos(conversa);
+
+-- Promoções e campanhas que a equipe cadastra pelo painel. Entram no prompt da
+-- IA conforme a etapa do atendimento; algumas trocam a taxa de instalação.
+CREATE TABLE IF NOT EXISTS servicos (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  valor       TEXT NOT NULL,
+  observacao  TEXT,
+  ordem       INTEGER NOT NULL DEFAULT 0,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS configuracoes (
+  chave       TEXT PRIMARY KEY,
+  valor       TEXT NOT NULL,
+  atualizado  INTEGER NOT NULL,
+  por         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS avisos (
+  id          TEXT PRIMARY KEY,
+  titulo      TEXT NOT NULL,
+  mensagem    TEXT NOT NULL,
+  inicio      INTEGER,
+  fim         INTEGER,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   INTEGER NOT NULL,
+  criado_por  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS promocoes (
+  id              TEXT PRIMARY KEY,
+  nome            TEXT NOT NULL,
+  etapa           TEXT NOT NULL,
+  mensagem        TEXT NOT NULL,
+  taxa_instalacao TEXT,
+  inicio          INTEGER,
+  fim             INTEGER,
+  ativa           INTEGER NOT NULL DEFAULT 1,
+  criado_em       INTEGER NOT NULL,
+  criado_por      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_promocoes_ativa ON promocoes(ativa, etapa);
 `;
 
 export function db(): SqlDatabase {
@@ -120,6 +165,9 @@ export function initDb(): void {
 
   migrarUsuariosDoJson();
   limparSessoesExpiradas();
+  // Import tardio: servicos.ts importa db.ts, e no topo daria ciclo.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  (require('./servicos') as typeof import('./servicos')).semearServicos();
 
   logger.info(`Banco do atendimento: ${ARQUIVO}`);
 }
@@ -131,6 +179,10 @@ function migrarColunasNovas(): void {
     bd!.exec('ALTER TABLE eventos ADD COLUMN arquivo_json TEXT');
     logger.info('Banco: coluna arquivo_json adicionada em eventos');
   } catch { /* coluna já existe — instalação nova já nasce com ela */ }
+  try {
+    bd!.exec('ALTER TABLE eventos ADD COLUMN oculto INTEGER NOT NULL DEFAULT 0');
+    logger.info('Banco: coluna oculto adicionada em eventos');
+  } catch { /* coluna já existe */ }
 }
 
 /** Traz os usuários do arquivo JSON antigo (versão anterior do painel). */

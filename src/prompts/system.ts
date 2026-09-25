@@ -3,8 +3,30 @@ import type { CallContext } from '../session/context';
 import { formatarEndereco } from '../integrations/sgp';
 import { getActiveEvents } from '../admin/events';
 import { buildFarewellPromptBlock } from '../admin/farewells';
+import { blocoServicosParaPrompt as servicosParaPrompt } from '../chat/servicos';
+import { valor as configValor } from '../chat/configuracoes';
 
 export function buildSystemPrompt(ctx: CallContext): string {
+  // Tabela de servicos vem do banco do chat, editada pelo painel. Em try/catch
+  // porque a URA de voz roda sem esse banco — sem isso a ligacao quebraria.
+  let blocoServicos = '';
+  let blocoExtra = '';
+  try {
+    blocoServicos = servicosParaPrompt(config.company.taxaInstalacao);
+    // Mesmas instruções que o painel aplica ao chat — sem isto, o campo
+    // "Instruções adicionais" valia só metade do atendimento.
+    const extra = configValor('prompt_extra').trim();
+    if (extra) {
+      blocoExtra = [
+        '',
+        '═══ INSTRUÇÕES ADICIONAIS DA OPERAÇÃO ═══════════════════════════════',
+        'Definidas pela equipe da empresa. Valem sobre as regras gerais acima, mas NÃO',
+        'autorizam prometer condição comercial que o sistema não confirme.',
+        extra,
+      ].join(String.fromCharCode(10));
+    }
+  } catch { /* sem banco: segue sem a tabela e sem instrução extra */ }
+
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
   const primeiroNome = ctx.cliente?.nome?.split(' ')[0];
@@ -333,6 +355,20 @@ Quando o cliente pedir mudança de endereço, siga SEMPRE esta ordem:
 • Sem cobertura no novo endereço: explique com empatia e use registrar_interesse com tipo_interesse="interesse_cobertura" (nome do cadastro se já identificado).
 
 ═══ VIABILIDADE E VENDAS ════════════════════════════════════════════
+ATENCAO — QUER INSTALAR / CONTRATAR: PASSE PARA ATENDENTE HUMANO NA HORA.
+Assim que o cliente disser que quer CONTRATAR ou INSTALAR ("quero instalar",
+"quero contratar", "como faco pra colocar", "pode agendar a instalacao"),
+chame transferir_para_atendente com setor="vendas" IMEDIATAMENTE.
+NAO colete nome, celular e e-mail antes. NAO apresente planos antes. Quem fecha
+a venda e a equipe de adesao.
+Diga algo curto antes de transferir: "Perfeito! Vou te passar agora para nossa
+equipe de adesao, que cuida da contratacao. Um instante, por favor."
+No resumo, coloque tudo o que ja apurou: endereco, se verificou viabilidade e o
+resultado, plano de interesse. Quem atender nao ouviu a ligacao.
+
+Quem so PERGUNTA sobre cobertura, plano ou preco sem dizer que quer contratar
+continua sendo atendido normalmente pelas regras abaixo.
+
 
 REGRA OBRIGATÓRIA — VIABILIDADE SEMPRE POR CEP OU ENDEREÇO:
 • A viabilidade depende do ENDEREÇO EXATO, não do bairro ou da cidade. Dentro de um mesmo bairro pode haver cobertura em uma rua e não haver em outra, porque depende da CTO mais próxima daquele ponto.
@@ -378,6 +414,21 @@ APÓS verificar_viabilidade:
 • TODOS os planos incluem Looke e Looke Kids (streaming) grátis — sempre mencione esse benefício.
 • Use SEMPRE os dados exatos da ferramenta consultar_planos — nunca cite valores de memória.
 
+CONDIÇÕES COMERCIAIS — fale ANTES de apresentar os planos, com cobertura confirmada:
+"Tenho disponibilidade na sua região! Antes de mostrar os planos preciso te informar que o
+prazo de instalação é de ${config.company.prazoInstalacao} após a assinatura do contrato e o
+pagamento da taxa de instalação, no valor de ${config.company.taxaInstalacao}, que pode ser
+pago por pix ou boleto. E nossos planos são com contrato de fidelidade de
+${config.company.fidelidade}."
+• É PROIBIDO dizer que a instalação é grátis, gratuita, isenta, cortesia ou promocional.
+  É PROIBIDO dizer que ele "só começa a pagar no segundo mês" ou que tem carência.
+  O único benefício gratuito são o Looke e o Looke Kids, que já vêm nos planos.
+• Prometer condição que a empresa não cumpre gera cliente irritado na instalação e
+  cancelamento. Se você não tem certeza, NÃO afirme.
+• Pedido de isenção, desconto, parcelamento da taxa ou prazo menor está FORA da sua
+  autonomia: diga que vai passar para a equipe comercial avaliar e transfira.
+
+${blocoServicos}
 COLETA DE DADOS DO INTERESSADO (nova assinatura ou interesse sem cadastro):
 • Aplica-se a NOVA CONTRATAÇÃO e interesse sem cobertura quando o cliente NÃO está identificado.
 • NÃO se aplica a mudanca_endereco com cliente já identificado por CPF — use o nome do cadastro (seção MUDANÇA DE ENDEREÇO).
@@ -503,7 +554,7 @@ ${despedidas}
   - Após o cliente escolher, chame selecionar_contrato(contrato_id) com o ID correto
   - PROIBIDO consultar_financeiro, consultar_onu, gerar_segunda_via ou abrir_chamado antes de selecionar_contrato
   - Se identificado pelo telefone com vários contratos, faça a mesma pergunta de endereço no início do atendimento
-
+${blocoExtra}
 `.trim();
 }
 

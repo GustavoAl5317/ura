@@ -15,13 +15,15 @@ import { whatsapp } from '../integrations/whatsapp';
 import { whatsappCloud } from '../integrations/whatsapp-cloud';
 import { config } from '../config';
 import { logger } from '../logger';
+import { valorNumero } from './configuracoes';
 import { ChatToolRegistry } from './tool-registry';
 import { registerChatOverrides, ajustarArgsWhatsapp } from './overrides';
+import { registrarStore } from './atribuicao';
 import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
@@ -52,6 +54,20 @@ export interface PanelEvent {
   tool?: { name: string; args: Record<string, unknown>; resultado: string };
   /** Documento/imagem trocado nesta mensagem — link de download no painel. */
   arquivo?: { id: string; nome: string; mimetype: string; tamanho: number };
+  /** Ocultado da tela de atendimento. Só a auditoria enxerga. */
+  oculto?: boolean;
+}
+
+/** Some com a mensagem na tela, mantendo o registro para auditoria. */
+export function ocultarMensagem(sessao: ChatSession | undefined, chave: string, eventoId: number): boolean {
+  const ok = ocultarEvento(chave, eventoId);
+  // A sessão viva tem os eventos em memória: sem tirar de lá, a mensagem
+  // voltaria a aparecer no próximo refresh do painel.
+  if (ok && sessao) {
+    const i = sessao.eventos.findIndex((e) => e.id === eventoId);
+    if (i >= 0) sessao.eventos.splice(i, 1);
+  }
+  return ok;
 }
 
 /**
@@ -144,7 +160,7 @@ export class ChatSession {
     this.ctx.enviarTextoCliente = this.enviar;
 
     registerTools(this.registry, this.ctx);   // MESMOS handlers da URA
-    registerChatOverrides(this.registry, this.ctx);
+    registerChatOverrides(this.registry, this.ctx, this);
   }
 
   get key(): string {
@@ -240,7 +256,14 @@ export class ChatSession {
     // Atendente não escolhe "entrar" na conversa por conta própria — só assume
     // quando a IA decidiu transferir (fila de Atendimento ou de Adesão). Isso
     // impede parar a IA no meio de um atendimento que ela ainda está conduzindo.
-    if (!this.ctx.pendingTransfer) {
+    //
+    // A trava vale só enquanto a IA conduz. Com a conversa JÁ em atendimento
+    // humano a IA está pausada, e exigir transferência pendente prendia a
+    // conversa na primeira atendente: quem assumiu zerou o pendingTransfer, e
+    // ninguém mais conseguia pegar — nem para render em troca de turno, nem
+    // quando a pessoa saía do plantão.
+    const jaEmAtendimentoHumano = this.modo === 'humano' && !this.encerrada;
+    if (!this.ctx.pendingTransfer && !jaEmAtendimentoHumano) {
       return { ok: false, erro: 'sem_transferencia_pendente' };
     }
 
@@ -256,13 +279,93 @@ export class ChatSession {
     this.ctx.filaTipo = undefined;
     this.ctx.filaEntradaEm = undefined;
     this.ctx.filaNivelEnviado = undefined;
+    // Repasse cumprido: quem assumiu (o destinatário ou outra pessoa) encerra o
+    // encaminhamento, senão a conversa ficaria marcada como pendente para
+    // sempre no painel de quem recebeu.
+    const repasse = this.ctx.repasse;
+    this.ctx.repasse = undefined;
     this.record({
       tipo: 'sistema',
-      texto: anterior
+      texto: repasse && repasse.paraId === atendente.id
+        ? `${atendente.nome} assumiu o repasse de ${repasse.deNome} — ${repasse.motivo}`
+        : anterior
         ? `${atendente.nome} assumiu a conversa de ${anterior}`
         : `${atendente.nome} assumiu às ${horaAssumiu} (estava na fila) — IA pausada`,
     });
     logger.info(`[${this.ctx.callId}] painel: ${atendente.nome} assumiu (${this.numero})`);
+    return { ok: true };
+  }
+
+  /**
+   * Repassa a conversa de uma atendente para outra — o caso típico é o
+   * cancelamento, que é tratado por uma pessoa específica.
+   *
+   * Diferente de a outra pessoa simplesmente assumir: aqui a conversa fica
+   * marcada COM DESTINATÁRIO e motivo, aparece destacada para quem recebeu e
+   * some do painel de quem mandou. Sem isso, "passar para a fulana" dependia de
+   * combinar por fora e torcer para ela ver.
+   *
+   * A IA continua pausada durante o repasse: quem manda já estava atendendo, e
+   * devolver o cliente para a IA no meio do assunto seria pior do que a espera.
+   */
+  repassar(
+    de: { id: string; nome: string },
+    para: { id: string; nome: string },
+    motivo: string,
+  ): { ok: boolean; erro?: string } {
+    if (this.encerrada) return { ok: false, erro: 'conversa_encerrada' };
+    if (this.modo !== 'humano') return { ok: false, erro: 'conversa_nao_esta_em_atendimento' };
+    if (this.atendenteId !== de.id) return { ok: false, erro: 'voce_nao_esta_atendendo' };
+    if (para.id === de.id) return { ok: false, erro: 'destinatario_igual_remetente' };
+
+    const texto = motivo.trim() || 'sem motivo informado';
+    this.ctx.repasse = {
+      paraId: para.id, paraNome: para.nome,
+      deNome: de.nome, motivo: texto, em: Date.now(),
+    };
+    // Solta a conversa de quem mandou, mas mantém modo humano: ela sai do painel
+    // dele e entra destacada no de quem recebe, sem a IA voltar a responder.
+    this.atendenteId = undefined;
+    this.atendenteNome = undefined;
+
+    this.record({
+      tipo: 'sistema',
+      texto: `${de.nome} repassou para ${para.nome} — ${texto}`,
+    });
+    logger.info(`[${this.ctx.callId}] painel: repasse ${de.nome} → ${para.nome} (${this.numero})`, {
+      motivo: texto,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Entrega a conversa a uma atendente sem ela precisar puxar da fila.
+   *
+   * Diferente de intervir(): aqui a pessoa não pediu — o sistema escolheu. Por
+   * isso a fila NÃO é limpa: enquanto ela não responder, o escalonamento segue
+   * e a conversa volta para todos se ficar parada. Atribuir para quem está
+   * ausente seria só esconder a espera do painel.
+   */
+  assumirPorAtribuicao(atendente: { id: string; nome: string }): void {
+    this.modo = 'humano';
+    this.atendenteId = atendente.id;
+    this.atendenteNome = atendente.nome;
+    this.ctx.atribuicaoAutoEm = Date.now();
+    this.record({
+      tipo: 'sistema',
+      texto: `Conversa direcionada automaticamente para ${atendente.nome} — IA pausada`,
+    });
+    this.persistir();
+  }
+
+  /** Cancela o próprio repasse e retoma a conversa (mandou para a pessoa errada). */
+  desfazerRepasse(atendente: { id: string; nome: string }): { ok: boolean; erro?: string } {
+    const r = this.ctx.repasse;
+    if (!r) return { ok: false, erro: 'sem_repasse_pendente' };
+    this.ctx.repasse = undefined;
+    this.atendenteId = atendente.id;
+    this.atendenteNome = atendente.nome;
+    this.record({ tipo: 'sistema', texto: `${atendente.nome} cancelou o repasse para ${r.paraNome}` });
     return { ok: true };
   }
 
@@ -355,8 +458,9 @@ export class ChatSession {
    * store tirar a sessão da memória.
    */
   async verificarInatividade(agora: number): Promise<boolean> {
-    const pingMs = config.chat.inatividadePingMin * 60_000;
-    const fecharMs = config.chat.inatividadeFecharMin * 60_000;
+    // Do painel, com fallback no .env: o Lucas ajusta sem precisar de deploy.
+    const pingMs = valorNumero('inatividade_ping_min') * 60_000;
+    const fecharMs = valorNumero('inatividade_fechar_min') * 60_000;
     if (!pingMs) return false;                       // 0 desliga o recurso
     if (this.modo === 'humano') return false;        // atendente decide a hora de fechar
     if (this.encerrada) return false;
@@ -419,7 +523,12 @@ export class ChatSession {
    */
   async verificarFilaAtendimento(agora: number): Promise<void> {
     if (!this.ctx.pendingTransfer || !this.ctx.filaEntradaEm) return;
-    if (this.modo === 'humano') return;                 // já foi assumido
+    if (this.encerrada) return;
+
+    // Conversa com atendente NÃO volta para a fila nem escala: ela pode demorar
+    // para responder, e isso é trabalho normal — não é abandono. A única coisa
+    // que a atendente não pode é puxar conversa que a IA ainda conduz.
+    if (this.modo === 'humano') return;
     if (this.encerrada) return;
     if (!estaNoHorarioComercial()) return;               // fora do expediente não escala sozinho
 
@@ -677,6 +786,7 @@ export class ChatSession {
       filaEntradaEm: this.ctx.filaEntradaEm ?? null,
       filaNivel: this.ctx.filaNivelEnviado ?? null,
       transferSetor: this.ctx.transferSetor ?? null,
+      repasse: this.ctx.repasse ?? null,
       ultimaMsg: ultimo?.texto ?? null,
       ultimaTs: ultimo?.ts ?? this.lastActivity,
       lastActivity: this.lastActivity,
@@ -710,12 +820,19 @@ export class ChatSessionStore {
   private resolveEnviar?: (instancia?: string) => EnviarTexto | undefined;
 
   constructor() {
+    registrarStore(this);   // a atribuição automática precisa ver todas as conversas
     const idleMs = config.chat.sessionIdleMin * 60_000;
     setInterval(() => {
       const agora = Date.now();
       for (const [key, s] of this.sessions) {
+        // Conversa com atendente ou esperando na fila NUNCA sai da memória por
+        // tempo: a atendente pode demorar, e a conversa sumindo do painel dela
+        // no meio do atendimento é o mesmo que perder o cliente. Sai da memória
+        // só quando for encerrada de fato.
+        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada;
+
         // Sai da memória por inatividade — o registro fica no banco (auditoria).
-        if (agora - s.lastActivity > idleMs) {
+        if (!comGente && agora - s.lastActivity > idleMs) {
           s.persistir();
           this.sessions.delete(key);
           continue;

@@ -63,6 +63,13 @@ export class CallSession {
   private toolsInFlight = 0;
   private waitingAnaAfterTool = false;
   private fillerLoopRunning = false;
+  /**
+   * Quantas falas estão sendo geradas/tocadas agora. Enquanto > 0 o laço do
+   * teclado não enfileira nada: voz e teclado dividem a MESMA fila do pacer, e
+   * se os dois entram juntos os quadros se intercalam — clique, sílaba, clique —,
+   * que é o "a URA fica teclando" e o "a voz trava" ao mesmo tempo.
+   */
+  private vozAtiva = 0;
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
@@ -872,6 +879,7 @@ export class CallSession {
     const gen = this.ttsGeneration;
     const task = this.ttsQueue.then(async () => {
       this.pacer.setHoldStream(true);
+      this.vozAtiva++;
       try {
         await this.runTtsStream(text, (pcm8k) => {
           if (gen !== this.ttsGeneration) return;
@@ -885,6 +893,7 @@ export class CallSession {
       } catch {
         /* preâmbulo opcional */
       } finally {
+        this.vozAtiva = Math.max(0, this.vozAtiva - 1);
         if (gen === this.ttsGeneration) {
           this.pacer.setHoldStream(false);
         }
@@ -993,6 +1002,7 @@ export class CallSession {
     const providerLabel = usingOpenAi ? 'OpenAI' : 'ElevenLabs';
     logger.info(`[${this.ctx.callId}] TTS ${providerLabel} (${normalizedText.length} chars)`);
     this.pacer.setHoldStream(true);
+    this.vozAtiva++;
     try {
       await this.runTtsStream(normalizedText, (pcm8k) => {
         if (gen !== this.ttsGeneration) return;
@@ -1009,6 +1019,7 @@ export class CallSession {
         logger.info(`[${this.ctx.callId}] Áudio passado para Realtime nativo`);
       }
     } finally {
+      this.vozAtiva = Math.max(0, this.vozAtiva - 1);
       if (gen === this.ttsGeneration) {
         this.pacer.setHoldStream(false);
       }
@@ -1118,6 +1129,12 @@ export class CallSession {
     const loop = sample ?? getWaitSound();
     let pos = 0;
     while (!cancel.cancelled && !this.socket.destroyed && !this.tearing) {
+      // Voz tocando: segura o teclado em vez de intercalar com a fala. Volta
+      // sozinho quando a voz termina, se ainda houver consulta rodando.
+      if (this.vozAtiva > 0) {
+        await sleep(20);
+        continue;
+      }
       const end = Math.min(pos + SLIN_CHUNK_BYTES, loop.length);
       const slice = loop.subarray(pos, end);
       if (slice.length === SLIN_CHUNK_BYTES) {
@@ -1203,6 +1220,9 @@ export class CallSession {
               }
               throw err;
             });
+        // A consulta que estava rodando morreu com a conexão: o teclado não tem
+        // mais o que esperar, e tocaria por cima do aviso de transferência.
+        this.stopTypingSound();
         this.pacer.enqueue(pcm);
         await sleep(Math.ceil(pcm.length / SLIN_CHUNK_BYTES) * 20 + 200);
       } catch {

@@ -202,6 +202,14 @@ export const config = {
      */
     vozFeminina: opt('CHAT_VOZ_FEMININA', 'coral'),
     vozMasculina: opt('CHAT_VOZ_MASCULINA', 'ash'),
+    /**
+     * Formato do áudio gravado pelo atendente no painel.
+     *   m4a (padrão) → AAC, decodificado nativamente pelo iOS. Aparece como
+     *                  áudio anexado, sem forma de onda de nota de voz.
+     *   ogg          → Opus, formato de nota de voz do WhatsApp. Mais bonito,
+     *                  mas neste ambiente o iPhone recusa reproduzir.
+     */
+    audioAtendenteFormato: opt('CHAT_AUDIO_ATENDENTE_FORMATO', 'm4a') as 'm4a' | 'ogg',
     /** Modelo de transcrição da OpenAI (whisper-1, gpt-4o-mini-transcribe...). */
     transcribeModel: opt('CHAT_TRANSCRIBE_MODEL', 'whisper-1'),
     temperature: optFloat('CHAT_TEMPERATURE', 0.4),
@@ -269,6 +277,21 @@ export const config = {
     appLink: opt('COMPANY_APP_LINK', 'https://play.google.com/store/apps/details?id=com.lucz.sz.aquimobile&hl=pt'),
     instagram: opt('COMPANY_INSTAGRAM', '@aquitelecom'),
     endereco: opt('COMPANY_ENDERECO', 'Av. A, 919 - Conj. Ceará, Fortaleza - CE, 60532-260'),
+    /**
+     * Condições comerciais da contratação. Ficam aqui, e não no prompt, porque
+     * preço e prazo mudam e não podem depender de alterar código — e porque a
+     * IA NÃO pode inventá-los: já prometeu "instalação gratuita" a um cliente
+     * quando a taxa é cobrada.
+     */
+    taxaInstalacao: opt('COMPANY_TAXA_INSTALACAO', '60,00'),
+    prazoInstalacao: opt('COMPANY_PRAZO_INSTALACAO', 'até 24 horas úteis'),
+    fidelidade: opt('COMPANY_FIDELIDADE', '12 meses'),
+    formasPagamentoTaxa: opt('COMPANY_PAGAMENTO_TAXA', 'pix ou boleto'),
+    // Tabela de serviços cobrados. Mesma razão da taxa de instalação: a IA não
+    // pode inventar preço, e preço muda sem virar deploy.
+    taxaMudancaEndereco: opt('COMPANY_TAXA_MUDANCA_ENDERECO', '50,00'),
+    taxaVisitaImprodutiva: opt('COMPANY_TAXA_VISITA_IMPRODUTIVA', '30,00'),
+    taxaRepetidor: opt('COMPANY_TAXA_REPETIDOR', '30,00'),
     googleReviewUrl: opt(
       'COMPANY_GOOGLE_REVIEW_URL',
       'https://google.com/maps/place//data=!4m3!3m2!1s0x7c74c7bb6ad70fd:0xafe6989ac47d4bc0!12e1?source=g.page.m.ad._',
