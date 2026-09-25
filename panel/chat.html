@@ -1779,6 +1779,8 @@ Ela sai da IA e vai para a fila (ou direto para uma atendente online), e o clien
       <span class="note">Você no comando</span>
       <button class="clip" id="btnRepassar" aria-label="Repassar para outra atendente"
         title="Repassar para outra atendente">↪️</button>
+      <button class="clip" id="btnEncerrar" aria-label="Encerrar atendimento"
+        title="Encerrar atendimento — manda a despedida com o protocolo">✅</button>
       <input type="file" id="arq" hidden>
       <button class="clip" id="btnClip" aria-label="Anexar arquivo" title="Anexar arquivo (até 16 MB)">📎</button>
       <button class="mic" id="btnMic" aria-label="Gravar áudio" title="Gravar mensagem de voz">🎙️</button>
@@ -1786,6 +1788,19 @@ Ela sai da IA e vai para a fila (ou direto para uma atendente online), e o clien
       <textarea id="txt" rows="1" placeholder="Escreva para ${esc(nomeDe(d))}…"></textarea>
       <button class="send" id="btnSend" aria-label="Enviar mensagem">➤</button>
       <button class="btn back" id="btnBack">Voltar com a IA</button></div>`;
+
+    // Encerrar: sem isto toda conversa assumida ficava aberta para sempre.
+    if ($('btnEncerrar')) $('btnEncerrar').onclick = async () => {
+      const msg = `Encerrar este atendimento?
+
+O cliente recebe uma mensagem de despedida com o protocolo. Se ele escrever de novo, começa um atendimento novo.`;
+      if (!confirm(msg)) return;
+      try{
+        await api('/api/conversas/'+encodeURIComponent(atual)+'/encerrar',{method:'POST',body:'{}'});
+        toast('Atendimento encerrado.');
+        sigThread=''; sigComposer=''; await carregarDetalhe(false);
+      }catch(ex){ toast(ex.message, true); }
+    };
 
     if ($('btnRepassar')) $('btnRepassar').onclick = async () => {
       try{

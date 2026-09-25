@@ -23,7 +23,7 @@ import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento, JANELA_ATENDENTE_MS } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
@@ -370,6 +370,44 @@ export class ChatSession {
   }
 
   /** Devolve para a IA. Se houver mensagem do cliente sem resposta, a IA responde já. */
+  /**
+   * A atendente encerra o atendimento. Antes não existia isso no painel — só
+   * dava para devolver a conversa à IA —, e toda conversa assumida por uma
+   * pessoa ficava aberta para sempre: eram mais de 160 "com atendente" desde
+   * agosto. Isso poluía o painel e distorcia a distribuição automática, que
+   * conta as conversas abertas de cada atendente.
+   *
+   * Manda ao cliente a despedida com os protocolos, igual ao encerramento da IA.
+   */
+  async encerrarPeloPainel(quem: { id: string; nome: string }, avisarCliente = true): Promise<{ ok: boolean; erro?: string }> {
+    if (this.encerrada) return { ok: false, erro: 'ja_encerrada' };
+
+    if (avisarCliente) {
+      const protocolos = this.ctx.protocolos ?? [];
+      const linhas = ['Seu atendimento foi finalizado. Obrigada pelo contato! 😊'];
+      if (protocolos.length === 1) {
+        linhas.push('', `📄 Protocolo do atendimento: *${protocolos[0]}*`);
+      } else if (protocolos.length > 1) {
+        linhas.push('', '📄 Protocolos do atendimento:');
+        for (const p of protocolos) linhas.push(`• *${p}*`);
+      }
+      linhas.push('', 'Se precisar de algo mais, é só escrever por aqui.', '', ...blocoCanaisEmpresa());
+      await this.enviarTextoOuAudio(linhas.join(String.fromCharCode(10)));
+    }
+
+    this.ctx.pendingTransfer = false;
+    this.ctx.filaTipo = undefined;
+    this.ctx.repasse = undefined;
+    this.ctx.pendingHangup = true;
+    this.record({
+      tipo: 'sistema',
+      texto: `Atendimento encerrado por ${quem.nome}${avisarCliente ? '' : ' (sem aviso ao cliente)'}.`,
+    });
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] painel: ${quem.nome} encerrou o atendimento (${this.numero})`);
+    return { ok: true };
+  }
+
   retomar(porQuem?: string): void {
     if (this.modo === 'ia') return;
     this.modo = 'ia';
@@ -939,7 +977,8 @@ export class ChatSessionStore {
         // tempo: a atendente pode demorar, e a conversa sumindo do painel dela
         // no meio do atendimento é o mesmo que perder o cliente. Sai da memória
         // só quando for encerrada de fato.
-        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada;
+        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada
+          && agora - s.lastActivity <= JANELA_ATENDENTE_MS;
 
         // Sai da memória por inatividade — o registro fica no banco (auditoria).
         if (!comGente && agora - s.lastActivity > idleMs) {
@@ -1050,6 +1089,7 @@ export class ChatSessionStore {
       // "???" a manhã inteira sem resposta.
       const comGente = dados?.ctx?.pendingTransfer === true || dados?.modo === 'humano';
       if (!dados || dados.encerrada || !comGente) return undefined;
+      if (Date.now() - dados.ultimaAtividade > JANELA_ATENDENTE_MS) return undefined;
       const remoteJid = key.slice(key.indexOf(':') + 1);
       const s = new ChatSession(
         remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),

@@ -535,7 +535,7 @@ export async function tratarPainel(
   // 'enviar-arquivo'/'enviar-audio' vêm antes de 'enviar' na alternância: a
   // regex é gulosa da esquerda e casaria só o prefixo, jogando o resto para
   // dentro da chave.
-  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|transferir|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
+  const m = /^\/api\/conversas\/(.+?)(?:\/(intervir|retomar|repassar|desfazer-repasse|transferir|encerrar|enviar-arquivo|enviar-audio|enviar))?$/.exec(p);
   if (!m) return false;
 
   const key = decodeURIComponent(m[1]);
@@ -639,6 +639,24 @@ export async function tratarPainel(
   if (req.method === 'POST' && acao === 'desfazer-repasse') {
     const r = session.desfazerRepasse({ id: eu.id, nome: eu.nome });
     if (!r.ok) { json(res, 409, { erro: 'Não há repasse pendente nesta conversa.' }); return true; }
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === 'POST' && acao === 'encerrar') {
+    // Quem está com a conversa encerra; admin também, para limpar conversa
+    // largada por alguém que saiu.
+    if (session.atendenteId && session.atendenteId !== eu.id && eu.papel !== 'admin') {
+      json(res, 409, { erro: `Quem está com esta conversa é ${session.atendenteNome}.` });
+      return true;
+    }
+    if (session.modo === 'ia' && eu.papel !== 'admin') {
+      json(res, 409, { erro: 'A IA está conduzindo esta conversa — ela encerra sozinha.' });
+      return true;
+    }
+    const b = await lerCorpo(req);
+    const r = await session.encerrarPeloPainel({ id: eu.id, nome: eu.nome }, b.avisar_cliente !== false);
+    if (!r.ok) { json(res, 409, { erro: 'Esta conversa já está encerrada.' }); return true; }
     json(res, 200, { ok: true });
     return true;
   }

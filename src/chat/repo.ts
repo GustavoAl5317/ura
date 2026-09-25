@@ -272,18 +272,25 @@ export function buscarConversaParaReabrir(chave: string): ConversaSalva | null {
 }
 
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
-/** Teto de idade para reviver conversa com atendente num restart — evita zumbi. */
-const IDADE_MAX_COM_ATENDENTE_MS = 30 * 24 * 60 * 60_000;
+/**
+ * Quanto tempo uma conversa com atendente (ou na fila) continua "viva" sem
+ * nenhuma atividade. Cobre a atendente que demora horas — o caso real foram 10h
+ * de uma noite —, mas não ressuscita conversa abandonada: o banco tinha mais de
+ * 160 conversas "com atendente" abertas desde agosto, que ninguém fechou.
+ * Passado isso, se o cliente voltar a escrever, começa um atendimento novo com a
+ * IA em vez de cair calado numa conversa velha que ninguém está olhando.
+ */
+export const JANELA_ATENDENTE_MS = 24 * 60 * 60_000;
 
 /**
  * Conversas a recarregar no boot. Com a IA: só as recentes (idadeMaximaMs).
- * Com atendente ou na fila: TODAS as abertas, por mais paradas que estejam —
+ * Com atendente ou na fila: as das últimas 24h (JANELA_ATENDENTE_MS) —
  * atendente pode demorar horas, e deixá-las de fora num restart fazia o painel
  * tratá-las como encerradas.
  */
 export function conversasParaRetomar(idadeMaximaMs: number): ConversaSalva[] {
   const limite = Date.now() - idadeMaximaMs;
-  const tetoComGente = Date.now() - IDADE_MAX_COM_ATENDENTE_MS;
+  const tetoComGente = Date.now() - JANELA_ATENDENTE_MS;
   return db().prepare(
     `SELECT * FROM conversas WHERE encerrada = 0 AND (
        ultima_atividade >= ?
