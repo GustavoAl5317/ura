@@ -1,4 +1,5 @@
 import net from 'net';
+import { statusDaFala, type StatusFala } from '../utils/pausa';
 import { RealtimeClient } from '../realtime/client';
 import { AudioSocketProtocol, AUDIOSOCKET_TYPE } from '../audiosocket/protocol';
 import { upsample8to24, downsample24to8 } from '../audio/resampler';
@@ -28,6 +29,8 @@ import { saveCallHistory } from '../admin/history';
 import { parseCpfFromSpeech } from '../utils/spokenNumbers';
 
 const SILENCE_WARN_MS  = 12_000;
+/** Quanto tempo a URA espera em silêncio depois que o cliente pede pausa. */
+const PAUSA_MAX_MS = 5 * 60_000;
 const RESPONSE_STALL_MS = 12_000;
 
 /** Frase falada antes da consulta quando o modelo chama a tool sem avisar o cliente. */
@@ -84,6 +87,10 @@ export class CallSession {
   private transcricaoEm = 0;
   /** A transcrição do turno atual já foi entregue ao modelo como âncora. */
   private transcricaoAncorada = true;
+  /** Cliente pediu para esperar: até quando o vigia de silêncio fica suspenso. */
+  private pausadoAte = 0;
+  /** Sinal desta fala para a IA (pausa, retorno...). Vai junto da âncora. */
+  private statusTurno: StatusFala = '';
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
@@ -285,8 +292,9 @@ export class CallSession {
       if (transcricaoDoTurno && !this.transcricaoAncorada && this.ultimaTranscricao.trim()) {
         this.transcricaoAncorada = true;
         const dito = this.ultimaTranscricao.replace(/"/g, "'").slice(0, 400);
+        const sinal = this.statusTurno ? `[STATUS: ${this.statusTurno}] ` : '';
         this.rt.addContextItem(
-          `[CONTEXTO DO SISTEMA] Transcrição automática do que o cliente acabou de falar ` +
+          sinal + `[CONTEXTO DO SISTEMA] Transcrição automática do que o cliente acabou de falar ` +
           `(pode ter erros e trechos cortados): "${dito}". Responda ao que ele disse. ` +
           'Se a frase estiver incompleta ou não trouxer um pedido claro, NÃO suponha um pedido — ' +
           'nada de "entendi que você quer cancelar" ou "problema na internet" sem ele ter dito. ' +
@@ -516,6 +524,9 @@ export class CallSession {
       this.ultimaTranscricao = text;
       this.transcricaoEm = Date.now();
       this.transcricaoAncorada = false;
+      this.statusTurno = statusDaFala(text, Date.now() < this.pausadoAte);
+      if (this.statusTurno === 'CLIENTE_PAUSOU') this.pausadoAte = Date.now() + PAUSA_MAX_MS;
+      if (this.statusTurno === 'RETORNOU') this.pausadoAte = 0;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 
@@ -1218,6 +1229,12 @@ export class CallSession {
     ) {
       return;
     }
+    // Cliente pediu para esperar: silêncio agora é o combinado, não abandono.
+    // Sem isto a URA perguntava se ele estava na linha e desligava.
+    if (Date.now() < this.pausadoAte) {
+      this.resetSilenceTimer();
+      return;
+    }
     // Antes da saudação não existe "silêncio do cliente" — só adia o vigia.
     if (!this.saudacaoFeita) {
       this.resetSilenceTimer();
@@ -1229,7 +1246,7 @@ export class CallSession {
       // A nota fica no contexto: se o cliente falar antes da próxima resposta,
       // ela já está velha. Sem a ressalva, a URA respondia "você ainda está na
       // linha?" logo depois de o cliente ter falado.
-      this.rt.injectSystemNote('O cliente está em silêncio. Pergunte de forma breve e direta se ele ainda está na linha e aguarde a resposta. SE o cliente tiver dito qualquer coisa depois desta instrução, IGNORE-A e responda ao que ele disse.');
+      this.rt.injectSystemNote('[STATUS: SILENCIO_PROLONGADO] O cliente está em silêncio. Pergunte de forma leve se está tudo bem por aí e aguarde a resposta. SE o cliente tiver dito qualquer coisa depois desta instrução, IGNORE-A e responda ao que ele disse.');
       this.resetSilenceTimer();
     } else {
       logger.warn(`[${this.ctx.callId}] Silêncio prolongado (segunda vez) — encerrando ligação por inatividade`);
