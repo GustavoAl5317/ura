@@ -1044,14 +1044,19 @@ export class ChatSessionStore {
     if (viva) return viva;
     try {
       const dados = buscarConversaParaReabrir(key);
-      if (!dados || dados.encerrada || dados.ctx?.pendingTransfer !== true) return undefined;
+      // Na fila OU com atendente. Antes só a fila: conversa que já estava com
+      // uma atendente e saiu da memória (restart do serviço) aparecia no painel
+      // como "já foi encerrada" e ninguém conseguia agir — o cliente escrevia
+      // "???" a manhã inteira sem resposta.
+      const comGente = dados?.ctx?.pendingTransfer === true || dados?.modo === 'humano';
+      if (!dados || dados.encerrada || !comGente) return undefined;
       const remoteJid = key.slice(key.indexOf(':') + 1);
       const s = new ChatSession(
         remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),
       );
       s.restaurar(dados);
       this.sessions.set(key, s);
-      logger.info(`[chat] conversa na fila reidratada para o painel: ${dados.numero}`);
+      logger.info(`[chat] conversa reidratada para o painel: ${dados.numero} (${dados.modo})`);
       return s;
     } catch (err) {
       logger.error('[chat] falha ao reidratar conversa da fila', { key, err: String(err) });

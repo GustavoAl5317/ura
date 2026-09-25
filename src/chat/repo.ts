@@ -272,11 +272,24 @@ export function buscarConversaParaReabrir(chave: string): ConversaSalva | null {
 }
 
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
+/** Teto de idade para reviver conversa com atendente num restart — evita zumbi. */
+const IDADE_MAX_COM_ATENDENTE_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Conversas a recarregar no boot. Com a IA: só as recentes (idadeMaximaMs).
+ * Com atendente ou na fila: TODAS as abertas, por mais paradas que estejam —
+ * atendente pode demorar horas, e deixá-las de fora num restart fazia o painel
+ * tratá-las como encerradas.
+ */
 export function conversasParaRetomar(idadeMaximaMs: number): ConversaSalva[] {
   const limite = Date.now() - idadeMaximaMs;
+  const tetoComGente = Date.now() - IDADE_MAX_COM_ATENDENTE_MS;
   return db().prepare(
-    'SELECT * FROM conversas WHERE encerrada = 0 AND ultima_atividade >= ? ORDER BY ultima_atividade DESC',
-  ).all(limite).map((r) => {
+    `SELECT * FROM conversas WHERE encerrada = 0 AND (
+       ultima_atividade >= ?
+       OR ((modo = 'humano' OR ctx_json LIKE '%"pendingTransfer":true%') AND ultima_atividade >= ?)
+     ) ORDER BY ultima_atividade DESC`,
+  ).all(limite, tetoComGente).map((r) => {
     let ctx: Partial<CallContext> = {};
     let history: unknown[] = [];
     try { ctx = JSON.parse(String(r.ctx_json ?? '{}')); } catch { /* ignora */ }
