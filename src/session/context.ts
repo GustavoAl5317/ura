@@ -47,6 +47,19 @@ export interface CallContext {
   /** Quando a conversa foi atribuída automaticamente a uma atendente. */
   atribuicaoAutoEm?: number;
 
+  /** Quando a atendente atual pegou a conversa (assumiu ou recebeu por atribuição). */
+  assumidaEm?: number;
+  /** Última mensagem enviada pela atendente ao cliente. */
+  ultimaMsgAtendenteEm?: number;
+  /**
+   * A atendente não respondeu a tempo e a IA está cobrindo a espera: avisou que
+   * a fila está cheia e atende OUTROS assuntos, sem tirar a conversa da
+   * atendente. Desliga sozinho quando a atendente escreve.
+   */
+  iaCobrindo?: boolean;
+  /** Nome da atendente dona da conversa enquanto a IA cobre — vai para o prompt. */
+  atendenteCobertoNome?: string;
+
   repasse?: {
     paraId: string;
     paraNome: string;

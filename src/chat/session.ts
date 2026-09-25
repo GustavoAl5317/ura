@@ -27,7 +27,7 @@ import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaR
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
-import { estaNoHorarioComercial } from '../utils/horario-comercial';
+import { estaNoHorarioComercial, descricaoHorarioComercial } from '../utils/horario-comercial';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -175,6 +175,16 @@ export class ChatSession {
 
   private record(ev: Omit<PanelEvent, 'id' | 'ts'>): void {
     const completo = { ts: Date.now(), ...ev };
+    // Atendente escreveu: a IA para de cobrir a espera e a conversa volta a ser
+    // só dela. Aqui, e não em cada envio, porque texto, arquivo e áudio da
+    // atendente passam todos por record().
+    if (ev.tipo === 'atendente') {
+      this.ctx.ultimaMsgAtendenteEm = completo.ts;
+      if (this.ctx.iaCobrindo) {
+        this.ctx.iaCobrindo = false;
+        this.ctx.atendenteCobertoNome = undefined;
+      }
+    }
     let id = 0;
     try {
       id = salvarEvento(this.key, completo);          // id vem do banco
@@ -272,6 +282,9 @@ export class ChatSession {
     this.modo = 'humano';
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
+    this.ctx.assumidaEm = Date.now();
+    this.ctx.iaCobrindo = false;
+    this.ctx.atendenteCobertoNome = undefined;
     // Sai da fila (e do escalonamento de alertas) assim que alguém assume —
     // sem isso o "transferir" ficava preso pra sempre (nada limpava esse
     // estado) e o sweep continuaria mandando aviso de fila parada.
@@ -351,6 +364,8 @@ export class ChatSession {
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
     this.ctx.atribuicaoAutoEm = Date.now();
+    this.ctx.assumidaEm = Date.now();
+    this.ctx.iaCobrindo = false;
     this.record({
       tipo: 'sistema',
       texto: `Conversa direcionada automaticamente para ${atendente.nome} — IA pausada`,
@@ -370,6 +385,44 @@ export class ChatSession {
   }
 
   /** Devolve para a IA. Se houver mensagem do cliente sem resposta, a IA responde já. */
+  /**
+   * A atendente encerra o atendimento. Antes não existia isso no painel — só
+   * dava para devolver a conversa à IA —, e toda conversa assumida por uma
+   * pessoa ficava aberta para sempre: eram mais de 160 "com atendente" desde
+   * agosto. Isso poluía o painel e distorcia a distribuição automática, que
+   * conta as conversas abertas de cada atendente.
+   *
+   * Manda ao cliente a despedida com os protocolos, igual ao encerramento da IA.
+   */
+  async encerrarPeloPainel(quem: { id: string; nome: string }, avisarCliente = true): Promise<{ ok: boolean; erro?: string }> {
+    if (this.encerrada) return { ok: false, erro: 'ja_encerrada' };
+
+    if (avisarCliente) {
+      const protocolos = this.ctx.protocolos ?? [];
+      const linhas = ['Seu atendimento foi finalizado. Obrigada pelo contato! 😊'];
+      if (protocolos.length === 1) {
+        linhas.push('', `📄 Protocolo do atendimento: *${protocolos[0]}*`);
+      } else if (protocolos.length > 1) {
+        linhas.push('', '📄 Protocolos do atendimento:');
+        for (const p of protocolos) linhas.push(`• *${p}*`);
+      }
+      linhas.push('', 'Se precisar de algo mais, é só escrever por aqui.', '', ...blocoCanaisEmpresa());
+      await this.enviarTextoOuAudio(linhas.join(String.fromCharCode(10)));
+    }
+
+    this.ctx.pendingTransfer = false;
+    this.ctx.filaTipo = undefined;
+    this.ctx.repasse = undefined;
+    this.ctx.pendingHangup = true;
+    this.record({
+      tipo: 'sistema',
+      texto: `Atendimento encerrado por ${quem.nome}${avisarCliente ? '' : ' (sem aviso ao cliente)'}.`,
+    });
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] painel: ${quem.nome} encerrou o atendimento (${this.numero})`);
+    return { ok: true };
+  }
+
   retomar(porQuem?: string): void {
     if (this.modo === 'ia') return;
     this.modo = 'ia';
@@ -512,6 +565,54 @@ export class ChatSession {
   }
 
   /**
+   * Cliente escreveu, a conversa está com uma atendente e ela não respondeu a
+   * tempo. A conversa não morre nem volta para a fila (pedido do cliente): a IA
+   * avisa que a fila está cheia, diz que a atendente continua com o assunto, e
+   * passa a atender OUTROS assuntos enquanto isso. Quando a atendente escreve,
+   * record() desliga a cobertura.
+   *
+   * Conta a espera a partir do que veio por último: a mensagem do cliente ou o
+   * momento em que a atendente pegou a conversa — senão, ao assumir uma
+   * conversa que já esperava na fila, a IA avisaria "fila cheia" na mesma hora.
+   */
+  async verificarEsperaAtendente(agora: number): Promise<void> {
+    if (this.modo !== 'humano' || this.encerrada || this.ctx.iaCobrindo) return;
+
+    const ultimoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente');
+    if (!ultimoCliente) return;
+    // A atendente já respondeu depois da última mensagem: ninguém está esperando.
+    if ((this.ctx.ultimaMsgAtendenteEm ?? 0) >= ultimoCliente.ts) return;
+
+    const esperaMs = Math.max(1, valorNumero('atendente_espera_min')) * 60_000;
+    const desde = Math.max(ultimoCliente.ts, this.ctx.assumidaEm ?? 0);
+    if (agora - desde < esperaMs) return;
+
+    const nome = (this.atendenteNome ?? 'nossa atendente').split(' ')[0];
+    const texto = estaNoHorarioComercial()
+      ? `Nossa fila de atendimento está bem cheia agora 😕 Sua conversa continua com ${nome}, que vai `
+        + 'te responder assim que puder. Enquanto isso, se quiser, posso te ajudar com outro assunto por aqui.'
+      : `Nosso atendimento humano está fora do horário agora (${descricaoHorarioComercial()}). Sua `
+        + `conversa continua com ${nome}, que te responde assim que voltar. Enquanto isso, se quiser, `
+        + 'posso te ajudar com outro assunto por aqui.';
+
+    const r = await this.enviarTextoOuAudio(texto);
+    if (!r.enviado) return;                            // tenta de novo na próxima varredura
+
+    this.ctx.iaCobrindo = true;
+    this.ctx.atendenteCobertoNome = this.atendenteNome;
+    this.history.push({ role: 'assistant', content: texto });
+    this.record({ tipo: 'ia', texto });
+    this.record({
+      tipo: 'sistema',
+      texto: `${this.atendenteNome ?? 'Atendente'} não respondeu a tempo — a IA avisou o cliente e cobre `
+        + 'outros assuntos até ela escrever.',
+    });
+    this.trimHistory();
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] IA cobrindo a espera da atendente (${this.numero})`);
+  }
+
+  /**
    * Escalonamento da fila de atendimento humano (Atendimento ou Adesão):
    * aos 3/5/8 minutos sem ninguém assumir, reforça o aviso pro cliente e, no
    * nível crítico (8min), avisa o grupo de alertas. Chamado pela varredura
@@ -635,7 +736,9 @@ export class ChatSession {
     }
 
     // Atendente no comando: só registra — quem responde é o humano pelo painel.
-    if (this.modo === 'humano') return;
+    // Exceção: a atendente demorou e a IA está cobrindo a espera; aí a IA
+    // responde, sem tirar a conversa dela.
+    if (this.modo === 'humano' && !this.ctx.iaCobrindo) return;
 
     await this.run();
   }
@@ -665,6 +768,8 @@ export class ChatSession {
         this.history.push({ role: 'assistant', content: texto || null });
         this.trimHistory();
         if (texto) await this.entregar(texto);
+        await this.cumprirTransferenciaPrometida(texto);
+        await this.cumprirEncerramentoPrometido(texto);
         return;
       }
 
@@ -721,6 +826,114 @@ export class ChatSession {
       'Desculpa, me embolei aqui nas consultas 😅 Pode me dizer com suas palavras o que '
       + 'você precisa agora? Se preferir, digo que chamo uma atendente para te ajudar.',
     );
+  }
+
+  /**
+   * Transferência feita pelo painel (supervisão). Para quando a IA falha em
+   * transferir alguém que pediu atendente — sem isto a conversa ficava presa:
+   * atendente não pode pegar conversa que a IA conduz, e a IA não transferia.
+   *
+   * Não é "puxar" a conversa: passa pelo mesmo caminho da transferência da IA
+   * (fila, atribuição automática, aviso ao cliente).
+   */
+  async transferirPorSupervisao(quem: { nome: string }, motivo?: string): Promise<{ ok: boolean; erro?: string }> {
+    if (this.encerrada) return { ok: false, erro: 'conversa_encerrada' };
+    if (this.modo !== 'ia') return { ok: false, erro: 'ja_esta_com_atendente' };
+    if (this.ctx.pendingTransfer) return { ok: false, erro: 'ja_esta_na_fila' };
+
+    const pedidoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente')?.texto ?? '';
+    const args = {
+      motivo: motivo?.trim() || 'Transferência pelo painel',
+      setor: 'outro',
+      resumo: `Transferida pelo painel por ${quem.nome}. Última mensagem do cliente: `
+        + `"${pedidoCliente.slice(0, 300)}".`,
+    };
+    const resultado = await this.registry.dispatch('transferir_para_atendente', args);
+    this.record({
+      tipo: 'tool',
+      tool: { name: 'transferir_para_atendente', args, resultado: JSON.stringify(resultado ?? {}).slice(0, 2500) },
+    });
+    this.record({ tipo: 'sistema', texto: `${quem.nome} transferiu a conversa pelo painel.` });
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] painel: ${quem.nome} transferiu para atendente (${this.numero})`);
+    return { ok: true };
+  }
+
+  /**
+   * O modelo às vezes ESCREVE que vai transferir ("Vou transferir você para um
+   * atendente. *Transferindo...*") sem chamar transferir_para_atendente. O
+   * cliente acha que está na fila, ninguém é avisado e a conversa fica parada
+   * com a IA. A regra está no prompt, mas o modelo pula — então a garantia fica
+   * aqui: prometeu e não fez, o sistema faz.
+   *
+   * Só vale para promessa firme ("vou transferir", "transferindo"). Oferta
+   * ("posso transferir", "se preferir, te passo") não dispara, senão toda
+   * oferta viraria transferência.
+   */
+  private async cumprirTransferenciaPrometida(texto: string): Promise<void> {
+    if (!texto || this.modo !== 'ia' || this.encerrada || this.ctx.pendingTransfer) return;
+
+    const promessa = /\b(vou|irei)\s+(te\s+|lhe\s+|voc[eê]\s+|o\s+senhor\s+|a\s+senhora\s+)?(transferir|passar|encaminhar|direcionar)\b|\btransferindo\b/i;
+    const oferta = /\bse\s+(voc[eê]\s+)?(quiser|preferir|desejar)\b|\bposso\b|\bn[aã]o\s+vou\b/i;
+    if (!promessa.test(texto) || oferta.test(texto)) return;
+
+    const pedidoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente')?.texto ?? '';
+    logger.warn(`[${this.ctx.callId}] chat: IA prometeu transferir sem chamar a ferramenta — transferindo pelo sistema`, {
+      numero: this.numero, texto: texto.slice(0, 160),
+    });
+
+    const args = {
+      motivo: 'Cliente pediu atendimento humano',
+      setor: 'outro',
+      resumo: `Transferência garantida pelo sistema: a IA respondeu que ia transferir mas não `
+        + `executou. Última mensagem do cliente: "${pedidoCliente.slice(0, 300)}".`,
+    };
+    let resultado: unknown;
+    try {
+      resultado = await this.registry.dispatch('transferir_para_atendente', args);
+    } catch (err: unknown) {
+      logger.error(`[${this.ctx.callId}] chat: transferência garantida falhou`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const resultadoStr = JSON.stringify(resultado ?? {});
+    this.record({
+      tipo: 'tool',
+      tool: { name: 'transferir_para_atendente', args, resultado: resultadoStr.slice(0, 2500) },
+    });
+    this.record({
+      tipo: 'sistema',
+      texto: 'A IA disse que ia transferir e não transferiu — o sistema fez a transferência.',
+    });
+    this.persistir();
+  }
+
+  /**
+   * Mesmo problema da transferência, no encerramento: a IA escreve
+   * "Encerrando o atendimento." sem chamar encerrar_atendimento, e a conversa
+   * fica aberta com o status "IA atendendo" para sempre. Prometeu, o sistema faz.
+   * Pergunta ("posso encerrar?", "deseja encerrar?") não dispara.
+   */
+  private async cumprirEncerramentoPrometido(texto: string): Promise<void> {
+    if (!texto || this.modo !== 'ia' || this.encerrada || this.ctx.pendingTransfer) return;
+    const promessa = /\bencerrando (o |nosso )?atendimento\b|\batendimento (foi )?encerrado\b|\bvou encerrar (o |nosso )?atendimento\b/i;
+    const pergunta = /\b(posso|deseja|quer|gostaria de) encerrar\b/i;
+    if (!promessa.test(texto) || pergunta.test(texto)) return;
+
+    logger.warn(`[${this.ctx.callId}] chat: IA disse que encerrou sem chamar a ferramenta — encerrando pelo sistema`, {
+      numero: this.numero,
+    });
+    try {
+      await this.registry.dispatch('encerrar_atendimento', { motivo: 'concluído' });
+    } catch (err: unknown) {
+      logger.error(`[${this.ctx.callId}] chat: encerramento garantido falhou`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    this.record({ tipo: 'sistema', texto: 'A IA disse que encerrou e não encerrou — o sistema encerrou a conversa.' });
+    this.persistir();
   }
 
   /**
@@ -845,6 +1058,10 @@ export class ChatSessionStore {
           }));
         // Fila de atendimento humano parada: reforça aviso ao cliente e, no
         // nível crítico, avisa o grupo de alertas.
+        void s.verificarEsperaAtendente(agora)
+          .catch((err) => logger.error('[chat] falha na varredura de espera da atendente', {
+            key, err: err instanceof Error ? err.message : String(err),
+          }));
         void s.verificarFilaAtendimento(agora)
           .catch((err) => logger.error('[chat] falha na varredura da fila de atendimento', {
             key, err: err instanceof Error ? err.message : String(err),
@@ -934,14 +1151,19 @@ export class ChatSessionStore {
     if (viva) return viva;
     try {
       const dados = buscarConversaParaReabrir(key);
-      if (!dados || dados.encerrada || dados.ctx?.pendingTransfer !== true) return undefined;
+      // Na fila OU com atendente. Antes só a fila: conversa que já estava com
+      // uma atendente e saiu da memória (restart do serviço) aparecia no painel
+      // como "já foi encerrada" e ninguém conseguia agir — o cliente escrevia
+      // "???" a manhã inteira sem resposta.
+      const comGente = dados?.ctx?.pendingTransfer === true || dados?.modo === 'humano';
+      if (!dados || dados.encerrada || !comGente) return undefined;
       const remoteJid = key.slice(key.indexOf(':') + 1);
       const s = new ChatSession(
         remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),
       );
       s.restaurar(dados);
       this.sessions.set(key, s);
-      logger.info(`[chat] conversa na fila reidratada para o painel: ${dados.numero}`);
+      logger.info(`[chat] conversa reidratada para o painel: ${dados.numero} (${dados.modo})`);
       return s;
     } catch (err) {
       logger.error('[chat] falha ao reidratar conversa da fila', { key, err: String(err) });

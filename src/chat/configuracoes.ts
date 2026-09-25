@@ -58,6 +58,15 @@ export const CAMPOS: CampoConfig[] = [
     padrao: () => String(config.chat.inatividadeFecharMin),
   },
   {
+    chave: 'atendente_espera_min',
+    rotulo: 'Atendente sem responder: IA avisa após',
+    ajuda: 'Minutos que o cliente espera a atendente responder. Passado isso, a IA avisa que a '
+      + 'fila está cheia e se oferece para ajudar com outros assuntos, sem tirar a conversa da '
+      + 'atendente. Quando a atendente escreve, a IA sai.',
+    tipo: 'numero', grupo: 'tempos', min: 1, max: 240,
+    padrao: () => '10',
+  },
+  {
     chave: 'sessao_idle_min',
     rotulo: 'Manter a conversa na memória',
     ajuda: 'Minutos que a conversa continua ativa antes de sair da memória. '

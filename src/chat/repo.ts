@@ -272,10 +272,19 @@ export function buscarConversaParaReabrir(chave: string): ConversaSalva | null {
 }
 
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
+/**
+ * Conversas a recarregar no boot. Com a IA: só as recentes (idadeMaximaMs).
+ * Com atendente ou na fila: TODAS as abertas, sem prazo — pedido do cliente:
+ * conversa com atendente não morre. Quem cobre a demora da atendente é a IA
+ * (ver verificarEsperaAtendente), e quem fecha é a atendente pelo botão ✅.
+ */
 export function conversasParaRetomar(idadeMaximaMs: number): ConversaSalva[] {
   const limite = Date.now() - idadeMaximaMs;
   return db().prepare(
-    'SELECT * FROM conversas WHERE encerrada = 0 AND ultima_atividade >= ? ORDER BY ultima_atividade DESC',
+    `SELECT * FROM conversas WHERE encerrada = 0 AND (
+       ultima_atividade >= ?
+       OR modo = 'humano' OR ctx_json LIKE '%"pendingTransfer":true%'
+     ) ORDER BY ultima_atividade DESC`,
   ).all(limite).map((r) => {
     let ctx: Partial<CallContext> = {};
     let history: unknown[] = [];
