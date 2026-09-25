@@ -165,6 +165,10 @@ export class RealtimeClient extends EventEmitter {
 
   sendAudio(pcm24kHz: Buffer): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
+    // O Asterisk manda quadros vazios (sobretudo no início da ligação). A OpenAI
+    // recusa cada um com "Expected base64-encoded audio bytes ... but got empty
+    // bytes" — eram 3 erros por chamada, ruído que escondia erro de verdade.
+    if (!pcm24kHz.length) return;
     this.send({
       type: 'input_audio_buffer.append',
       audio: pcm24kHz.toString('base64'),
