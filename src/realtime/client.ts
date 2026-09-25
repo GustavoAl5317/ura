@@ -14,6 +14,13 @@ type TranscriptionConfig = {
   prompt?: string;
 };
 
+/** Filtro de ruído configurado, ou null quando desligado (OPENAI_NOISE_REDUCTION=off). */
+function filtroDeRuido(): { type: 'near_field' | 'far_field' } | null {
+  const v = String(config.vad.noiseReduction || '').trim().toLowerCase();
+  if (v === 'near_field' || v === 'far_field') return { type: v };
+  return null;
+}
+
 function buildTranscriptionCfg(): TranscriptionConfig {
   const model = config.openai.transcriptionModel;
   const cfg: TranscriptionConfig = { model };
@@ -42,6 +49,14 @@ export class RealtimeClient extends EventEmitter {
   private responseTextEmitted = false;
   private useNewSchema = false;
   private transcriptionReinforced = false;
+  /**
+   * Configuração de ENTRADA de áudio enviada na abertura (detecção de fala,
+   * transcrição, filtro de ruído). Reenviada inteira em toda atualização que
+   * mexe em "audio": se a API trocar o bloco em vez de mesclar, uma atualização
+   * só de saída derrubaria a entrada e a detecção padrão da OpenAI passaria a
+   * responder sozinha a cada fala — respostas duplicadas e resposta a ruído.
+   */
+  private audioInputCfg: Record<string, unknown> | null = null;
   /** Mid-call: ElevenLabs caiu — passa a emitir áudio nativo do Realtime. */
   private nativeAudioForced = false;
 
@@ -119,6 +134,7 @@ export class RealtimeClient extends EventEmitter {
           };
 
     const transcriptionCfg = buildTranscriptionCfg();
+    const noiseReduction = filtroDeRuido();
 
     const sessionCfg: RealtimeSessionConfig = isNewSchema
       ? {
@@ -126,11 +142,12 @@ export class RealtimeClient extends EventEmitter {
           output_modalities: outputModalities,
           instructions,
           audio: {
-            input: {
+            input: (this.audioInputCfg = {
               format: { type: 'audio/pcm', rate: 24000 },
               turn_detection: newTurnDetection,
               transcription: transcriptionCfg,
-            },
+              ...(noiseReduction ? { noise_reduction: noiseReduction } : {}),
+            }) as NonNullable<NonNullable<RealtimeSessionConfig['audio']>['input']>,
             ...(useAudio
               ? {
                   output: {
@@ -151,6 +168,7 @@ export class RealtimeClient extends EventEmitter {
           input_audio_format: 'pcm16',
           output_audio_format: 'pcm16',
           input_audio_transcription: transcriptionCfg,
+          ...(noiseReduction ? { input_audio_noise_reduction: noiseReduction } : {}),
           turn_detection: config.vad.type === 'semantic_vad'
             ? { type: 'semantic_vad', eagerness: config.vad.eagerness, create_response: false, interrupt_response: config.vad.interruptResponse }
             : { type: 'server_vad', threshold: config.vad.threshold, silence_duration_ms: config.vad.silenceMs, create_response: false, interrupt_response: config.vad.interruptResponse },
@@ -234,6 +252,7 @@ export class RealtimeClient extends EventEmitter {
           type: 'realtime',
           output_modalities: ['audio'],
           audio: {
+            ...(this.audioInputCfg ? { input: this.audioInputCfg } : {}),
             output: {
               format: { type: 'audio/pcm', rate: 24000 },
               voice: v,
@@ -452,8 +471,15 @@ export class RealtimeClient extends EventEmitter {
           this.send({
             type: 'session.update',
             session: this.useNewSchema
-              ? { type: 'realtime', audio: { input: { transcription: reinforceCfg } } }
-              : { type: 'realtime', input_audio_transcription: reinforceCfg },
+              // Reenvia o filtro junto: sem ele, uma atualização parcial de
+              // audio.input poderia derrubar a redução de ruído no meio da ligação.
+              ? { type: 'realtime', audio: { input: {
+                  ...(this.audioInputCfg ?? {}),
+                  transcription: reinforceCfg,
+                  ...(filtroDeRuido() ? { noise_reduction: filtroDeRuido() } : {}),
+                } } }
+              : { type: 'realtime', input_audio_transcription: reinforceCfg,
+                  ...(filtroDeRuido() ? { input_audio_noise_reduction: filtroDeRuido() } : {}) },
           });
         }
         this.emit('sessionReady');

@@ -29,6 +29,7 @@ export interface RealtimeSessionConfig {
       format?: AudioFormat;
       turn_detection?: TurnDetectionConfig | null;
       transcription?: { model: string; language?: string; delay?: string } | null;
+      noise_reduction?: { type: 'near_field' | 'far_field' } | null;
     };
     output?: {
       format?: AudioFormat;
@@ -43,6 +44,7 @@ export interface RealtimeSessionConfig {
   output_audio_format?: 'pcm16' | 'g711_ulaw' | 'g711_alaw';
   input_audio_transcription?: { model: string; language?: string; prompt?: string; delay?: string } | null;
   turn_detection?: TurnDetectionConfig | null;
+  input_audio_noise_reduction?: { type: 'near_field' | 'far_field' } | null;
   tools?: ToolDefinition[];
   tool_choice?: 'auto' | 'none' | 'required';
   temperature?: number;

@@ -115,6 +115,14 @@ export const config = {
     eagerness: opt('TURN_DETECTION_EAGERNESS', 'low') as 'low' | 'medium' | 'high',
     threshold: optFloat('TURN_DETECTION_THRESHOLD', 0.8),
     silenceMs: optInt('TURN_DETECTION_SILENCE_MS', 1000),
+    /**
+     * Filtro de ruído da própria OpenAI, aplicado ANTES da detecção de fala e
+     * da transcrição. near_field = microfone perto da boca (telefone): atenua
+     * vozes e sons de fundo. Sem isso, conversa no ambiente era transcrita
+     * como fala do cliente e a URA respondia coisas que ninguém perguntou.
+     * Valores: near_field | far_field | off.
+     */
+    noiseReduction: opt('OPENAI_NOISE_REDUCTION', 'near_field'),
     speechStopDelayMs: optInt('SPEECH_STOP_DELAY_MS', 300),
     /** Mais longo enquanto coleta CPF (cliente pausa entre grupos de dígitos) */
     speechStopDelayCollectingMs: optInt('SPEECH_STOP_DELAY_COLLECTING_MS', 800),
