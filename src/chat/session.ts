@@ -23,7 +23,7 @@ import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento, JANELA_ATENDENTE_MS } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento, janelaAtendenteMs } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
@@ -978,7 +978,7 @@ export class ChatSessionStore {
         // no meio do atendimento é o mesmo que perder o cliente. Sai da memória
         // só quando for encerrada de fato.
         const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada
-          && agora - s.lastActivity <= JANELA_ATENDENTE_MS;
+          && agora - s.lastActivity <= janelaAtendenteMs();
 
         // Sai da memória por inatividade — o registro fica no banco (auditoria).
         if (!comGente && agora - s.lastActivity > idleMs) {
@@ -1089,7 +1089,7 @@ export class ChatSessionStore {
       // "???" a manhã inteira sem resposta.
       const comGente = dados?.ctx?.pendingTransfer === true || dados?.modo === 'humano';
       if (!dados || dados.encerrada || !comGente) return undefined;
-      if (Date.now() - dados.ultimaAtividade > JANELA_ATENDENTE_MS) return undefined;
+      if (Date.now() - dados.ultimaAtividade > janelaAtendenteMs()) return undefined;
       const remoteJid = key.slice(key.indexOf(':') + 1);
       const s = new ChatSession(
         remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),
