@@ -14,6 +14,9 @@ import type { ChatSession, ChatSessionStore } from './session';
 
 let store: ChatSessionStore | null = null;
 
+/** Janela da carga atual de cada atendente, usada no balanceamento. */
+const CARGA_JANELA_MS = 24 * 60 * 60_000;
+
 /** O store se registra ao subir — evita passar a referência por todo lado. */
 export function registrarStore(s: ChatSessionStore): void {
   store = s;
@@ -68,9 +71,15 @@ export function escolherAtendente(setor?: string): { id: string; nome: string } 
     return null;
   }
 
+  // Carga ATUAL: só conversas com movimento nas últimas 24h. Conversa com
+  // atendente não expira mais (pedido do cliente), então contar todas as
+  // abertas faria quem esquece de encerrar acumular centenas e nunca mais
+  // receber conversa nova — o balanceamento mediria histórico, não trabalho.
   const conversas = store.list();
+  const recente = Date.now() - CARGA_JANELA_MS;
   const carga = (id: string): number =>
-    conversas.filter((s) => s.modo === 'humano' && s.atendenteId === id && !s.encerrada).length;
+    conversas.filter((s) => s.modo === 'humano' && s.atendenteId === id && !s.encerrada
+      && s.lastActivity >= recente).length;
 
   const ordenadas = [...candidatas].sort(
     (a, b) => carga(a.id) - carga(b.id) || a.nome.localeCompare(b.nome),
@@ -84,6 +93,8 @@ export function escolherAtendente(setor?: string): { id: string; nome: string } 
  * ninguém online — aí a conversa segue na fila, com o escalonamento de sempre.
  */
 export function atribuirAutomaticamente(sessao: ChatSession, setor?: string): boolean {
+  // Já tem dona: nunca redistribuir por cima.
+  if (sessao.modo === 'humano' && sessao.atendenteId) return false;
   const alvo = escolherAtendente(setor);
   if (!alvo) {
     logger.info(`[${sessao.ctx.callId}] atribuição automática: ninguém online, mantendo na fila`);

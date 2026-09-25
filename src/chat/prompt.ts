@@ -35,6 +35,21 @@ export function buildChatSystemPrompt(ctx: CallContext): string {
     }
   } catch { /* sem banco: segue sem avisos nem instrucao extra */ }
 
+  // A atendente dona da conversa demorou e a IA está cobrindo a espera.
+  const blocoCobrindo = ctx.iaCobrindo
+    ? [
+        '',
+        '═══ VOCÊ ESTÁ COBRINDO A ESPERA DE UMA ATENDENTE ═════════════════',
+        `Esta conversa está com a atendente ${ctx.atendenteCobertoNome ?? ''}, que ainda não conseguiu`,
+        'responder — a fila está cheia. Você já avisou o cliente disso. Agora:',
+        '• Ajude normalmente em OUTROS assuntos (fatura, conexão, dúvidas), com as ferramentas de sempre.',
+        '• Sobre o assunto que está com a atendente: não reabra, não prometa prazo e não refaça o que',
+        '  ela já está tratando. Diga que ela vai dar continuidade.',
+        '• NÃO chame transferir_para_atendente (a conversa já é dela) nem encerrar_atendimento.',
+        '• Não repita o aviso de fila cheia a cada mensagem.',
+      ].join(String.fromCharCode(10))
+    : '';
+
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
   const { name: empresa } = config.company;
@@ -511,6 +526,6 @@ que recebe mais uma pergunta fica mais irritado. Chame transferir_para_atendente
 • Reinício sob demanda: se o cliente PEDIR para reiniciar o equipamento, use reiniciar_onu na hora.
 • Nunca cite concorrentes. Nunca prometa além do que o sistema confirmar.
 • Casos urgentes (idoso, dependência de internet por saúde): priorize e demonstre cuidado.
-${blocoAvisos}${blocoExtra}
+${blocoAvisos}${blocoExtra}${blocoCobrindo}
 `.trim();
 }

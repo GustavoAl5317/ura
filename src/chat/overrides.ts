@@ -37,6 +37,16 @@ export function registerChatOverrides(
 ): void {
   // ── Transferência para humano ─────────────────────────────────────────────
   registry.override('transferir_para_atendente', async (args) => {
+    // IA cobrindo a espera de uma atendente: a conversa JÁ é dela. Transferir
+    // aqui redistribuiria para outra pessoa e tiraria o caso de quem o tem.
+    if (sessao?.modo === 'humano') {
+      return {
+        sucesso: false,
+        erro: 'ja_esta_com_atendente',
+        mensagem: `Esta conversa já está com ${sessao.atendenteNome ?? 'uma atendente'}. Não transfira: `
+          + 'diga ao cliente que ela vai dar continuidade assim que puder, e siga ajudando no que der.',
+      };
+    }
     const motivo = String(args.motivo ?? '');
     const resumo = String(args.resumo ?? '');
     const setor = String(args.setor ?? 'outro');
@@ -113,7 +123,7 @@ export function registerChatOverrides(
       // Intenção clara de contratar não pode ficar só registrada — vira fila
       // própria, com o mesmo tratamento (aviso imediato + escalonamento) que
       // a transferência para humano, pra não perder a venda por ninguém ver.
-      if (tipo === 'nova_assinatura' && !falhou) {
+      if (tipo === 'nova_assinatura' && !falhou && sessao?.modo !== 'humano') {
         entrarNaFila(ctx, 'adesao', 'vendas');
         if (sessao) atribuirAutomaticamente(sessao, 'vendas');
         ctx.transferMotivo = 'Adesão — nova assinatura';
@@ -143,6 +153,14 @@ export function registerChatOverrides(
 
   // ── Encerramento ───────────────────────────────────────────────────────────
   registry.override('encerrar_atendimento', async (args) => {
+    // Conversa com atendente só a atendente encerra (botão ✅ no painel).
+    if (sessao?.modo === 'humano') {
+      return {
+        sucesso: false,
+        erro: 'conversa_com_atendente',
+        mensagem: 'Esta conversa está com uma atendente — não encerre. Só se despeça se o cliente se despedir.',
+      };
+    }
     if (ctx.pendingTransfer) {
       return {
         sucesso: false,

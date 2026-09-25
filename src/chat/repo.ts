@@ -3,7 +3,6 @@
 // atendimento em andamento — e para alimentar a Auditoria.
 
 import { db } from './db';
-import { valorNumero } from './configuracoes';
 import type { CallContext } from '../session/context';
 import type { PanelEvent } from './session';
 import { montarDossie } from './dossie';
@@ -274,37 +273,19 @@ export function buscarConversaParaReabrir(chave: string): ConversaSalva | null {
 
 /** Conversas recentes ainda ativas — recarregadas na memória no boot. */
 /**
- * Quanto tempo uma conversa com atendente (ou na fila) continua "viva" sem
- * nenhuma atividade. Padrão 3 dias, ajustável em Configurações. Cobre a
- * atendente que demora, mas não ressuscita conversa abandonada: o banco tinha
- * mais de 160 conversas "com atendente" abertas desde agosto, que ninguém
- * fechou. Passado o prazo, se o cliente voltar a escrever, começa um
- * atendimento novo com a IA em vez de cair calado numa conversa velha.
- */
-export function janelaAtendenteMs(): number {
-  let dias = 3;
-  try {
-    const v = valorNumero('atendente_janela_dias');
-    if (Number.isFinite(v) && v >= 1) dias = v;
-  } catch { /* sem banco: padrão */ }
-  return dias * 24 * 60 * 60_000;
-}
-
-/**
  * Conversas a recarregar no boot. Com a IA: só as recentes (idadeMaximaMs).
- * Com atendente ou na fila: as do prazo de janelaAtendenteMs() (3 dias) —
- * atendente pode demorar horas, e deixá-las de fora num restart fazia o painel
- * tratá-las como encerradas.
+ * Com atendente ou na fila: TODAS as abertas, sem prazo — pedido do cliente:
+ * conversa com atendente não morre. Quem cobre a demora da atendente é a IA
+ * (ver verificarEsperaAtendente), e quem fecha é a atendente pelo botão ✅.
  */
 export function conversasParaRetomar(idadeMaximaMs: number): ConversaSalva[] {
   const limite = Date.now() - idadeMaximaMs;
-  const tetoComGente = Date.now() - janelaAtendenteMs();
   return db().prepare(
     `SELECT * FROM conversas WHERE encerrada = 0 AND (
        ultima_atividade >= ?
-       OR ((modo = 'humano' OR ctx_json LIKE '%"pendingTransfer":true%') AND ultima_atividade >= ?)
+       OR modo = 'humano' OR ctx_json LIKE '%"pendingTransfer":true%'
      ) ORDER BY ultima_atividade DESC`,
-  ).all(limite, tetoComGente).map((r) => {
+  ).all(limite).map((r) => {
     let ctx: Partial<CallContext> = {};
     let history: unknown[] = [];
     try { ctx = JSON.parse(String(r.ctx_json ?? '{}')); } catch { /* ignora */ }

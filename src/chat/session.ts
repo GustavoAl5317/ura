@@ -23,11 +23,11 @@ import { buildChatSystemPrompt } from './prompt';
 import { notaDeNumerosDitados } from './numeros-falados';
 import { buildChatTools } from './definitions';
 import { chatCompletion, type ChatMessage, type ChatToolFunction } from './openai';
-import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento, janelaAtendenteMs } from './repo';
+import { salvarConversa, salvarEvento, conversasParaRetomar, buscarConversaParaReabrir, ocultarEvento } from './repo';
 import { sintetizarParaWhatsapp, type Genero } from './voz';
 import { montarDossie } from './dossie';
 import { salvarArquivo } from './arquivos';
-import { estaNoHorarioComercial } from '../utils/horario-comercial';
+import { estaNoHorarioComercial, descricaoHorarioComercial } from '../utils/horario-comercial';
 
 const TOOLS: ChatToolFunction[] = buildChatTools();
 
@@ -175,6 +175,16 @@ export class ChatSession {
 
   private record(ev: Omit<PanelEvent, 'id' | 'ts'>): void {
     const completo = { ts: Date.now(), ...ev };
+    // Atendente escreveu: a IA para de cobrir a espera e a conversa volta a ser
+    // só dela. Aqui, e não em cada envio, porque texto, arquivo e áudio da
+    // atendente passam todos por record().
+    if (ev.tipo === 'atendente') {
+      this.ctx.ultimaMsgAtendenteEm = completo.ts;
+      if (this.ctx.iaCobrindo) {
+        this.ctx.iaCobrindo = false;
+        this.ctx.atendenteCobertoNome = undefined;
+      }
+    }
     let id = 0;
     try {
       id = salvarEvento(this.key, completo);          // id vem do banco
@@ -272,6 +282,9 @@ export class ChatSession {
     this.modo = 'humano';
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
+    this.ctx.assumidaEm = Date.now();
+    this.ctx.iaCobrindo = false;
+    this.ctx.atendenteCobertoNome = undefined;
     // Sai da fila (e do escalonamento de alertas) assim que alguém assume —
     // sem isso o "transferir" ficava preso pra sempre (nada limpava esse
     // estado) e o sweep continuaria mandando aviso de fila parada.
@@ -351,6 +364,8 @@ export class ChatSession {
     this.atendenteId = atendente.id;
     this.atendenteNome = atendente.nome;
     this.ctx.atribuicaoAutoEm = Date.now();
+    this.ctx.assumidaEm = Date.now();
+    this.ctx.iaCobrindo = false;
     this.record({
       tipo: 'sistema',
       texto: `Conversa direcionada automaticamente para ${atendente.nome} — IA pausada`,
@@ -550,6 +565,54 @@ export class ChatSession {
   }
 
   /**
+   * Cliente escreveu, a conversa está com uma atendente e ela não respondeu a
+   * tempo. A conversa não morre nem volta para a fila (pedido do cliente): a IA
+   * avisa que a fila está cheia, diz que a atendente continua com o assunto, e
+   * passa a atender OUTROS assuntos enquanto isso. Quando a atendente escreve,
+   * record() desliga a cobertura.
+   *
+   * Conta a espera a partir do que veio por último: a mensagem do cliente ou o
+   * momento em que a atendente pegou a conversa — senão, ao assumir uma
+   * conversa que já esperava na fila, a IA avisaria "fila cheia" na mesma hora.
+   */
+  async verificarEsperaAtendente(agora: number): Promise<void> {
+    if (this.modo !== 'humano' || this.encerrada || this.ctx.iaCobrindo) return;
+
+    const ultimoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente');
+    if (!ultimoCliente) return;
+    // A atendente já respondeu depois da última mensagem: ninguém está esperando.
+    if ((this.ctx.ultimaMsgAtendenteEm ?? 0) >= ultimoCliente.ts) return;
+
+    const esperaMs = Math.max(1, valorNumero('atendente_espera_min')) * 60_000;
+    const desde = Math.max(ultimoCliente.ts, this.ctx.assumidaEm ?? 0);
+    if (agora - desde < esperaMs) return;
+
+    const nome = (this.atendenteNome ?? 'nossa atendente').split(' ')[0];
+    const texto = estaNoHorarioComercial()
+      ? `Nossa fila de atendimento está bem cheia agora 😕 Sua conversa continua com ${nome}, que vai `
+        + 'te responder assim que puder. Enquanto isso, se quiser, posso te ajudar com outro assunto por aqui.'
+      : `Nosso atendimento humano está fora do horário agora (${descricaoHorarioComercial()}). Sua `
+        + `conversa continua com ${nome}, que te responde assim que voltar. Enquanto isso, se quiser, `
+        + 'posso te ajudar com outro assunto por aqui.';
+
+    const r = await this.enviarTextoOuAudio(texto);
+    if (!r.enviado) return;                            // tenta de novo na próxima varredura
+
+    this.ctx.iaCobrindo = true;
+    this.ctx.atendenteCobertoNome = this.atendenteNome;
+    this.history.push({ role: 'assistant', content: texto });
+    this.record({ tipo: 'ia', texto });
+    this.record({
+      tipo: 'sistema',
+      texto: `${this.atendenteNome ?? 'Atendente'} não respondeu a tempo — a IA avisou o cliente e cobre `
+        + 'outros assuntos até ela escrever.',
+    });
+    this.trimHistory();
+    this.persistir();
+    logger.info(`[${this.ctx.callId}] IA cobrindo a espera da atendente (${this.numero})`);
+  }
+
+  /**
    * Escalonamento da fila de atendimento humano (Atendimento ou Adesão):
    * aos 3/5/8 minutos sem ninguém assumir, reforça o aviso pro cliente e, no
    * nível crítico (8min), avisa o grupo de alertas. Chamado pela varredura
@@ -673,7 +736,9 @@ export class ChatSession {
     }
 
     // Atendente no comando: só registra — quem responde é o humano pelo painel.
-    if (this.modo === 'humano') return;
+    // Exceção: a atendente demorou e a IA está cobrindo a espera; aí a IA
+    // responde, sem tirar a conversa dela.
+    if (this.modo === 'humano' && !this.ctx.iaCobrindo) return;
 
     await this.run();
   }
@@ -977,8 +1042,7 @@ export class ChatSessionStore {
         // tempo: a atendente pode demorar, e a conversa sumindo do painel dela
         // no meio do atendimento é o mesmo que perder o cliente. Sai da memória
         // só quando for encerrada de fato.
-        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada
-          && agora - s.lastActivity <= janelaAtendenteMs();
+        const comGente = (s.modo === 'humano' || s.ctx.pendingTransfer) && !s.encerrada;
 
         // Sai da memória por inatividade — o registro fica no banco (auditoria).
         if (!comGente && agora - s.lastActivity > idleMs) {
@@ -994,6 +1058,10 @@ export class ChatSessionStore {
           }));
         // Fila de atendimento humano parada: reforça aviso ao cliente e, no
         // nível crítico, avisa o grupo de alertas.
+        void s.verificarEsperaAtendente(agora)
+          .catch((err) => logger.error('[chat] falha na varredura de espera da atendente', {
+            key, err: err instanceof Error ? err.message : String(err),
+          }));
         void s.verificarFilaAtendimento(agora)
           .catch((err) => logger.error('[chat] falha na varredura da fila de atendimento', {
             key, err: err instanceof Error ? err.message : String(err),
@@ -1089,7 +1157,6 @@ export class ChatSessionStore {
       // "???" a manhã inteira sem resposta.
       const comGente = dados?.ctx?.pendingTransfer === true || dados?.modo === 'humano';
       if (!dados || dados.encerrada || !comGente) return undefined;
-      if (Date.now() - dados.ultimaAtividade > janelaAtendenteMs()) return undefined;
       const remoteJid = key.slice(key.indexOf(':') + 1);
       const s = new ChatSession(
         remoteJid, dados.numero, dados.instancia, this.resolveEnviar?.(dados.instancia),

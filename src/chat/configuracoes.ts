@@ -58,13 +58,13 @@ export const CAMPOS: CampoConfig[] = [
     padrao: () => String(config.chat.inatividadeFecharMin),
   },
   {
-    chave: 'atendente_janela_dias',
-    rotulo: 'Manter conversa com atendente aberta',
-    ajuda: 'Dias que uma conversa com atendente continua aberta sem nenhuma mensagem. '
-      + 'Passado isso, se o cliente escrever de novo, começa um atendimento novo com a IA. '
-      + 'O certo é a atendente encerrar pelo botão ✅ ao terminar.',
-    tipo: 'numero', grupo: 'tempos', min: 1, max: 30,
-    padrao: () => '3',
+    chave: 'atendente_espera_min',
+    rotulo: 'Atendente sem responder: IA avisa após',
+    ajuda: 'Minutos que o cliente espera a atendente responder. Passado isso, a IA avisa que a '
+      + 'fila está cheia e se oferece para ajudar com outros assuntos, sem tirar a conversa da '
+      + 'atendente. Quando a atendente escreve, a IA sai.',
+    tipo: 'numero', grupo: 'tempos', min: 1, max: 240,
+    padrao: () => '10',
   },
   {
     chave: 'sessao_idle_min',
