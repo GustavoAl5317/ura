@@ -77,6 +77,13 @@ export class CallSession {
    * — a URA abria a ligação com "você ainda está na linha?" antes do bom dia.
    */
   private saudacaoFeita = false;
+  /** Quando o cliente parou de falar pela última vez (fim do turno dele). */
+  private falaParouEm = 0;
+  /** Última transcrição recebida e quando chegou. */
+  private ultimaTranscricao = '';
+  private transcricaoEm = 0;
+  /** A transcrição do turno atual já foi entregue ao modelo como âncora. */
+  private transcricaoAncorada = true;
   private releaseHoldTimer: ReturnType<typeof setTimeout> | null = null;
   private userResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechStop = false;
@@ -246,7 +253,7 @@ export class CallSession {
     return config.vad.speechStopDelayCollectingMs;
   }
 
-  private scheduleUserResponse(callId: string, retries = 0, delayMs?: number): void {
+  private scheduleUserResponse(callId: string, retries = 0, delayMs?: number, esperaTranscricao = 0): void {
     const MAX_RETRIES = 20;
     const RETRY_INTERVAL_MS = 300;
     const firstDelay = delayMs ?? this.speechStopDelayForContext();
@@ -257,12 +264,35 @@ export class CallSession {
       if (this.rt.isResponseActive() || this.rt.isResponsePending()) {
         if (retries < MAX_RETRIES) {
           logger.debug(`[${callId}] scheduleUserResponse reagendado (retry=${retries + 1})`);
-          this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS);
+          this.scheduleUserResponse(callId, retries + 1, RETRY_INTERVAL_MS, esperaTranscricao);
         } else {
           logger.warn(`[${callId}] scheduleUserResponse esgotou retries — forçando`);
           this.rt.createResponse(true);
         }
         return;
+      }
+      // Ancora a resposta no que a transcrição captou. O modelo de voz responde
+      // ao que ELE acha que ouviu; em áudio de telefone, quando pega só um
+      // pedaço, completa inventando. Caso real: transcrição "com você" (era
+      // "tudo bem, e com você?") e a URA respondeu "entendi, você quer cancelar
+      // o serviço". A transcrição costuma chegar antes deste ponto; se atrasar,
+      // espera um pouco (até ~1 s) e segue sem ela.
+      const transcricaoDoTurno = this.falaParouEm > 0 && this.transcricaoEm >= this.falaParouEm;
+      if (this.falaParouEm > 0 && !transcricaoDoTurno && esperaTranscricao < 4) {
+        this.scheduleUserResponse(callId, retries, 250, esperaTranscricao + 1);
+        return;
+      }
+      if (transcricaoDoTurno && !this.transcricaoAncorada && this.ultimaTranscricao.trim()) {
+        this.transcricaoAncorada = true;
+        const dito = this.ultimaTranscricao.replace(/"/g, "'").slice(0, 400);
+        this.rt.addContextItem(
+          `[CONTEXTO DO SISTEMA] Transcrição automática do que o cliente acabou de falar ` +
+          `(pode ter erros e trechos cortados): "${dito}". Responda ao que ele disse. ` +
+          'Se a frase estiver incompleta ou não trouxer um pedido claro, NÃO suponha um pedido — ' +
+          'nada de "entendi que você quer cancelar" ou "problema na internet" sem ele ter dito. ' +
+          'Nesse caso responda de forma simples (se for cumprimento, cumprimente de volta) e ' +
+          'pergunte como pode ajudar, ou peça para ele repetir.',
+        );
       }
       logger.info(`[${callId}] Gerando resposta após fala do cliente`);
       if (!this.rt.createResponse()) {
@@ -454,6 +484,7 @@ export class CallSession {
       const spokeMs = Date.now() - this.speechStartedAt;
       logger.info(`[${callId}] 🎤 Cliente parou de falar (${spokeMs}ms)`);
       this.clientSpeaking = false;
+      this.falaParouEm = Date.now();
       if (spokeMs < config.vad.minSpeechMs) {
         logger.debug(`[${callId}] speechStop ignorado (${spokeMs}ms < ${config.vad.minSpeechMs}ms)`);
         return;
@@ -475,12 +506,16 @@ export class CallSession {
         'PROIBIDO dizer "entendi", assumir problema de internet ou pedir CPF. ' +
         'Diga só: "Desculpa, não consegui ouvir bem. Pode repetir, por favor?"',
       );
-      this.scheduleUserResponse(callId, 0, 300);
+      // injectSystemNote já gera a resposta. Agendar outra aqui fazia a URA
+      // falar duas vezes seguidas: o "pode repetir?" e mais uma fala sem motivo.
     });
 
     this.rt.on('userSpeech', (text: string) => {
       logger.info(`[${callId}] 👤 Cliente (transcrição): ${text}`);
       this.ctx.lastClientSpeech = text;
+      this.ultimaTranscricao = text;
+      this.transcricaoEm = Date.now();
+      this.transcricaoAncorada = false;
       sessionRegistry.emit(callId, 'client_speech', text);
       this.resetSilenceTimer();
 

@@ -224,7 +224,27 @@ export class RealtimeClient extends EventEmitter {
         content: [{ type: 'input_text', text: `[INSTRUÇÃO DO SISTEMA OBRIGATÓRIA]\n${text}` }],
       },
     });
-    this.createResponse(true, "Responda adequadamente à instrução do sistema que acabou de ser enviada. Fale com o cliente de forma natural.");
+    // SEM response.instructions: na API Realtime, instrução por resposta
+    // SUBSTITUI o prompt da sessão naquela resposta. Com a frase genérica que
+    // estava aqui, toda resposta a um aviso do sistema saía sem persona, sem
+    // fluxo e sem nenhuma proibição — terreno fértil para a URA inventar. A
+    // nota já está na conversa; o prompt da sessão continua valendo.
+    this.createResponse(true);
+  }
+
+  /**
+   * Acrescenta contexto à conversa SEM pedir resposta. Usado para ancorar a
+   * próxima resposta no que a transcrição captou.
+   */
+  addContextItem(text: string): void {
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content: [{ type: 'input_text', text }],
+      },
+    });
   }
 
   /** Injeta contexto sem disparar resposta — usado antes do speechStop gerar a fala. */
