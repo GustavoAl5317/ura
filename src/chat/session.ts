@@ -666,6 +666,7 @@ export class ChatSession {
         this.trimHistory();
         if (texto) await this.entregar(texto);
         await this.cumprirTransferenciaPrometida(texto);
+        await this.cumprirEncerramentoPrometido(texto);
         return;
       }
 
@@ -802,6 +803,33 @@ export class ChatSession {
       tipo: 'sistema',
       texto: 'A IA disse que ia transferir e não transferiu — o sistema fez a transferência.',
     });
+    this.persistir();
+  }
+
+  /**
+   * Mesmo problema da transferência, no encerramento: a IA escreve
+   * "Encerrando o atendimento." sem chamar encerrar_atendimento, e a conversa
+   * fica aberta com o status "IA atendendo" para sempre. Prometeu, o sistema faz.
+   * Pergunta ("posso encerrar?", "deseja encerrar?") não dispara.
+   */
+  private async cumprirEncerramentoPrometido(texto: string): Promise<void> {
+    if (!texto || this.modo !== 'ia' || this.encerrada || this.ctx.pendingTransfer) return;
+    const promessa = /\bencerrando (o |nosso )?atendimento\b|\batendimento (foi )?encerrado\b|\bvou encerrar (o |nosso )?atendimento\b/i;
+    const pergunta = /\b(posso|deseja|quer|gostaria de) encerrar\b/i;
+    if (!promessa.test(texto) || pergunta.test(texto)) return;
+
+    logger.warn(`[${this.ctx.callId}] chat: IA disse que encerrou sem chamar a ferramenta — encerrando pelo sistema`, {
+      numero: this.numero,
+    });
+    try {
+      await this.registry.dispatch('encerrar_atendimento', { motivo: 'concluído' });
+    } catch (err: unknown) {
+      logger.error(`[${this.ctx.callId}] chat: encerramento garantido falhou`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    this.record({ tipo: 'sistema', texto: 'A IA disse que encerrou e não encerrou — o sistema encerrou a conversa.' });
     this.persistir();
   }
 
