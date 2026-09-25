@@ -665,6 +665,7 @@ export class ChatSession {
         this.history.push({ role: 'assistant', content: texto || null });
         this.trimHistory();
         if (texto) await this.entregar(texto);
+        await this.cumprirTransferenciaPrometida(texto);
         return;
       }
 
@@ -721,6 +722,56 @@ export class ChatSession {
       'Desculpa, me embolei aqui nas consultas 😅 Pode me dizer com suas palavras o que '
       + 'você precisa agora? Se preferir, digo que chamo uma atendente para te ajudar.',
     );
+  }
+
+  /**
+   * O modelo às vezes ESCREVE que vai transferir ("Vou transferir você para um
+   * atendente. *Transferindo...*") sem chamar transferir_para_atendente. O
+   * cliente acha que está na fila, ninguém é avisado e a conversa fica parada
+   * com a IA. A regra está no prompt, mas o modelo pula — então a garantia fica
+   * aqui: prometeu e não fez, o sistema faz.
+   *
+   * Só vale para promessa firme ("vou transferir", "transferindo"). Oferta
+   * ("posso transferir", "se preferir, te passo") não dispara, senão toda
+   * oferta viraria transferência.
+   */
+  private async cumprirTransferenciaPrometida(texto: string): Promise<void> {
+    if (!texto || this.modo !== 'ia' || this.encerrada || this.ctx.pendingTransfer) return;
+
+    const promessa = /\b(vou|irei)\s+(te\s+|lhe\s+|voc[eê]\s+|o\s+senhor\s+|a\s+senhora\s+)?(transferir|passar|encaminhar|direcionar)\b|\btransferindo\b/i;
+    const oferta = /\bse\s+(voc[eê]\s+)?(quiser|preferir|desejar)\b|\bposso\b|\bn[aã]o\s+vou\b/i;
+    if (!promessa.test(texto) || oferta.test(texto)) return;
+
+    const pedidoCliente = [...this.eventos].reverse().find((e) => e.tipo === 'cliente')?.texto ?? '';
+    logger.warn(`[${this.ctx.callId}] chat: IA prometeu transferir sem chamar a ferramenta — transferindo pelo sistema`, {
+      numero: this.numero, texto: texto.slice(0, 160),
+    });
+
+    const args = {
+      motivo: 'Cliente pediu atendimento humano',
+      setor: 'outro',
+      resumo: `Transferência garantida pelo sistema: a IA respondeu que ia transferir mas não `
+        + `executou. Última mensagem do cliente: "${pedidoCliente.slice(0, 300)}".`,
+    };
+    let resultado: unknown;
+    try {
+      resultado = await this.registry.dispatch('transferir_para_atendente', args);
+    } catch (err: unknown) {
+      logger.error(`[${this.ctx.callId}] chat: transferência garantida falhou`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const resultadoStr = JSON.stringify(resultado ?? {});
+    this.record({
+      tipo: 'tool',
+      tool: { name: 'transferir_para_atendente', args, resultado: resultadoStr.slice(0, 2500) },
+    });
+    this.record({
+      tipo: 'sistema',
+      texto: 'A IA disse que ia transferir e não transferiu — o sistema fez a transferência.',
+    });
+    this.persistir();
   }
 
   /**
