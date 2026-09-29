@@ -106,6 +106,25 @@ Teste: 8 clientes vira crítico e 34 vira maior; dentro da janela não notifica.
 - Saúde da própria plataforma, inclusive silêncio anormal de eventos.
 - Backup e restauração testados.
 
+## Situação em 29/09/2026
+
+Todos os blocos estão implementados, testados e na branch de trabalho.
+
+| Bloco | O que entregou | Testes |
+|---|---|---|
+| B1 | Login por pessoa, papel, sessão revogável | test-usuarios (68) |
+| B2 | Bots com chave própria e webhooks assinados | test-bots (59) |
+| B3 | Incidente com dono, linha do tempo e observação | test-incidentes (54) |
+| B4 | Escala, folga, troca e cadeia de acionamento | test-plantao (88) |
+| B5 | Roteamento por gravidade, SLA e escalonamento | test-escalonamento (52) |
+| B6 | Motor de regras, freio de enxurrada e manutenção | test-regras (46) |
+| B7 | Aviso no navegador, voz e contingência de canal | test-canais (16) |
+| B8 | Histórico, recorrência, métricas e pós-incidente | test-historico (44) |
+| B9 | Retenção, saúde da plataforma e backup conferido | test-governanca (38) |
+
+A regra escrita de acesso e retenção está em `docs/governanca-dados.md` e
+aparece no painel em Administração → Dados e saúde.
+
 ## Ordem
 
 1. B1, B2, B3, B4, B5, nesta ordem.

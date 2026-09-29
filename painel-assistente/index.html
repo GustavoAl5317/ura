@@ -553,6 +553,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="regras">Regras e manutenção</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
+          <button class="subaba" data-sub="governanca">Dados e saúde</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
         </div>
         <div data-subpainel="config" hidden></div>
@@ -564,6 +565,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div data-subpainel="regras" hidden></div>
         <div data-subpainel="prompts" hidden></div>
         <div data-subpainel="monitores" hidden></div>
+        <div data-subpainel="governanca" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
       </section>
 
@@ -1656,7 +1658,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', retencao: 'Retenção de dados (LGPD)', saude: 'Saúde da plataforma e backup', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -2471,6 +2473,84 @@ subCarregadores.regras = async () => {
       el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formMan));
 
     alvo.replaceChildren(blocoRegras, blocoMan);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.governanca = async () => {
+  const alvo = $('[data-subpainel="governanca"]');
+  try {
+    const r = await api('GET', '/api/governanca');
+    const recarregar = () => subCarregadores.governanca();
+
+    const cor = (s) => s.ok ? '--confirmado' : s.atencao ? '--provavel' : '--inconclusivo';
+    const blocoSaude = el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: 'Saúde da plataforma' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Inclui o silêncio: monitor ligado que não produz nada há horas costuma ser coleta parada, não rede impecável.' }),
+      el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Sinal', 'Situação', 'Detalhe'].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.saude.sinais.map((s) => el('tr', {},
+          el('td', { text: s.nome }),
+          el('td', {}, el('span', { style: `color:var(${cor(s)});font-weight:600`, text: s.ok ? 'ok' : s.atencao ? 'atenção' : 'falha' })),
+          el('td', { style: 'font-size:12.5px', text: s.detalhe })))))),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:10px 0 0', text: `Banco: ${r.saude.banco.mb} MB · ${r.saude.banco.backups} cópia(s) · último backup ${r.saude.banco.ultimo_backup ? quando(r.saude.banco.ultimo_backup) : 'nunca'}` }));
+
+    const blocoRet = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Retenção de dados' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Prazo por tipo, editável em Comportamento → Retenção. Incidente aberto nunca é apagado, e alerta ligado a incidente guardado também não.' }),
+      el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Tipo', 'Prazo', 'Guardado hoje', 'Mais antigo', 'Por que esse prazo'].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.retencao.map((x) => el('tr', {},
+          el('td', { text: x.rotulo }),
+          el('td', { class: 'dado', text: x.dias ? `${x.dias} dias` : 'para sempre' }),
+          el('td', { class: 'dado', text: String(x.linhas) }),
+          el('td', { class: 'fraco', text: x.mais_antigo ? quando(x.mais_antigo) : '—' }),
+          el('td', { style: 'font-size:12.5px', text: x.porque })))))),
+      el('div', { class: 'linha-acoes', style: 'margin-top:12px' },
+        el('button', { class: 'botao sec mini', type: 'button', text: 'Aplicar retenção agora', onclick: async () => {
+          if (!confirm('Apagar agora tudo que passou do prazo? Isso não tem volta.')) return;
+          try {
+            const x = await api('POST', '/api/governanca/limpeza');
+            toast(x.limpeza.length ? `Apagados: ${x.limpeza.map((l) => `${l.apagados} ${l.tipo}`).join(', ')}.` : 'Nada estava fora do prazo.', 'ok');
+            recarregar();
+          } catch (e) { toast(e.message, 'erro'); }
+        } })));
+
+    const blocoBackup = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Backup' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Toda cópia é aberta e conferida logo depois de feita. Cópia que ninguém abriu não é backup.' }),
+      r.backups.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Arquivo', 'Quando', 'Tamanho', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.backups.map((b) => el('tr', {},
+          el('td', { class: 'dado', style: 'font-size:12px', text: b.arquivo }),
+          el('td', { class: 'fraco', text: quando(b.em) }),
+          el('td', { class: 'dado', text: `${b.mb} MB` }),
+          el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Conferir', onclick: async () => {
+            try {
+              const x = await api('POST', `/api/governanca/backup/${encodeURIComponent(b.arquivo)}/conferir`);
+              toast(x.conferencia.ok ? `Íntegra: ${x.conferencia.tabelas} tabelas, ${x.conferencia.incidentes} incidentes.` : `Problema: ${x.conferencia.integridade}`, x.conferencia.ok ? 'ok' : 'erro');
+            } catch (e) { toast(e.message, 'erro'); }
+          } })))))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhuma cópia ainda.' }),
+      el('div', { class: 'linha-acoes', style: 'margin-top:12px' },
+        el('button', { class: 'botao sec mini', type: 'button', text: 'Fazer backup agora', onclick: async () => {
+          try {
+            const x = await api('POST', '/api/governanca/backup');
+            toast(x.ok ? `Cópia feita e conferida (${x.backup.mb} MB).` : `Cópia feita, mas não confere: ${x.backup.erro || x.backup.integridade}`, x.ok ? 'ok' : 'erro');
+            recarregar();
+          } catch (e) { toast(e.message, 'erro'); }
+        } })));
+
+    const blocoAcesso = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Quem acessa o quê' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Sai do próprio código, não de um documento à parte: se a regra muda, esta tabela muda junto.' }),
+      el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Quem', 'Pode', 'Não pode'].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.acessos.map((a) => el('tr', {},
+          el('td', { text: a.quem }),
+          el('td', { style: 'font-size:12.5px', text: a.pode }),
+          el('td', { style: 'font-size:12.5px', text: a.nao_pode })))))));
+
+    alvo.replaceChildren(blocoSaude, blocoRet, blocoBackup, blocoAcesso);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

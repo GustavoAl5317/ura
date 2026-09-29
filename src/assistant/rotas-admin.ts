@@ -36,6 +36,9 @@ import {
   ROTULO_ALVO, ROTULO_EFEITO, criar as criarManutencao, encerrar as encerrarManutencao,
   listar as listarManutencoes, remover as removerManutencao,
 } from './manutencao';
+import {
+  conferirBackup, fazerBackup, limparAntigos, listarBackups, politicaRetencao, regrasDeAcesso, saude,
+} from './governanca';
 
 /** Sessão para o painel: sem o token, que é credencial viva. */
 function sessaoSaida(s: SessaoPainel) {
@@ -729,6 +732,41 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
       }
     } catch (e) {
       if (e instanceof ErroHttp) throw e;
+      throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  // ── Governança: retenção, saúde, backup e regras de acesso ────────────────
+  if (req.method === 'GET' && p === '/api/governanca') {
+    json(res, 200, {
+      retencao: politicaRetencao(),
+      saude: saude(),
+      backups: listarBackups(),
+      acessos: regrasDeAcesso(),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/governanca/limpeza') {
+    const r = limparAntigos();
+    registrarAuditoria(ator(req), 'retencao.limpeza', 'manual', undefined, r);
+    json(res, 200, { ok: true, limpeza: r });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/governanca/backup') {
+    const r = await fazerBackup();
+    registrarAuditoria(ator(req), 'backup.manual', r.arquivo, undefined, { verificado: r.verificado, mb: r.mb });
+    json(res, r.verificado ? 200 : 500, { ok: r.verificado, backup: r });
+    return true;
+  }
+
+  const mConf = p.match(/^\/api\/governanca\/backup\/([A-Za-z0-9._-]+)\/conferir$/);
+  if (req.method === 'POST' && mConf) {
+    try {
+      json(res, 200, { ok: true, conferencia: conferirBackup(mConf[1]) });
+    } catch (e) {
       throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
     }
     return true;

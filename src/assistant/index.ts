@@ -48,6 +48,7 @@ import { iniciarMonitorCtos } from './monitors/ctos';
 import { iniciarMonitorIncidentes } from './monitors/incidentes';
 import { iniciarMonitorEscalonamento } from './monitors/escalonamento';
 import { iniciarMonitorRegras } from './monitors/regras';
+import { iniciarMonitorGovernanca } from './monitors/governanca';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -583,6 +584,7 @@ async function main(): Promise<void> {
   iniciarMonitorIncidentes();
   iniciarMonitorEscalonamento();
   iniciarMonitorRegras();
+  iniciarMonitorGovernanca();
 
   const atender = (req: http.IncomingMessage, res: http.ServerResponse) => {
     rotear(req, res).catch((err) => {

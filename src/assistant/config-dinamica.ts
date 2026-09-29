@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'canais' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'canais' | 'retencao' | 'saude' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -348,6 +348,68 @@ export const DEFINICOES = {
   'canais.silencio_painel_fim': {
     tipo: 'hora', grupo: 'canais', padrao: () => '',
     descricao: 'Fim do silêncio do painel.',
+  },
+
+  // ── Retenção de dados (LGPD) ────────────────────────────────────────────
+  // Prazo por tipo, porque os tipos não têm o mesmo risco: pergunta e
+  // evidência carregam dado pessoal; auditoria responde "quem fez".
+  'retencao.ativa': {
+    tipo: 'booleano', grupo: 'retencao', padrao: () => true,
+    descricao: 'Apaga sozinho o que passou do prazo. Desligado, o banco só cresce.',
+  },
+  'retencao.consultas_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 180, min: 0, max: 3650,
+    descricao: 'Perguntas respondidas (texto da pergunta e da resposta). 0 = guardar para sempre.',
+  },
+  'retencao.evidencias_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 90, min: 0, max: 3650,
+    descricao: 'Evidências das respostas: é o dado bruto das fontes, o que mais concentra informação pessoal.',
+  },
+  'retencao.conversas_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 180, min: 0, max: 3650,
+    descricao: 'Mensagens do chat do painel e do WhatsApp dos técnicos.',
+  },
+  'retencao.alertas_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 365, min: 0, max: 3650,
+    descricao: 'Alertas. Alerta ligado a incidente ainda guardado não é apagado.',
+  },
+  'retencao.incidentes_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 730, min: 0, max: 3650,
+    descricao: 'Incidentes encerrados, com linha do tempo e pós-incidente. Incidente aberto nunca é apagado.',
+  },
+  'retencao.chamadas_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 365, min: 0, max: 3650,
+    descricao: 'Chamadas da URA (têm o telefone de quem ligou).',
+  },
+  'retencao.auditoria_dias': {
+    tipo: 'inteiro', grupo: 'retencao', padrao: () => 1825, min: 0, max: 3650,
+    descricao: 'Auditoria de alterações. É a última coisa que se apaga: ela responde quem mudou o quê.',
+  },
+
+  // ── Saúde da plataforma e backup ────────────────────────────────────────
+  'saude.ativa': {
+    tipo: 'booleano', grupo: 'saude', padrao: () => true,
+    descricao: 'Confere a própria plataforma: banco, monitores, silêncio anormal e backup.',
+  },
+  'saude.silencio_min': {
+    tipo: 'inteiro', grupo: 'saude', padrao: () => 180, min: 0, max: 1440,
+    descricao: 'Minutos sem nenhum evento que fazem o sistema desconfiar de si mesmo. Monitor ligado sem produzir nada costuma ser coleta parada, não rede impecável. 0 desliga.',
+  },
+  'saude.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'saude', padrao: () => 900, min: 60, max: 86400,
+    descricao: 'De quanto em quanto tempo a plataforma se examina e aplica a retenção.',
+  },
+  'backup.ativo': {
+    tipo: 'booleano', grupo: 'saude', padrao: () => true,
+    descricao: 'Faz cópia do banco e CONFERE a cópia. Cópia que ninguém abriu não é backup.',
+  },
+  'backup.hora': {
+    tipo: 'hora', grupo: 'saude', padrao: () => '03:30',
+    descricao: 'Horário da cópia diária.',
+  },
+  'backup.copias': {
+    tipo: 'inteiro', grupo: 'saude', padrao: () => 7, min: 1, max: 60,
+    descricao: 'Quantas cópias manter. Disco cheio já parou coleta aqui antes.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────
