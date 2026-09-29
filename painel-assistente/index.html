@@ -1521,7 +1521,7 @@ subCarregadores.bots = async () => {
                 if (!confirm(`Remover ${b.nome}? A chave dele para de valer.`)) return;
                 try { await api('DELETE', `/api/bots/${b.slug}`); toast('Removido.', 'ok'); subCarregadores.bots(); }
                 catch (e) { toast(e.message, 'erro'); }
-              } }))))))
+              } })))))))
         : el('p', { class: 'vazio-msg', text: 'Nenhum sistema cadastrado.' }),
       el('p', { class: 'mudo', style: 'font-size:12.5px;margin:12px 0 0', text: 'Quem recebe esses alertas se define em "Quem recebe alertas", no tipo "Sistemas internos (bots)".' }));
 
@@ -1575,7 +1575,7 @@ subCarregadores.bots = async () => {
                 if (!confirm(`Remover o webhook ${x.nome}?`)) return;
                 try { await api('DELETE', `/api/webhooks/${x.id}`); toast('Removido.', 'ok'); subCarregadores.bots(); }
                 catch (e) { toast(e.message, 'erro'); }
-              } }))))))
+              } })))))))
         : el('p', { class: 'vazio-msg', text: 'Nenhum webhook cadastrado.' }));
 
     alvo.replaceChildren(form, tabela, formWeb, tabelaWeb);
@@ -1674,7 +1674,7 @@ subCarregadores.usuarios = async () => {
             el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Encerrar', onclick: async () => {
               try { await api('DELETE', `/api/sessoes/${s.id}`); toast('Sessão encerrada.', 'ok'); subCarregadores.usuarios(); }
               catch (e) { toast(e.message, 'erro'); }
-            } })))))
+            } }))))))
         : el('p', { class: 'vazio-msg', text: 'Nenhuma sessão aberta.' }));
     }).catch(() => {});
 
