@@ -193,6 +193,34 @@ function migrar(d: Database.Database): void {
       ultima_em  TEXT NOT NULL
     );
 
+    -- ═══ Bots: sistemas que mandam evento para cá ════════════════════════
+    -- Chave por sistema, guardada como hash. Vazou a de um, desliga só ele.
+    CREATE TABLE IF NOT EXISTS bot (
+      id         TEXT PRIMARY KEY,
+      slug       TEXT NOT NULL UNIQUE,
+      nome       TEXT NOT NULL,
+      descricao  TEXT,
+      chave_hash TEXT NOT NULL,
+      ativo      INTEGER NOT NULL DEFAULT 1,
+      criado_em  TEXT NOT NULL,
+      ultimo_uso TEXT,
+      eventos    INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- ═══ Webhooks de saída ═══════════════════════════════════════════════
+    CREATE TABLE IF NOT EXISTS webhook_saida (
+      id            TEXT PRIMARY KEY,
+      nome          TEXT NOT NULL,
+      url           TEXT NOT NULL,
+      eventos       TEXT NOT NULL,          -- JSON: alerta, alerta.resolvido, chamada, consulta
+      segredo       TEXT NOT NULL,          -- assina o corpo (HMAC-SHA256)
+      ativo         INTEGER NOT NULL DEFAULT 1,
+      criado_em     TEXT NOT NULL,
+      ultimo_envio  TEXT,
+      ultimo_status TEXT,
+      falhas        INTEGER NOT NULL DEFAULT 0
+    );
+
     -- ═══ Usuários do painel ═══════════════════════════════════════════════
     -- Login por pessoa no lugar de uma chave compartilhada: a auditoria passa
     -- a dizer quem fez, e dá para desligar uma pessoa sem trocar a chave de todos.

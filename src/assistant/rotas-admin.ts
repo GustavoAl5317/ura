@@ -12,6 +12,10 @@ import {
   TIPOS_ALERTA, SEVERIDADES, listarDestinos, destinoPorId, validarTipos, validarSeveridade,
 } from './destinos-alerta';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
+import { atualizarBot, criarBot, listarBots, removerBot, trocarChave } from './bots';
+import {
+  EVENTOS_WEBHOOK, atualizarWebhook, criarWebhook, listarWebhooks, removerWebhook, testarWebhook,
+} from './webhooks';
 import {
   DESCRICAO_PAPEL, PAPEIS_PAINEL, SessaoPainel, atualizarUsuario, criarUsuario, fecharSessao,
   listarSessoes, listarUsuarios, removerUsuario, revogarSessoesDoUsuario, sessoesDoUsuario,
@@ -188,6 +192,93 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
       ? { chat: ids.filter(ehModeloDeChat), todos: ids }
       : { error: 'não consegui consultar os modelos na OpenAI' });
     return true;
+  }
+
+  // ── Bots (sistemas internos) ──────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/bots') {
+    json(res, 200, { bots: listarBots() });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/bots') {
+    const b = await lerJson<{ nome?: string; descricao?: string }>(req);
+    try {
+      const { bot, chave } = criarBot({ nome: b.nome, descricao: b.descricao }, ator(req));
+      // A chave vai UMA vez. Depois só resta trocar.
+      json(res, 201, { ok: true, bot, chave, aviso: 'guarde a chave agora: ela não aparece de novo' });
+    } catch (e) {
+      throw new ErroHttp(/já existe/.test((e as Error).message) ? 409 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mBot = p.match(/^\/api\/bots\/([a-z0-9-]{1,40})(\/chave)?$/);
+  if (mBot) {
+    const slug = mBot[1];
+    try {
+      if (mBot[2] && req.method === 'POST') {
+        json(res, 200, { ok: true, chave: trocarChave(slug, ator(req)), aviso: 'a chave anterior parou de valer agora' });
+        return true;
+      }
+      if (!mBot[2] && req.method === 'PUT') {
+        const b = await lerJson<{ ativo?: boolean; descricao?: string }>(req);
+        json(res, 200, { ok: true, bot: atualizarBot(slug, { ativo: b.ativo, descricao: b.descricao }, ator(req)) });
+        return true;
+      }
+      if (!mBot[2] && req.method === 'DELETE') {
+        removerBot(slug, ator(req));
+        json(res, 200, { ok: true });
+        return true;
+      }
+    } catch (e) {
+      throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+  }
+
+  // ── Webhooks de saída ─────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/webhooks') {
+    json(res, 200, { webhooks: listarWebhooks(), eventos: EVENTOS_WEBHOOK });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/webhooks') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      const { webhook, segredo } = criarWebhook({ nome: b.nome, url: b.url, eventos: b.eventos }, ator(req));
+      json(res, 201, { ok: true, webhook, segredo, aviso: 'guarde o segredo agora: ele confere a assinatura e não aparece de novo' });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mWeb = p.match(/^\/api\/webhooks\/([0-9a-f-]{36})(\/teste)?$/i);
+  if (mWeb) {
+    const id = mWeb[1];
+    try {
+      if (mWeb[2] && req.method === 'POST') {
+        json(res, 200, await testarWebhook(id, ator(req)));
+        return true;
+      }
+      if (!mWeb[2] && req.method === 'PUT') {
+        const b = await lerJson<Record<string, unknown>>(req);
+        json(res, 200, {
+          ok: true,
+          webhook: atualizarWebhook(id, {
+            nome: b.nome, url: b.url, eventos: b.eventos,
+            ativo: b.ativo === undefined ? undefined : b.ativo !== false,
+          }, ator(req)),
+        });
+        return true;
+      }
+      if (!mWeb[2] && req.method === 'DELETE') {
+        removerWebhook(id, ator(req));
+        json(res, 200, { ok: true });
+        return true;
+      }
+    } catch (e) {
+      throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
   }
 
   // ── Usuários do painel ────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ export const TIPOS_ALERTA = {
   trafego: 'Tráfego e suspeita de ataque (NetFlow)',
   atendimento: 'Atendimento parado (WhatsApp)',
   ura: 'Chamadas da URA',
+  bots: 'Sistemas internos (bots)',
   resumo: 'Resumo diário',
   sistema: 'Avisos do sistema',
 } as const;
@@ -43,6 +44,7 @@ export function tipoDoAlerta(a: Pick<Alerta, 'origem' | 'chave'>): TipoAlerta {
     case 'netflow': return 'trafego';
     case 'sla': return 'atendimento';
     case 'ura': return 'ura';
+    case 'bot': return 'bots';
     default: return a.chave.startsWith('resumo:') ? 'resumo' : 'sistema';
   }
 }

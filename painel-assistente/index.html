@@ -511,6 +511,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="usuarios">Usuários do painel</button>
           <button class="subaba" data-sub="permissoes">Técnicos</button>
           <button class="subaba" data-sub="destinos">Quem recebe alertas</button>
+          <button class="subaba" data-sub="bots">Sistemas e webhooks</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
@@ -519,6 +520,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div data-subpainel="usuarios" hidden></div>
         <div data-subpainel="permissoes" hidden></div>
         <div data-subpainel="destinos" hidden></div>
+        <div data-subpainel="bots" hidden></div>
         <div data-subpainel="prompts" hidden></div>
         <div data-subpainel="monitores" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
@@ -1350,6 +1352,123 @@ subCarregadores.destinos = async () => {
     alvo.replaceChildren(form,
       el('h2', { class: 'secao', text: 'Cadastrados' }),
       ...(r.destinos.length ? r.destinos.map(linha) : [el('p', { class: 'vazio-msg', text: 'Ninguém cadastrado ainda. Os alertas vão só para o grupo, se houver.' })]));
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.bots = async () => {
+  const alvo = $('[data-subpainel="bots"]');
+  const quando = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR') : 'nunca');
+  const mostrarChave = (bot, chave) => {
+    const campo = el('input', { type: 'text', readonly: true, value: chave, style: 'width:100%;font-family:var(--f-dado)' });
+    alvo.prepend(el('div', { class: 'bloco', style: 'border-color:var(--provavel)' },
+      el('h2', { class: 'secao', text: `Chave do bot ${bot.nome}` }),
+      el('p', { class: 'mudo', style: 'margin:0 0 8px', text: 'Copie agora. Ela não aparece de novo; depois só dá para trocar.' }),
+      campo,
+      el('pre', { class: 'dado', style: 'white-space:pre-wrap;font-size:12px;margin:10px 0 0', text:
+        `curl -X POST ${location.origin}/api/bots/${bot.slug}/evento \\\n  -H "x-bot-key: SUA_CHAVE" -H "Content-Type: application/json" \\\n  -d '{"titulo":"OLT 3 sem resposta","texto":"Ping falhou 3x","severidade":"critico","chave":"olt3-ping"}'` })));
+    campo.select();
+  };
+
+  try {
+    const r = await api('GET', '/api/bots');
+    const form = el('form', { class: 'bloco grade', style: 'gap:12px;margin-bottom:16px' },
+      el('h2', { class: 'secao', text: 'Novo sistema' }),
+      el('p', { class: 'mudo', style: 'margin:0;font-size:13px', text: 'Cada sistema interno ganha uma chave própria e passa a mandar alerta pela API. A mensagem sai marcada com 🤖 e o nome dele.' }),
+      el('div', { class: 'grade grade-2' },
+        el('div', { class: 'campo' }, el('label', { for: 'b-nome', text: 'Nome' }), el('input', { type: 'text', id: 'b-nome', required: true, placeholder: 'Central Técnica' })),
+        el('div', { class: 'campo' }, el('label', { for: 'b-desc', text: 'Para que serve' }), el('input', { type: 'text', id: 'b-desc', placeholder: 'Abertura e fechamento de chamado' }))),
+      el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Criar e gerar chave' })));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        const x = await api('POST', '/api/bots', { nome: $('#b-nome', form).value, descricao: $('#b-desc', form).value });
+        await subCarregadores.bots();
+        mostrarChave(x.bot, x.chave);
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const tabela = el('div', { class: 'bloco tabela-rolagem' },
+      el('h2', { class: 'secao', text: 'Sistemas cadastrados' }),
+      r.bots.length
+        ? el('table', {}, el('thead', {}, el('tr', {}, ['Nome', 'Endereço do evento', 'Situação', 'Último uso', 'Eventos', ''].map((t) => el('th', { text: t })))),
+          el('tbody', {}, r.bots.map((b) => el('tr', {},
+            el('td', {}, el('div', { text: b.nome }), b.descricao ? el('div', { class: 'fraco', style: 'font-size:12px', text: b.descricao }) : null),
+            el('td', { class: 'dado', style: 'font-size:12px', text: `POST /api/bots/${b.slug}/evento` }),
+            el('td', {}, el('span', { style: `color:var(${b.ativo ? '--confirmado' : '--inconclusivo'})`, text: b.ativo ? 'Ativo' : 'Pausado' })),
+            el('td', { class: 'fraco', text: quando(b.ultimo_uso) }),
+            el('td', { class: 'dado', text: String(b.eventos) }),
+            el('td', {}, el('div', { class: 'linha-acoes' },
+              el('button', { class: 'botao sec mini', type: 'button', text: 'Trocar chave', onclick: async () => {
+                if (!confirm(`Trocar a chave de ${b.nome}? A atual para de funcionar na hora.`)) return;
+                try { const x = await api('POST', `/api/bots/${b.slug}/chave`); await subCarregadores.bots(); mostrarChave(b, x.chave); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }),
+              el('button', { class: 'botao sec mini', type: 'button', text: b.ativo ? 'Pausar' : 'Retomar', onclick: async () => {
+                try { await api('PUT', `/api/bots/${b.slug}`, { ativo: !b.ativo }); toast('Pronto.', 'ok'); subCarregadores.bots(); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }),
+              el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+                if (!confirm(`Remover ${b.nome}? A chave dele para de valer.`)) return;
+                try { await api('DELETE', `/api/bots/${b.slug}`); toast('Removido.', 'ok'); subCarregadores.bots(); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }))))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhum sistema cadastrado.' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:12px 0 0', text: 'Quem recebe esses alertas se define em "Quem recebe alertas", no tipo "Sistemas internos (bots)".' }));
+
+    // ── Webhooks de saída ──
+    const w = await api('GET', '/api/webhooks');
+    const caixasEvento = (sel) => el('div', { class: 'opcoes-lista' }, Object.entries(w.eventos).map(([k, t]) =>
+      el('label', {}, el('input', { type: 'checkbox', value: k, checked: sel.includes(k) }), t)));
+    const mostrarSegredo = (nome, segredo) => alvo.prepend(el('div', { class: 'bloco', style: 'border-color:var(--provavel)' },
+      el('h2', { class: 'secao', text: `Segredo do webhook ${nome}` }),
+      el('p', { class: 'mudo', style: 'margin:0 0 8px', text: 'Quem recebe usa esse segredo para conferir a assinatura no cabeçalho x-assistente-assinatura (HMAC-SHA256 do corpo). Copie agora.' }),
+      el('input', { type: 'text', readonly: true, value: segredo, style: 'width:100%;font-family:var(--f-dado)' })));
+
+    const formWeb = el('form', { class: 'bloco grade', style: 'gap:12px;margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Avisar outro sistema (webhook)' }),
+      el('p', { class: 'mudo', style: 'margin:0;font-size:13px', text: 'O assistente manda um POST assinado quando o evento acontece. Dez falhas seguidas desligam o webhook sozinho.' }),
+      el('div', { class: 'grade grade-2' },
+        el('div', { class: 'campo' }, el('label', { for: 'w-nome', text: 'Nome' }), el('input', { type: 'text', id: 'w-nome', required: true, placeholder: 'Central Técnica' })),
+        el('div', { class: 'campo' }, el('label', { for: 'w-url', text: 'Endereço' }), el('input', { type: 'url', id: 'w-url', required: true, placeholder: 'https://sistema.interno/eventos' }))),
+      el('div', { class: 'campo' }, el('label', { text: 'Quais eventos' }), caixasEvento(['alerta'])),
+      el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Criar' })));
+    formWeb.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const eventos = $$('.opcoes-lista input', formWeb).filter((x) => x.checked).map((x) => x.value);
+      try {
+        const x = await api('POST', '/api/webhooks', { nome: $('#w-nome', formWeb).value, url: $('#w-url', formWeb).value, eventos });
+        await subCarregadores.bots();
+        mostrarSegredo(x.webhook.nome, x.segredo);
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const tabelaWeb = el('div', { class: 'bloco tabela-rolagem' },
+      el('h2', { class: 'secao', text: 'Webhooks cadastrados' }),
+      w.webhooks.length
+        ? el('table', {}, el('thead', {}, el('tr', {}, ['Nome', 'Endereço', 'Eventos', 'Situação', 'Último envio', ''].map((t) => el('th', { text: t })))),
+          el('tbody', {}, w.webhooks.map((x) => el('tr', {},
+            el('td', { text: x.nome }),
+            el('td', { class: 'dado', style: 'font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: x.url }),
+            el('td', { style: 'font-size:12.5px', text: x.eventos.map((e) => w.eventos[e] || e).join(', ') }),
+            el('td', {}, el('span', { style: `color:var(${x.ativo ? '--confirmado' : '--inconclusivo'})`, text: x.ativo ? 'Ativo' : `Desligado${x.falhas ? ` (${x.falhas} falhas)` : ''}` })),
+            el('td', { class: 'fraco', text: x.ultimo_envio ? `${quando(x.ultimo_envio)} · ${x.ultimo_status || ''}` : 'nunca' }),
+            el('td', {}, el('div', { class: 'linha-acoes' },
+              el('button', { class: 'botao sec mini', type: 'button', text: 'Testar', onclick: async () => {
+                try { const t = await api('POST', `/api/webhooks/${x.id}/teste`); toast(t.ok ? `Entregue (${t.status}).` : `Falhou: ${t.status}`, t.ok ? 'ok' : 'erro'); subCarregadores.bots(); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }),
+              el('button', { class: 'botao sec mini', type: 'button', text: x.ativo ? 'Desligar' : 'Ligar', onclick: async () => {
+                try { await api('PUT', `/api/webhooks/${x.id}`, { ativo: !x.ativo }); toast('Pronto.', 'ok'); subCarregadores.bots(); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }),
+              el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+                if (!confirm(`Remover o webhook ${x.nome}?`)) return;
+                try { await api('DELETE', `/api/webhooks/${x.id}`); toast('Removido.', 'ok'); subCarregadores.bots(); }
+                catch (e) { toast(e.message, 'erro'); }
+              } }))))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhum webhook cadastrado.' }));
+
+    alvo.replaceChildren(form, tabela, formWeb, tabelaWeb);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

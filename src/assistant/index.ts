@@ -30,6 +30,7 @@ import { rotasOperacao } from './rotas-operacao';
 import { rotasAdmin } from './rotas-admin';
 import { rotasPainel, rotasChatAudio } from './rotas-painel';
 import { ator } from './http-util';
+import { EventoBot, autenticarBot, receberEventoDeBot } from './bots';
 import {
   SessaoPainel, abrirSessao, autenticar, atualizarUsuario, existeAlgumUsuario,
   papelPermite, sessaoPorToken, usuarioPorId,
@@ -152,6 +153,30 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
       logger.warn('Assistente: webhook inválido', { err: String(err) });
     }
     return;
+  }
+
+  // ── Evento de bot (sistema interno) ───────────────────────────────────────
+  // Fora da chave do painel: cada bot tem a sua, e só pode publicar evento.
+  const mBot = p.match(/^\/api\/bots\/([a-z0-9-]{1,40})\/evento$/);
+  if (req.method === 'POST' && mBot) {
+    const chave = req.headers['x-bot-key'] ?? url.searchParams.get('chave') ?? '';
+    const bot = autenticarBot(mBot[1], Array.isArray(chave) ? chave[0] : chave);
+    if (!bot) {
+      logger.warn('Bot: chave recusada', { slug: mBot[1], de: origemDaChamada(req).ip });
+      return json(res, 401, { error: 'bot desconhecido, pausado ou chave inválida' });
+    }
+    let corpo: EventoBot;
+    try {
+      corpo = JSON.parse(await lerCorpo(req, 256 * 1024)) as EventoBot;
+    } catch {
+      return json(res, 400, { error: 'corpo não é JSON' });
+    }
+    try {
+      const r = await receberEventoDeBot(bot, corpo);
+      return json(res, r.criado ? 201 : 200, r);
+    } catch (err) {
+      return json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // /health é SEM autenticação (é o que monitor e supervisor consultam), então

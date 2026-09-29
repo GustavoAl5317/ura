@@ -12,10 +12,11 @@ import { logger } from '../logger';
 import { db } from './store/db';
 import { obter, dentroDaJanela } from './config-dinamica';
 import { publicar } from './eventos';
+import { dispararWebhooks } from './webhooks';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 import { destinosDoAlerta, registrarEnvio } from './destinos-alerta';
 
-export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'sistema';
+export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
 
 export interface Alerta {
@@ -108,6 +109,7 @@ export async function emitir(p: {
   }
 
   publicar('alerta', alerta);
+  dispararWebhooks('alerta', alerta);
   await despachar(alerta);
   return alerta;
 }
@@ -160,7 +162,7 @@ export function marcarResolvido(chave: string): Alerta | null {
   ).run(agora, chave);
   if (!r.changes) return null;
   const a = porChave(chave);
-  if (a) publicar('alerta', a);
+  if (a) { publicar('alerta', a); dispararWebhooks('alerta.resolvido', a); }
   return a;
 }
 

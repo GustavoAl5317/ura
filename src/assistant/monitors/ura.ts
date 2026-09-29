@@ -13,6 +13,7 @@ import { db } from '../store/db';
 import { obter } from '../config-dinamica';
 import { emitir, horaCurta, duracaoHumana } from '../alertas';
 import { publicar } from '../eventos';
+import { dispararWebhooks } from '../webhooks';
 import { logger } from '../../logger';
 
 export interface EventoUra {
@@ -114,6 +115,7 @@ export async function receberEventoUra(e: EventoUra): Promise<{ ok: boolean; mot
 
   const chamada = carregar(e.callId)!;
   publicar('chamada', { ...chamada, ferramentas });
+  dispararWebhooks('chamada', { ...chamada, ferramentas });
 
   // Alerta no momento configurado — um por chamada.
   const momento = obter<string>('monitor.ura.alertar_em');
