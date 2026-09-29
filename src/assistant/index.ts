@@ -20,6 +20,7 @@ import { registrarFerramentasCausais } from './tools/causal';
 import { registrarFerramentasNetflow } from './tools/netflow';
 import { registrarFerramentasCtos } from './tools/ctos';
 import { registrarFerramentasAtendimento } from './tools/atendimento';
+import { registrarFerramentasIncidentes } from './tools/incidentes';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
@@ -41,6 +42,7 @@ import { iniciarMonitorSla } from './monitors/sla';
 import { iniciarMonitorResumo } from './resumo-diario';
 import { iniciarMonitorNetflow } from './monitors/netflow';
 import { iniciarMonitorCtos } from './monitors/ctos';
+import { iniciarMonitorIncidentes } from './monitors/incidentes';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -537,6 +539,7 @@ async function main(): Promise<void> {
   registrarFerramentasRelatorios();
   registrarFerramentasCtos();
   registrarFerramentasAtendimento();
+  registrarFerramentasIncidentes();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;
@@ -566,6 +569,7 @@ async function main(): Promise<void> {
   iniciarMonitorResumo();
   iniciarMonitorNetflow();
   iniciarMonitorCtos();
+  iniciarMonitorIncidentes();
 
   const atender = (req: http.IncomingMessage, res: http.ServerResponse) => {
     rotear(req, res).catch((err) => {

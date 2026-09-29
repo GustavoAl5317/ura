@@ -32,6 +32,7 @@
   --fibra-whatsapp: #CF5B8E;
   --fibra-netflow: #85552A;
   --fibra-questdb: #6B7885;
+  --fibra-incidentes: #8A3FFC;
 
   --foco: #2A67D1;
   --raio: 6px;
@@ -58,6 +59,7 @@
     --fibra-whatsapp: #E07BA8;
     --fibra-netflow: #B07B4B;
     --fibra-questdb: #8C99A6;
+    --fibra-incidentes: #A56EFF;
     --foco: #5B8DEB;
   }
 }
@@ -119,6 +121,7 @@ h2.secao {
 .fio[data-fonte="whatsapp"] { --cor: var(--fibra-whatsapp); }
 .fio[data-fonte="netflow"] { --cor: var(--fibra-netflow); }
 .fio[data-fonte="questdb"] { --cor: var(--fibra-questdb); }
+.fio[data-fonte="incidentes"] { --cor: var(--fibra-incidentes); }
 
 .cor-fonte { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 
@@ -392,6 +395,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
     <button class="aba" role="tab" data-aba="visao">Visão geral</button>
     <button class="aba" role="tab" data-aba="chat">Perguntar</button>
     <button class="aba" role="tab" data-aba="consultas">Consultas</button>
+    <button class="aba" role="tab" data-aba="incidentes">Incidentes <span class="contador" id="cont-incidentes" hidden>0</span></button>
     <button class="aba" role="tab" data-aba="alertas">Alertas <span class="contador" id="cont-alertas" hidden>0</span></button>
     <button class="aba" role="tab" data-aba="chamadas">Chamadas da URA</button>
     <button class="aba" role="tab" data-aba="admin">Administração</button>
@@ -479,6 +483,19 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <div class="bloco tabela-rolagem"><table><thead><tr><th>Quando</th><th>Pergunta</th><th>Veredito</th><th>Fontes</th></tr></thead><tbody id="tb-consultas"></tbody></table></div>
           <div class="bloco" id="detalhe-consulta"><p class="vazio-msg">Selecione uma consulta para ver as evidências.</p></div>
         </div>
+      </section>
+
+      <!-- Incidentes -->
+      <section data-painel="incidentes" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Incidentes</h1><p>Problema consolidado, com dono, estado e linha do tempo. Vários alertas da mesma causa viram um incidente.</p></div>
+        </div>
+        <div class="filtros">
+          <div class="campo"><label for="f-inc-estado">Estado</label>
+            <select id="f-inc-estado"><option value="">Abertos</option><option value="todos">Todos</option><option value="encerrado">Encerrados</option></select></div>
+          <label class="interruptor" style="padding-bottom:8px"><input type="checkbox" id="f-inc-sem-dono"> Só sem dono</label>
+        </div>
+        <div id="lista-incidentes"></div>
       </section>
 
       <!-- Alertas -->
@@ -570,7 +587,7 @@ function quando(iso) {
 }
 const duracao = (s) => s === null || s === undefined ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, '0')}s`;
 
-const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB',
+const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB', incidentes: 'Incidentes',
   // Seções do resumo diário: a lista de opções reaproveita este rótulo.
   rede: 'Rede (Zabbix)', os: 'Ordens de serviço', atendimento: 'Atendimento WhatsApp', assistente: 'Uso do assistente' };
 const ROTULO_VEREDITO = { CONFIRMADO: 'Confirmado', PROVAVEL: 'Provável', INCONCLUSIVO: 'Inconclusivo', CONVERSA: 'Conversa' };
@@ -891,9 +908,22 @@ function abrirStream() {
       const ev = JSON.parse(m.data);
       eventoNaLinha(ev);
       if (tipo === 'alerta') atualizarContadorAlertas();
+      if (tipo === 'incidente') {
+        atualizarContadorIncidentes();
+        if (!$('[data-painel="incidentes"]').hidden) carregadores.incidentes();
+      }
       if (tipo === 'chamada' && !$('[data-painel="chamadas"]').hidden) carregadores.chamadas();
     });
   }
+}
+
+async function atualizarContadorIncidentes() {
+  try {
+    const r = await api('GET', '/api/incidentes?abertos=1&limite=200');
+    const n = r.incidentes.filter((i) => !i.dono).length;
+    const c = $('#cont-incidentes');
+    c.hidden = !n; c.textContent = n;
+  } catch {}
 }
 
 async function atualizarContadorAlertas() {
@@ -1159,6 +1189,86 @@ const bonito = (s) => { try { return JSON.stringify(JSON.parse(s), null, 2); } c
 /* ─────────────────────────────────────────────────────────────────────────
    Alertas
    ───────────────────────────────────────────────────────────────────────── */
+const COR_SEVERIDADE = {
+  informacao: '--tinta-3', atencao: '--confirmado', advertencia: '--provavel',
+  critico: '--inconclusivo', maior: '--inconclusivo', desastre: '--inconclusivo',
+};
+
+carregadores.incidentes = async () => {
+  const alvo = $('#lista-incidentes');
+  const estado = $('#f-inc-estado').value;
+  const semDono = $('#f-inc-sem-dono').checked;
+  const quando = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR') : '—');
+  try {
+    const q = estado === 'todos' ? '' : estado ? `&estado=${estado}` : '&abertos=1';
+    const r = await api('GET', `/api/incidentes?limite=200${q}`);
+    let lista = r.incidentes;
+    if (semDono) lista = lista.filter((i) => !i.dono);
+    if (!lista.length) { alvo.replaceChildren(el('p', { class: 'vazio-msg', text: 'Nenhum incidente com esse filtro.' })); return; }
+
+    const cartao = (i) => {
+      const corpo = el('div', { hidden: true });
+      let carregado = false;
+      const detalhar = async () => {
+        if (carregado) { corpo.hidden = !corpo.hidden; return; }
+        try {
+          const d = await api('GET', `/api/incidentes/${i.numero}`);
+          corpo.replaceChildren(
+            el('div', { class: 'fraco', style: 'font-size:12.5px;margin-bottom:6px', text: `${d.alertas.length} alerta(s) ligado(s) · ${i.alertas} evento(s)` }),
+            el('ul', { class: 'lacunas' }, d.linha_do_tempo.map((l) =>
+              el('li', {}, el('span', { class: 'dado', text: new Date(l.at).toLocaleTimeString('pt-BR') }), ' ', l.texto, l.ator ? el('span', { class: 'fraco', text: ` — ${l.ator}` }) : null))),
+            el('form', { class: 'linha-acoes', style: 'margin-top:10px' },
+              el('input', { type: 'text', placeholder: 'Anotar no incidente…', style: 'flex:1;min-width:200px' }),
+              el('button', { class: 'botao sec mini', type: 'submit', text: 'Anotar' })));
+          corpo.querySelector('form').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const campo = corpo.querySelector('input');
+            if (!campo.value.trim()) return;
+            try { await api('POST', `/api/incidentes/${i.numero}/comentario`, { texto: campo.value }); campo.value = ''; carregado = false; await detalhar(); }
+            catch (e) { toast(e.message, 'erro'); }
+          });
+          carregado = true;
+          corpo.hidden = false;
+        } catch (e) { toast(e.message, 'erro'); }
+      };
+
+      const acao = (texto, fn, classe = 'botao sec mini') =>
+        el('button', { class: classe, type: 'button', text: texto, onclick: async () => {
+          try { await fn(); toast('Pronto.', 'ok'); carregadores.incidentes(); } catch (e) { toast(e.message, 'erro'); }
+        } });
+
+      return el('div', { class: 'bloco', style: 'margin-bottom:10px' },
+        el('div', { style: 'display:flex;gap:10px;align-items:baseline;flex-wrap:wrap' },
+          el('b', { class: 'dado', text: i.numero }),
+          el('span', { style: `color:var(${COR_SEVERIDADE[i.severidade] || '--tinta-2'});font-weight:600`, text: r.severidades[i.severidade] }),
+          el('span', { text: i.titulo }),
+          el('span', { class: 'fraco', text: r.estados[i.estado] })),
+        el('div', { class: 'fraco', style: 'font-size:12.5px;margin-top:4px' },
+          `Aberto ${quando(i.aberto_em)} · há ${i.duracao_seg > 3600 ? `${Math.floor(i.duracao_seg / 3600)}h` : `${Math.round(i.duracao_seg / 60)} min`}`
+          + (i.clientes_afetados ? ` · ${i.clientes_afetados} clientes` : '')
+          + (i.equipamento ? ` · ${i.equipamento}` : '')
+          + (i.reaberturas ? ` · reabriu ${i.reaberturas}x` : '')),
+        el('div', { style: 'margin-top:4px' }, i.dono
+          ? el('span', {}, 'Dono: ', el('b', { text: i.dono }), i.reconhecer_seg !== null ? el('span', { class: 'fraco', text: ` (assumiu em ${Math.round(i.reconhecer_seg / 60)} min)` }) : null)
+          : el('span', { style: 'color:var(--inconclusivo);font-weight:600', text: 'SEM DONO' })),
+        el('div', { class: 'linha-acoes', style: 'margin-top:8px' },
+          i.dono ? null : acao('Assumir', () => api('POST', `/api/incidentes/${i.numero}/assumir`, {}), 'botao mini'),
+          i.estado !== 'atendimento' ? acao('Em atendimento', () => api('POST', `/api/incidentes/${i.numero}/estado`, { estado: 'atendimento' })) : null,
+          acao('Investigando', () => api('POST', `/api/incidentes/${i.numero}/estado`, { estado: 'investigando' })),
+          acao('Encerrar', () => api('POST', `/api/incidentes/${i.numero}/estado`, { estado: 'encerrado' })),
+          acao('Falso positivo', () => api('POST', `/api/incidentes/${i.numero}/estado`, { estado: 'falso_positivo' })),
+          el('button', { class: 'botao sec mini', type: 'button', text: 'Linha do tempo', onclick: detalhar })),
+        corpo);
+    };
+
+    alvo.replaceChildren(
+      el('p', { class: 'fraco', style: 'margin:0 0 10px', text: `${lista.length} incidente(s) · ${lista.filter((i) => !i.dono).length} sem dono` }),
+      ...lista.map(cartao));
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+$('#f-inc-estado').addEventListener('change', () => carregadores.incidentes());
+$('#f-inc-sem-dono').addEventListener('change', () => carregadores.incidentes());
+
 carregadores.alertas = async () => {
   const origem = $('#f-alerta-origem').value;
   const abertos = $('#f-alerta-abertos').checked;
@@ -1219,7 +1329,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1669,7 +1779,7 @@ subCarregadores.permissoes = async () => {
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
-const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow', 'fonte:questdb': 'Sobre as CTOs (QuestDB)', 'fonte:whatsapp': 'Sobre o atendimento (WhatsApp)' };
+const NOME_PROMPT = { principal: 'Regras gerais', revisao: 'Revisão de cliente', 'fonte:zabbix': 'Sobre o Zabbix', 'fonte:sgp': 'Sobre o SGP', 'fonte:ura': 'Sobre a URA', 'fonte:netflow': 'Sobre o NetFlow', 'fonte:questdb': 'Sobre as CTOs (QuestDB)', 'fonte:whatsapp': 'Sobre o atendimento (WhatsApp)', 'fonte:incidentes': 'Sobre incidentes' };
 subCarregadores.prompts = async (chaveSel) => {
   const alvo = $('[data-subpainel="prompts"]');
   try {
@@ -1804,6 +1914,7 @@ function iniciar() {
   carregarStatus().catch(() => {});
   semearLinhaDoTempo();
   atualizarContadorAlertas();
+  atualizarContadorIncidentes();
   let aba = 'visao';
   try { aba = localStorage.getItem('aq.aba') || 'visao'; } catch {}
   if (!$(`[data-aba="${aba}"]`)) aba = 'visao';

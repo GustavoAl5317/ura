@@ -12,6 +12,10 @@ import { db } from '../store/db';
 import { responder, paraWhatsApp } from '../agent';
 import { transcrever, sintetizar, falaDaResposta } from '../voice';
 import { obter, FONTES_PUBLICAS } from '../config-dinamica';
+import {
+  ROTULO_ESTADO, assumir as assumirIncidente, mudarEstado as mudarEstadoIncidente,
+  porId as porIdIncidente,
+} from '../incidentes';
 import { FonteId } from '../types';
 
 export const evoTecnicos = new EvolutionClient(
@@ -141,6 +145,43 @@ function historico(conversaId: string): Array<{ papel: 'user' | 'assistant'; con
   return linhas.reverse();
 }
 
+export interface ComandoIncidente { acao: 'assumir' | 'atendendo' | 'encerrar'; numero: string }
+
+/**
+ * Comando de incidente escrito no WhatsApp. Só as três ações que o técnico faz
+ * em campo, com o número do incidente sempre explícito: sem número, não é
+ * comando, é conversa.
+ */
+export function comandoDeIncidente(texto: string): ComandoIncidente | null {
+  const t = texto.trim().toLowerCase().replace(/\s+/g, ' ');
+  const m = t.match(/^(assumir|assumo|peguei|atendendo|em atendimento|encerrar|fechar)\s+(?:o\s+)?(?:incidente\s+)?(inc-\d{4}-\d{1,6}|\d{1,6})$/i);
+  if (!m) return null;
+  const acao = /assumir|assumo|peguei/.test(m[1]) ? 'assumir' : /encerrar|fechar/.test(m[1]) ? 'encerrar' : 'atendendo';
+  const bruto = m[2].toUpperCase();
+  const numero = bruto.startsWith('INC-') ? bruto.replace(/^INC-(\d{4})-(\d+)$/, (_s, a, n) => `INC-${a}-${String(n).padStart(5, '0')}`) : bruto;
+  return { acao, numero };
+}
+
+/** Executa o comando e devolve a resposta que vai para o WhatsApp. */
+export function executarComandoIncidente(cmd: ComandoIncidente, quem: string): string {
+  const inc = porIdIncidente(cmd.numero) ?? porIdIncidente(`INC-${new Date().getFullYear()}-${cmd.numero.padStart(5, '0')}`);
+  if (!inc) return `Não achei o incidente ${cmd.numero}. Confira o número no alerta.`;
+  try {
+    if (cmd.acao === 'assumir') {
+      const r = assumirIncidente(inc.id, quem);
+      return `✅ *${r.numero}* é seu, ${quem}.\n${r.titulo}\nEstado: ${ROTULO_ESTADO[r.estado]}.`;
+    }
+    if (cmd.acao === 'atendendo') {
+      const r = mudarEstadoIncidente(inc.id, 'atendimento', quem);
+      return `🔧 *${r.numero}* em atendimento por ${quem}.`;
+    }
+    const r = mudarEstadoIncidente(inc.id, 'encerrado', quem, 'encerrado pelo WhatsApp');
+    return `🟢 *${r.numero}* encerrado por ${quem}.`;
+  } catch (err) {
+    return `Não consegui: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 /** Processa uma mensagem recebida. Nunca lança: erro vira aviso ao técnico. */
 export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   if (jaVista(msg.id)) {
@@ -202,6 +243,15 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
 
   // Em grupo, tira o prefixo de chamada antes de mandar ao modelo.
   pergunta = pergunta.replace(/^!\s*/, '').replace(/@assistente\s*/gi, '').trim();
+
+  // "assumir INC-2026-00012" fecha o ciclo do alerta sem sair do WhatsApp.
+  // Vem antes do modelo de propósito: é comando, não pergunta.
+  const cmd = comandoDeIncidente(pergunta);
+  if (cmd) {
+    const resposta = executarComandoIncidente(cmd, msg.nome || soNumero(msg.autorJid));
+    await evoTecnicos.enviarTexto(msg.jid, resposta);
+    return;
+  }
 
   // ── Resposta ───────────────────────────────────────────────────────────────
   const conversaId = obterConversa(msg.autorJid, msg.nome);

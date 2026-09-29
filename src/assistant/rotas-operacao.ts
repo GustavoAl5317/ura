@@ -7,6 +7,11 @@ import { receberEventoUra, listarChamadas, EventoUra } from './monitors/ura';
 import { estadoMonitores } from './monitors/base';
 import { diagnosticoSla } from './monitors/sla';
 import { montarResumo, enviarResumoManual } from './resumo-diario';
+import {
+  EstadoIncidente, ROTULO_ESTADO, ROTULO_SEVERIDADE, alertasDoIncidente, assumir, comentar,
+  duracaoSeg, linhaDoTempo, listar as listarIncidentes, mudarEstado, porId as incidentePorId,
+  tempoAteReconhecer,
+} from './incidentes';
 
 export const rotasOperacao: Rota = async (req, res, url, p) => {
   // ── Stream ao vivo do painel ──────────────────────────────────────────────
@@ -51,6 +56,61 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
     if (!ok) throw new ErroHttp(404, 'alerta não encontrado ou já reconhecido');
     json(res, 200, { ok: true });
     return true;
+  }
+
+  // ── Incidentes ────────────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/incidentes') {
+    const lista = listarIncidentes({
+      abertos: url.searchParams.get('abertos') === '1',
+      estado: url.searchParams.get('estado') || undefined,
+      severidade: url.searchParams.get('severidade') || undefined,
+      limite: Number(url.searchParams.get('limite')) || 100,
+    });
+    json(res, 200, {
+      incidentes: lista.map((i) => ({
+        ...i,
+        duracao_seg: duracaoSeg(i),
+        reconhecer_seg: tempoAteReconhecer(i),
+      })),
+      estados: ROTULO_ESTADO,
+      severidades: ROTULO_SEVERIDADE,
+    });
+    return true;
+  }
+
+  const mInc = p.match(/^\/api\/incidentes\/([A-Za-z0-9-]+)(\/(assumir|estado|comentario))?$/);
+  if (mInc) {
+    const id = mInc[1];
+    const inc = incidentePorId(id);
+    if (!inc) throw new ErroHttp(404, 'incidente não encontrado');
+    try {
+      if (!mInc[3] && req.method === 'GET') {
+        json(res, 200, {
+          incidente: { ...inc, duracao_seg: duracaoSeg(inc), reconhecer_seg: tempoAteReconhecer(inc) },
+          linha_do_tempo: linhaDoTempo(inc.id),
+          alertas: alertasDoIncidente(inc.id),
+        });
+        return true;
+      }
+      if (mInc[3] === 'assumir' && req.method === 'POST') {
+        const b = await lerJson<{ quem?: string; equipe?: string }>(req);
+        json(res, 200, { ok: true, incidente: assumir(inc.id, b.quem?.trim() || ator(req), b.equipe ?? null) });
+        return true;
+      }
+      if (mInc[3] === 'estado' && req.method === 'POST') {
+        const b = await lerJson<{ estado?: string; nota?: string }>(req);
+        json(res, 200, { ok: true, incidente: mudarEstado(inc.id, b.estado as EstadoIncidente, ator(req), b.nota) });
+        return true;
+      }
+      if (mInc[3] === 'comentario' && req.method === 'POST') {
+        const b = await lerJson<{ texto?: string }>(req);
+        comentar(inc.id, String(b.texto ?? ''), ator(req));
+        json(res, 200, { ok: true, linha_do_tempo: linhaDoTempo(inc.id) });
+        return true;
+      }
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
   }
 
   // ── Monitores ─────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import type http from 'http';
 import { logger } from '../logger';
 
-export type TipoEvento = 'alerta' | 'chamada' | 'consulta' | 'monitor' | 'sistema';
+export type TipoEvento = 'alerta' | 'incidente' | 'chamada' | 'consulta' | 'monitor' | 'sistema';
 
 export interface Evento {
   id: string;

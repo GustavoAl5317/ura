@@ -114,6 +114,8 @@ export const PROMPT_FONTE_QUESTDB = `Sobre as CTOs (QuestDB): o sinal é a MÉDI
 
 export const PROMPT_FONTE_WHATSAPP = `Sobre o atendimento pelo WhatsApp: os dados vêm do ura-chat, o atendimento oficial dos clientes. "Clientes que mandaram mensagem" conta conversas, não pessoas únicas por CPF. Quem está esperando é quem aguarda atendente assumir ou aguarda resposta do atendente; conversa só com a IA não é espera. Ao citar clientes esperando, diga há quanto tempo.`;
 
+export const PROMPT_FONTE_INCIDENTES = `Sobre incidentes: incidente é o problema consolidado da operação, com número (INC-ANO-NNNNN), dono e estado; alerta é o fato bruto. Sempre cite o NÚMERO ao falar de um incidente. Incidente sem dono é o que mais importa: diga quantos são e quais, para alguém assumir. Não invente estado nem dono: se a ferramenta não trouxe, diga que não há registro. "Monitorando normalização" não é encerrado — é observação antes de fechar. Reabertura quer dizer que o problema voltou durante a observação; cite quantas vezes. Para assumir, a pessoa responde "assumir <número>" no WhatsApp ou clica no painel.`;
+
 const SEMENTES: Record<string, string> = {
   principal: PROMPT_PRINCIPAL_PADRAO,
   revisao: PROMPT_REVISAO_PADRAO,
@@ -123,6 +125,7 @@ const SEMENTES: Record<string, string> = {
   'fonte:netflow': PROMPT_FONTE_NETFLOW,
   'fonte:questdb': PROMPT_FONTE_QUESTDB,
   'fonte:whatsapp': PROMPT_FONTE_WHATSAPP,
+  'fonte:incidentes': PROMPT_FONTE_INCIDENTES,
 };
 
 /**

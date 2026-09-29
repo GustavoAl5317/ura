@@ -15,6 +15,7 @@ import { publicar } from './eventos';
 import { dispararWebhooks } from './webhooks';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 import { destinosDoAlerta, registrarEnvio } from './destinos-alerta';
+import { alertaResolvido, correlacionar } from './incidentes';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -108,6 +109,21 @@ export async function emitir(p: {
     return alerta;
   }
 
+  // O incidente nasce ANTES do despacho: a mensagem já sai com o número, e
+  // quem recebe consegue responder "assumir INC-...".
+  let incidente: { numero: string; severidade: string } | null = null;
+  try {
+    incidente = correlacionar(alerta, { evento: p.evento });
+  } catch (err) {
+    logger.error('Alerta: falha ao correlacionar incidente', { err: err instanceof Error ? err.message : String(err) });
+  }
+  if (incidente) {
+    alerta.texto = `${alerta.texto}
+
+_${incidente.numero} · responda "assumir ${incidente.numero}" para assumir_`;
+    db().prepare(`UPDATE alerta SET texto = ? WHERE id = ?`).run(alerta.texto, alerta.id);
+  }
+
   publicar('alerta', alerta);
   dispararWebhooks('alerta', alerta);
   await despachar(alerta);
@@ -162,7 +178,14 @@ export function marcarResolvido(chave: string): Alerta | null {
   ).run(agora, chave);
   if (!r.changes) return null;
   const a = porChave(chave);
-  if (a) { publicar('alerta', a); dispararWebhooks('alerta.resolvido', a); }
+  if (a) {
+    publicar('alerta', a);
+    dispararWebhooks('alerta.resolvido', a);
+    // Resolver o último alerta não encerra o incidente: ele entra em observação.
+    try { alertaResolvido(a); } catch (err) {
+      logger.error('Alerta: falha ao normalizar incidente', { err: err instanceof Error ? err.message : String(err) });
+    }
+  }
   return a;
 }
 

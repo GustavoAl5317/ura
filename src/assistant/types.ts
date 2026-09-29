@@ -5,9 +5,9 @@
 // CALCULADO sobre os envelopes coletados, não declarado pelo modelo.
 // Sem dado = sem conclusão, por construção e não por instrução no prompt.
 
-export type FonteId = 'sgp' | 'zabbix' | 'netflow' | 'questdb' | 'ura' | 'whatsapp';
+export type FonteId = 'sgp' | 'zabbix' | 'netflow' | 'questdb' | 'ura' | 'whatsapp' | 'incidentes';
 
-export const FONTES: FonteId[] = ['sgp', 'zabbix', 'netflow', 'questdb', 'ura', 'whatsapp'];
+export const FONTES: FonteId[] = ['sgp', 'zabbix', 'netflow', 'questdb', 'ura', 'whatsapp', 'incidentes'];
 
 /** Resultado de UMA consulta a UMA fonte. É a única forma de dado que entra na resposta. */
 export interface Envelope<T = unknown> {

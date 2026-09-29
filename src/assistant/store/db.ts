@@ -193,6 +193,52 @@ function migrar(d: Database.Database): void {
       ultima_em  TEXT NOT NULL
     );
 
+    -- ═══ Incidente: problema consolidado, com dono ═══════════════════════
+    -- Vários alertas da mesma causa viram UM incidente. É o que a operação
+    -- acompanha; o alerta continua sendo o fato bruto.
+    CREATE TABLE IF NOT EXISTS incidente (
+      id                TEXT PRIMARY KEY,
+      numero            TEXT NOT NULL UNIQUE,   -- INC-2026-00001
+      titulo            TEXT NOT NULL,
+      severidade        TEXT NOT NULL,          -- informacao..desastre
+      estado            TEXT NOT NULL,
+      correlacao        TEXT NOT NULL,          -- alvo que agrupa (host:X, pon:1/1/6…)
+      equipamento       TEXT,
+      alvo              TEXT,
+      clientes_afetados INTEGER,
+      dono              TEXT,
+      equipe            TEXT,
+      aberto_em         TEXT NOT NULL,
+      reconhecido_em    TEXT,
+      reconhecido_por   TEXT,
+      normalizado_em    TEXT,
+      encerrado_em      TEXT,
+      reaberturas       INTEGER NOT NULL DEFAULT 0,
+      alertas           INTEGER NOT NULL DEFAULT 0,
+      atualizado_em     TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_incidente_estado ON incidente(estado, aberto_em DESC);
+    CREATE INDEX IF NOT EXISTS ix_incidente_correlacao ON incidente(correlacao, atualizado_em DESC);
+
+    CREATE TABLE IF NOT EXISTS incidente_alerta (
+      incidente_id TEXT NOT NULL,
+      alerta_id    TEXT NOT NULL,
+      PRIMARY KEY (incidente_id, alerta_id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_incidente_alerta_alerta ON incidente_alerta(alerta_id);
+
+    -- Linha do tempo: tudo que aconteceu no incidente, em ordem.
+    CREATE TABLE IF NOT EXISTS incidente_evento (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      incidente_id TEXT NOT NULL,
+      at           TEXT NOT NULL,
+      tipo         TEXT NOT NULL,
+      texto        TEXT NOT NULL,
+      ator         TEXT,
+      dados        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ix_incidente_evento ON incidente_evento(incidente_id, id);
+
     -- ═══ Bots: sistemas que mandam evento para cá ════════════════════════
     -- Chave por sistema, guardada como hash. Vazou a de um, desliga só ele.
     CREATE TABLE IF NOT EXISTS bot (
@@ -367,6 +413,9 @@ function migrar(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS ix_alerta_envio_alerta ON alerta_envio(alerta_id);
   `);
+
+  // A coluna vive na tabela `alerta`, criada no bloco acima: por isso só aqui.
+  adicionarColunaSeFaltar(d, 'alerta', 'incidente_id', 'TEXT');
 
   // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────
 

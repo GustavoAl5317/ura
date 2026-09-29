@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -216,6 +216,42 @@ export const DEFINICOES = {
   'monitor.ctos.alertar_coleta': {
     tipo: 'booleano', grupo: 'monitor_ctos', padrao: () => true,
     descricao: 'Avisa quando o QuestDB para de receber leituras das CTOs.',
+  },
+
+  // ── Incidentes ──────────────────────────────────────────────────────────
+  'incidentes.ativo': {
+    tipo: 'booleano', grupo: 'incidentes', padrao: () => true,
+    descricao: 'Junta alertas da mesma causa num incidente com dono, estado e linha do tempo.',
+  },
+  'incidentes.origens': {
+    tipo: 'lista', grupo: 'incidentes',
+    padrao: () => ['zabbix', 'ctos', 'netflow', 'bot'],
+    opcoes: ['zabbix', 'ctos', 'netflow', 'sla', 'bot', 'sistema'],
+    descricao: 'Quais alertas viram incidente. Chamada da URA e resumo nunca viram.',
+  },
+  'incidentes.severidade_minima': {
+    tipo: 'texto', grupo: 'incidentes', padrao: () => 'aviso', opcoes: ['info', 'aviso', 'critico'],
+    descricao: 'Alerta abaixo disso fica só como alerta, sem abrir incidente.',
+  },
+  'incidentes.janela_correlacao_min': {
+    tipo: 'inteiro', grupo: 'incidentes', padrao: () => 30, min: 1, max: 720,
+    descricao: 'Alerta do mesmo alvo dentro desse tempo entra no incidente que já está aberto, em vez de abrir outro.',
+  },
+  'incidentes.estabilidade_min': {
+    tipo: 'inteiro', grupo: 'incidentes', padrao: () => 5, min: 1, max: 120,
+    descricao: 'Depois que tudo normaliza, quanto tempo fica em observação antes de encerrar. Se cair de novo, o mesmo incidente reabre.',
+  },
+  'incidentes.clientes_para_maior': {
+    tipo: 'inteiro', grupo: 'incidentes', padrao: () => 50, min: 1, max: 100000,
+    descricao: 'A partir de quantos clientes afetados a severidade sobe para Maior.',
+  },
+  'incidentes.clientes_para_desastre': {
+    tipo: 'inteiro', grupo: 'incidentes', padrao: () => 200, min: 1, max: 100000,
+    descricao: 'A partir de quantos clientes afetados a severidade sobe para Desastre.',
+  },
+  'incidentes.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'incidentes', padrao: () => 60, min: 30, max: 900,
+    descricao: 'De quanto em quanto tempo o monitor encerra o que já normalizou.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────
