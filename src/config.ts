@@ -287,6 +287,10 @@ export const config = {
     taxaInstalacao: opt('COMPANY_TAXA_INSTALACAO', '60,00'),
     prazoInstalacao: opt('COMPANY_PRAZO_INSTALACAO', 'até 24 horas úteis'),
     fidelidade: opt('COMPANY_FIDELIDADE', '12 meses'),
+    // Clausula 14 do contrato (rescisao): cancelar antes do fim da fidelidade
+    // gera indenizacao do valor total, abatido um valor por mensalidade paga.
+    multaRescisaoTotal: opt('COMPANY_MULTA_RESCISAO_TOTAL', '240,00'),
+    multaRescisaoAbatimento: opt('COMPANY_MULTA_RESCISAO_ABATIMENTO', '20,00'),
     formasPagamentoTaxa: opt('COMPANY_PAGAMENTO_TAXA', 'pix ou boleto'),
     // Tabela de serviços cobrados. Mesma razão da taxa de instalação: a IA não
     // pode inventar preço, e preço muda sem virar deploy.

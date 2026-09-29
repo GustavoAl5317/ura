@@ -1947,7 +1947,9 @@ export function registerTools(client: ToolRegistrar, ctx: CallContext): void {
       sucesso: ok,
       mensagem: ok
         ? 'Plano alterado. A nova velocidade vale após a próxima renovação da conexão, '
-          + 'e o valor muda na próxima fatura.'
+          + 'e o valor muda na próxima fatura. Informe ao cliente que a troca de plano gera um '
+          + 'ADITIVO ao contrato, que ele precisa assinar como um novo contrato. NÃO diga que '
+          + 'continua o mesmo contrato, e NÃO afirme nada sobre o equipamento suportar a velocidade.'
         : r?.msg ?? 'Não consegui alterar o plano. Encaminhe para um atendente.',
     };
   });
