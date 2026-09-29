@@ -30,6 +30,10 @@ import { rotasOperacao } from './rotas-operacao';
 import { rotasAdmin } from './rotas-admin';
 import { rotasPainel, rotasChatAudio } from './rotas-painel';
 import { ator } from './http-util';
+import {
+  SessaoPainel, abrirSessao, autenticar, atualizarUsuario, existeAlgumUsuario,
+  papelPermite, sessaoPorToken, usuarioPorId,
+} from './usuarios';
 import { ErroHttp } from './http-util';
 import { iniciarMonitorZabbix } from './monitors/zabbix';
 import { iniciarMonitorSla } from './monitors/sla';
@@ -69,14 +73,19 @@ function parseCookies(req: http.IncomingMessage): Record<string, string> {
   return c;
 }
 
-function sessaoDoCookie(req: http.IncomingMessage): { token: string; operador: string } | null {
+function sessaoDoCookie(req: http.IncomingMessage): SessaoPainel | null {
   const token = parseCookies(req).aq_sessao;
   if (!token) return null;
-  const row = db().prepare(`SELECT token, operador FROM sessao_painel WHERE token = ?`).get(token) as { token: string; operador: string } | undefined;
-  if (!row) return null;
-  // Atualiza última atividade
-  db().prepare(`UPDATE sessao_painel SET ultima_em = ? WHERE token = ?`).run(new Date().toISOString(), token);
-  return row;
+  return sessaoPorToken(token);
+}
+
+/** De onde veio a chamada, para registrar na sessão e na auditoria. */
+function origemDaChamada(req: http.IncomingMessage): { ip: string; dispositivo: string } {
+  const encaminhado = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+  return {
+    ip: encaminhado || req.socket.remoteAddress || '',
+    dispositivo: String(req.headers['user-agent'] ?? ''),
+  };
 }
 
 function atorComSessao(req: http.IncomingMessage): string {
@@ -164,27 +173,85 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   // ── Sessão do painel (cookie) ────────────────────────────────────────────
+  // Login por pessoa. Enquanto NÃO existir usuário cadastrado, a chave do .env
+  // ainda abre o painel como admin — é a porta de entrada para criar o primeiro.
   if (req.method === 'POST' && p === '/api/sessao') {
-    const b = JSON.parse(await lerCorpo(req)) as { chave?: string; operador?: string };
-    const chave = config.admin.apiKey;
-    if (chave && b.chave !== chave) return json(res, 401, { error: 'chave_invalida' });
-    const operador = (b.operador ?? '').trim().slice(0, 60);
-    if (!operador) return json(res, 400, { error: 'operador_obrigatorio' });
-    const token = randomUUID();
-    const agora = new Date().toISOString();
-    db().prepare(`INSERT INTO sessao_painel (token, operador, criada_em, ultima_em) VALUES (?,?,?,?)`).run(token, operador, agora, agora);
+    const b = JSON.parse(await lerCorpo(req)) as { chave?: string; operador?: string; login?: string; senha?: string };
+    const de = origemDaChamada(req);
+    const temUsuarios = existeAlgumUsuario();
+
+    if (!temUsuarios) {
+      const chave = config.admin.apiKey;
+      if (chave && b.chave !== chave) return json(res, 401, { error: 'chave_invalida' });
+      const operador = (b.operador ?? '').trim().slice(0, 60);
+      if (!operador) return json(res, 400, { error: 'operador_obrigatorio' });
+      const token = abrirSessao({ id: null, login: operador, papel: 'admin' }, de);
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Set-Cookie': `aq_sessao=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=31536000`,
+      });
+      res.end(JSON.stringify({ ok: true, operador, papel: 'admin', semUsuarios: true }));
+      return;
+    }
+
+    const r = autenticar(b.login, b.senha, de.ip);
+    if (!r.ok) {
+      const msg = r.motivo === 'bloqueado'
+        ? `muitas tentativas erradas; espere ${Math.ceil((r.esperarSeg ?? 60) / 60)} min`
+        : r.motivo === 'inativo' ? 'usuário desativado' : 'login ou senha inválidos';
+      return json(res, 401, { error: msg });
+    }
+    const token = abrirSessao({ id: r.usuario.id, login: r.usuario.login, papel: r.usuario.papel }, de);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Set-Cookie': `aq_sessao=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=31536000`,
     });
-    res.end(JSON.stringify({ ok: true, operador }));
+    res.end(JSON.stringify({
+      ok: true, operador: r.usuario.nome, login: r.usuario.login,
+      papel: r.usuario.papel, trocarSenha: r.usuario.trocar_senha,
+    }));
     return;
+  }
+
+  // Antes de entrar, a tela precisa saber o que pedir: login e senha, ou a
+  // chave do servidor no primeiro acesso. Não diz mais nada.
+  if (req.method === 'GET' && p === '/api/sessao/modo') {
+    return json(res, 200, { semUsuarios: !existeAlgumUsuario() });
   }
 
   if (req.method === 'GET' && p === '/api/sessao') {
     const sess = sessaoDoCookie(req);
     if (!sess) return json(res, 401, { error: 'sem_sessao' });
-    return json(res, 200, { operador: sess.operador });
+    const u = sess.usuario_id ? usuarioPorId(sess.usuario_id) : null;
+    return json(res, 200, {
+      operador: u?.nome ?? sess.operador,
+      login: u?.login ?? sess.operador,
+      papel: sess.papel,
+      trocarSenha: u?.trocar_senha ?? false,
+      semUsuarios: !existeAlgumUsuario(),
+    });
+  }
+
+  // Trocar a própria senha. Sai da regra de papel: qualquer um troca a sua.
+  if (req.method === 'POST' && p === '/api/sessao/senha') {
+    const sess = sessaoDoCookie(req);
+    if (!sess?.usuario_id) return json(res, 401, { error: 'sem_sessao' });
+    const b = JSON.parse(await lerCorpo(req)) as { atual?: string; nova?: string };
+    const u = usuarioPorId(sess.usuario_id);
+    if (!u) return json(res, 401, { error: 'sem_sessao' });
+    const r = autenticar(u.login, b.atual, origemDaChamada(req).ip);
+    if (!r.ok) return json(res, 401, { error: 'senha atual não confere' });
+    try {
+      atualizarUsuario(u.id, { senha: b.nova }, `painel:${u.login}`);
+    } catch (err) {
+      return json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Set-Cookie': 'aq_sessao=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0',
+    });
+    res.end(JSON.stringify({ ok: true, entrarDeNovo: true }));
+    return;
   }
 
   if (req.method === 'DELETE' && p === '/api/sessao') {
@@ -201,6 +268,18 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
   const acesso = acessoApi(req, url, p);
   if (acesso === 403) return json(res, 403, { error: 'chave da URA só envia eventos de chamada' });
   if (acesso === 401) return json(res, 401, { error: 'unauthorized' });
+
+  // Papel só vale para gente (sessão de cookie). A chave do .env é integração
+  // entre máquinas e continua podendo tudo.
+  const sessao = sessaoDoCookie(req);
+  if (sessao && !papelPermite(sessao.papel, req.method ?? 'GET', p)) {
+    logger.warn('Painel: ação fora do papel', { operador: sessao.operador, papel: sessao.papel, metodo: req.method, rota: p });
+    return json(res, 403, {
+      error: sessao.papel === 'leitura'
+        ? 'seu acesso é somente leitura'
+        : 'só administrador pode fazer isso',
+    });
+  }
 
   // Health detalhado — o que o /health público mostrava antes, agora atrás da chave.
   if (req.method === 'GET' && p === '/api/health') {

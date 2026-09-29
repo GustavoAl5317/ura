@@ -12,6 +12,18 @@ import {
   TIPOS_ALERTA, SEVERIDADES, listarDestinos, destinoPorId, validarTipos, validarSeveridade,
 } from './destinos-alerta';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
+import {
+  DESCRICAO_PAPEL, PAPEIS_PAINEL, SessaoPainel, atualizarUsuario, criarUsuario, fecharSessao,
+  listarSessoes, listarUsuarios, removerUsuario, revogarSessoesDoUsuario, sessoesDoUsuario,
+} from './usuarios';
+
+/** Sessão para o painel: sem o token, que é credencial viva. */
+function sessaoSaida(s: SessaoPainel) {
+  return {
+    id: s.token, operador: s.operador, papel: s.papel, ip: s.ip,
+    dispositivo: s.dispositivo, criada_em: s.criada_em, ultima_em: s.ultima_em,
+  };
+}
 
 // ─── Modelos liberados no projeto OpenAI ────────────────────────────────────
 
@@ -175,6 +187,84 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
     json(res, ids ? 200 : 502, ids
       ? { chat: ids.filter(ehModeloDeChat), todos: ids }
       : { error: 'não consegui consultar os modelos na OpenAI' });
+    return true;
+  }
+
+  // ── Usuários do painel ────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/usuarios') {
+    json(res, 200, {
+      usuarios: listarUsuarios().map((u) => ({ ...u, sessoes: sessoesDoUsuario(u.id).length })),
+      papeis: PAPEIS_PAINEL.map((id) => ({ id, descricao: DESCRICAO_PAPEL[id] })),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/usuarios') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      const u = criarUsuario({
+        login: b.login, nome: b.nome, senha: b.senha, papel: b.papel,
+        ativo: b.ativo !== false, trocarSenha: b.trocarSenha === true,
+      }, ator(req));
+      json(res, 201, { ok: true, usuario: u });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mUsu = p.match(/^\/api\/usuarios\/([0-9a-f-]{36})(\/sessoes)?$/i);
+  if (mUsu) {
+    const id = mUsu[1];
+    if (mUsu[2]) {
+      if (req.method === 'GET') {
+        json(res, 200, { sessoes: sessoesDoUsuario(id).map(sessaoSaida) });
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        const n = revogarSessoesDoUsuario(id);
+        registrarAuditoria(ator(req), 'usuario.revogar_sessoes', id, undefined, { sessoes: n });
+        json(res, 200, { ok: true, revogadas: n });
+        return true;
+      }
+    }
+    if (req.method === 'PUT') {
+      const b = await lerJson<Record<string, unknown>>(req);
+      try {
+        json(res, 200, {
+          ok: true,
+          usuario: atualizarUsuario(id, {
+            nome: b.nome, papel: b.papel,
+            ativo: b.ativo === undefined ? undefined : b.ativo !== false,
+            senha: b.senha, trocarSenha: b.trocarSenha === true,
+          }, ator(req)),
+        });
+      } catch (e) {
+        throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+      }
+      return true;
+    }
+    if (req.method === 'DELETE') {
+      try {
+        removerUsuario(id, ator(req));
+        json(res, 200, { ok: true });
+      } catch (e) {
+        throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+      }
+      return true;
+    }
+  }
+
+  if (req.method === 'GET' && p === '/api/sessoes') {
+    json(res, 200, { sessoes: listarSessoes().map(sessaoSaida) });
+    return true;
+  }
+
+  const mSess = p.match(/^\/api\/sessoes\/([0-9a-f-]{36})$/i);
+  if (mSess && req.method === 'DELETE') {
+    fecharSessao(mSess[1]);
+    registrarAuditoria(ator(req), 'sessao.revogar', mSess[1]);
+    json(res, 200, { ok: true });
     return true;
   }
 

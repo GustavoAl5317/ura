@@ -362,14 +362,21 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
       <h1>Operação Aquitelecom</h1>
       <p class="mudo" style="margin:4px 0 0">Assistente de observabilidade da rede</p>
     </div>
-    <div class="campo">
+    <div class="campo" id="campo-login">
+      <label for="in-login">Usuário</label>
+      <input type="text" id="in-login" autocomplete="username" maxlength="40" placeholder="seu.login">
+    </div>
+    <div class="campo" id="campo-operador" hidden>
       <label for="in-operador">Seu nome</label>
-      <input type="text" id="in-operador" autocomplete="name" required maxlength="60" placeholder="Aparece na auditoria">
+      <input type="text" id="in-operador" autocomplete="name" maxlength="60" placeholder="Aparece na auditoria">
     </div>
     <div class="campo">
-      <label for="in-chave">Chave de acesso</label>
+      <label for="in-chave" id="rot-chave">Senha</label>
       <input type="password" id="in-chave" autocomplete="current-password" required>
     </div>
+    <p class="mudo" id="dica-entrada" style="margin:0;font-size:12.5px" hidden>
+      Ninguém cadastrado ainda: entre com a chave do servidor e crie o primeiro usuário em Administração.
+    </p>
     <div class="aviso erro" id="erro-entrada" hidden></div>
     <button class="botao" type="submit">Entrar</button>
   </form>
@@ -390,6 +397,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
     <button class="aba" role="tab" data-aba="admin">Administração</button>
     <div class="rodape">
       <div id="rodape-operador"></div>
+      <button type="button" id="btn-senha">Trocar senha</button>
       <button type="button" id="btn-sair">Sair</button>
     </div>
   </nav>
@@ -500,6 +508,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div class="cabeca-aba"><div><h1>Administração</h1><p>Mudanças valem na hora, sem reiniciar, e ficam registradas na auditoria.</p></div></div>
         <div class="subabas" role="tablist">
           <button class="subaba" data-sub="config">Comportamento</button>
+          <button class="subaba" data-sub="usuarios">Usuários do painel</button>
           <button class="subaba" data-sub="permissoes">Técnicos</button>
           <button class="subaba" data-sub="destinos">Quem recebe alertas</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
@@ -507,6 +516,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="auditoria">Auditoria</button>
         </div>
         <div data-subpainel="config" hidden></div>
+        <div data-subpainel="usuarios" hidden></div>
         <div data-subpainel="permissoes" hidden></div>
         <div data-subpainel="destinos" hidden></div>
         <div data-subpainel="prompts" hidden></div>
@@ -602,8 +612,13 @@ function toast(msg, tipo = '') {
    ───────────────────────────────────────────────────────────────────────── */
 const sessao = {
   operador: '',
+  login: '',
+  papel: 'admin',
+  semUsuarios: false,
   conversaAtiva: '',
 };
+const ehAdmin = () => sessao.papel === 'admin';
+const soLeitura = () => sessao.papel === 'leitura';
 
 class ErroApi extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
@@ -625,18 +640,64 @@ async function api(metodo, caminho, corpo, extra = {}) {
    ───────────────────────────────────────────────────────────────────────── */
 $('#form-entrada').addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  const chave = $('#in-chave').value.trim();
+  const segredo = $('#in-chave').value.trim();
   const operador = $('#in-operador').value.trim();
+  const login = $('#in-login').value.trim();
   $('#erro-entrada').hidden = true;
   try {
-    const r = await api('POST', '/api/sessao', { chave, operador });
-    sessao.operador = r.operador;
+    const corpo = sessao.semUsuarios ? { chave: segredo, operador } : { login, senha: segredo };
+    const r = await api('POST', '/api/sessao', corpo);
+    aplicarSessao(r);
+    if (r.trocarSenha) { trocarSenha(true); return; }
     iniciar();
   } catch (e) {
     $('#erro-entrada').textContent = e.message === 'Failed to fetch' ? 'Não consegui falar com o assistente. Ele está no ar?' : e.message;
     $('#erro-entrada').hidden = false;
   }
 });
+
+function aplicarSessao(r) {
+  sessao.operador = r.operador || r.login || '';
+  sessao.login = r.login || '';
+  sessao.papel = r.papel || 'admin';
+  sessao.semUsuarios = !!r.semUsuarios;
+  ajustarEntrada();
+  ajustarPorPapel();
+}
+
+/** Sem usuário cadastrado, a entrada é pela chave do servidor; com usuário, é login e senha. */
+function ajustarEntrada() {
+  const semUsu = sessao.semUsuarios;
+  $('#campo-login').hidden = semUsu;
+  $('#in-login').required = !semUsu;
+  $('#campo-operador').hidden = !semUsu;
+  $('#in-operador').required = semUsu;
+  $('#rot-chave').textContent = semUsu ? 'Chave de acesso' : 'Senha';
+  $('#dica-entrada').hidden = !semUsu;
+}
+
+/** Papel decide o que aparece: leitura não pergunta à IA, operador não administra. */
+function ajustarPorPapel() {
+  const admin = ehAdmin();
+  $('[data-aba="admin"]').hidden = !admin;
+  $('[data-aba="chat"]').hidden = soLeitura();
+  $('#rodape-operador').textContent = sessao.operador
+    + (sessao.papel !== 'admin' ? ` · ${sessao.papel}` : '');
+  if (!admin && !$('[data-painel="admin"]').hidden) irPara('visao');
+  if (soLeitura() && !$('[data-painel="chat"]').hidden) irPara('visao');
+}
+
+/** Troca da própria senha. `obrigatoria` vem do primeiro acesso. */
+async function trocarSenha(obrigatoria = false) {
+  const atual = prompt(obrigatoria ? 'Senha atual (a que você acabou de usar):' : 'Senha atual:');
+  if (atual === null) { if (obrigatoria) sair('Troque a senha para continuar.'); return; }
+  const nova = prompt('Nova senha (mínimo 10 caracteres, com letra e número):');
+  if (nova === null) { if (obrigatoria) sair('Troque a senha para continuar.'); return; }
+  try {
+    await api('POST', '/api/sessao/senha', { atual, nova });
+    sair('Senha trocada. Entre de novo.');
+  } catch (e) { toast(e.message, 'erro'); if (obrigatoria) trocarSenha(true); }
+}
 
 async function sair(motivo) {
   try { await api('DELETE', '/api/sessao'); } catch {}
@@ -649,6 +710,7 @@ async function sair(motivo) {
   if (motivo) { $('#erro-entrada').textContent = motivo; $('#erro-entrada').hidden = false; }
 }
 $('#btn-sair').addEventListener('click', () => sair());
+$('#btn-senha').addEventListener('click', () => trocarSenha(false));
 
 /* ─────────────────────────────────────────────────────────────────────────
    Navegação
@@ -1291,6 +1353,111 @@ subCarregadores.destinos = async () => {
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
+subCarregadores.usuarios = async () => {
+  const alvo = $('[data-subpainel="usuarios"]');
+  const quando = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR') : 'nunca');
+  try {
+    const r = await api('GET', '/api/usuarios');
+    const seletorPapel = (atual) => el('select', {}, r.papeis.map((p) =>
+      el('option', { value: p.id, text: p.id, selected: p.id === atual })));
+
+    const form = el('form', { class: 'bloco grade', style: 'gap:12px;margin-bottom:16px' },
+      el('h2', { class: 'secao', text: 'Novo usuário do painel' }),
+      el('p', { class: 'mudo', style: 'margin:0;font-size:13px', text: 'Cada pessoa entra com o login dela. A auditoria passa a registrar quem fez, e dá para desligar uma pessoa sem trocar a chave de todos.' }),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'u-login', text: 'Login' }), el('input', { type: 'text', id: 'u-login', required: true, placeholder: 'joao.silva' })),
+        el('div', { class: 'campo' }, el('label', { for: 'u-nome', text: 'Nome' }), el('input', { type: 'text', id: 'u-nome', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'u-papel', text: 'Papel' }), (() => { const s = seletorPapel('operador'); s.id = 'u-papel'; return s; })())),
+      el('div', { class: 'campo' }, el('label', { for: 'u-senha', text: 'Senha inicial (mínimo 10 caracteres, com letra e número)' }), el('input', { type: 'text', id: 'u-senha', required: true, minlength: 10 })),
+      el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' },
+        el('input', { type: 'checkbox', id: 'u-trocar', checked: true }), 'Pedir troca de senha no primeiro acesso'),
+      el('div', {}, el('button', { class: 'botao', type: 'submit', text: 'Criar' })));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api('POST', '/api/usuarios', {
+          login: $('#u-login', form).value, nome: $('#u-nome', form).value,
+          senha: $('#u-senha', form).value, papel: $('#u-papel', form).value,
+          trocarSenha: $('#u-trocar', form).checked,
+        });
+        toast('Usuário criado. Passe a senha por um canal seguro.', 'ok');
+        subCarregadores.usuarios();
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const papeis = el('ul', { class: 'lacunas' }, r.papeis.map((p) => el('li', { text: `${p.id}: ${p.descricao}` })));
+
+    const linha = (u) => {
+      const sel = seletorPapel(u.papel);
+      sel.addEventListener('change', async () => {
+        try { await api('PUT', `/api/usuarios/${u.id}`, { papel: sel.value }); toast('Papel alterado.', 'ok'); subCarregadores.usuarios(); }
+        catch (e) { toast(e.message, 'erro'); subCarregadores.usuarios(); }
+      });
+      return el('tr', {},
+        el('td', { text: u.nome }),
+        el('td', { class: 'dado', text: u.login }),
+        el('td', {}, sel),
+        el('td', {}, el('span', { style: `color:var(${u.ativo ? '--confirmado' : '--inconclusivo'})`, text: u.ativo ? 'Ativo' : 'Desativado' })),
+        el('td', { class: 'fraco', text: quando(u.ultimo_acesso) }),
+        el('td', { class: 'dado', text: String(u.sessoes) }),
+        el('td', {}, el('div', { class: 'linha-acoes' },
+          el('button', { class: 'botao sec mini', type: 'button', text: u.ativo ? 'Desativar' : 'Ativar', onclick: async () => {
+            try { await api('PUT', `/api/usuarios/${u.id}`, { ativo: !u.ativo }); toast('Pronto.', 'ok'); subCarregadores.usuarios(); }
+            catch (e) { toast(e.message, 'erro'); }
+          } }),
+          el('button', { class: 'botao sec mini', type: 'button', text: 'Nova senha', onclick: async () => {
+            const senha = prompt(`Nova senha para ${u.nome} (mínimo 10 caracteres, com letra e número):`);
+            if (!senha) return;
+            try { await api('PUT', `/api/usuarios/${u.id}`, { senha, trocarSenha: true }); toast('Senha trocada. As sessões dele caíram.', 'ok'); subCarregadores.usuarios(); }
+            catch (e) { toast(e.message, 'erro'); }
+          } }),
+          el('button', { class: 'botao sec mini', type: 'button', text: 'Derrubar sessões', onclick: async () => {
+            try { const x = await api('DELETE', `/api/usuarios/${u.id}/sessoes`); toast(`${x.revogadas} sessão(ões) encerrada(s).`, 'ok'); subCarregadores.usuarios(); }
+            catch (e) { toast(e.message, 'erro'); }
+          } }),
+          el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+            if (!confirm(`Remover ${u.nome}? Ele perde o acesso na hora.`)) return;
+            try { await api('DELETE', `/api/usuarios/${u.id}`); toast('Removido.', 'ok'); subCarregadores.usuarios(); }
+            catch (e) { toast(e.message, 'erro'); }
+          } }))));
+    };
+
+    const tabela = el('div', { class: 'bloco tabela-rolagem' },
+      el('h2', { class: 'secao', text: 'Cadastrados' }),
+      r.usuarios.length
+        ? el('table', {}, el('thead', {}, el('tr', {}, ['Nome', 'Login', 'Papel', 'Situação', 'Último acesso', 'Sessões', ''].map((t) => el('th', { text: t })))),
+          el('tbody', {}, r.usuarios.map(linha)))
+        : el('p', { class: 'vazio-msg', text: 'Ninguém cadastrado. Enquanto isso, a entrada é pela chave do servidor.' }),
+      papeis);
+
+    const sessoes = el('div', { class: 'bloco tabela-rolagem' },
+      el('h2', { class: 'secao', text: 'Sessões abertas' }),
+      el('div', { id: 'lista-sessoes' }, el('p', { class: 'fraco', text: 'Carregando…' })));
+    api('GET', '/api/sessoes').then(({ sessoes: ss }) => {
+      $('#lista-sessoes', sessoes).replaceChildren(ss.length
+        ? el('table', {}, el('thead', {}, el('tr', {}, ['Quem', 'Papel', 'IP', 'Dispositivo', 'Última atividade', ''].map((t) => el('th', { text: t })))),
+          el('tbody', {}, ss.map((s) => el('tr', {},
+            el('td', { text: s.operador }),
+            el('td', { text: s.papel }),
+            el('td', { class: 'dado', text: s.ip || '—' }),
+            el('td', { class: 'fraco', style: 'max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: s.dispositivo || '—' }),
+            el('td', { class: 'fraco', text: quando(s.ultima_em) }),
+            el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Encerrar', onclick: async () => {
+              try { await api('DELETE', `/api/sessoes/${s.id}`); toast('Sessão encerrada.', 'ok'); subCarregadores.usuarios(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } })))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhuma sessão aberta.' }));
+    }).catch(() => {});
+
+    const minha = el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: 'Minha conta' }),
+      el('p', { class: 'mudo', style: 'margin:0 0 8px', text: `Entrou como ${sessao.operador} (${sessao.papel}).` }),
+      el('button', { class: 'botao sec', type: 'button', text: 'Trocar minha senha', onclick: () => trocarSenha(false) }));
+
+    alvo.replaceChildren(form, tabela, sessoes, minha);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
 subCarregadores.permissoes = async () => {
   const alvo = $('[data-subpainel="permissoes"]');
   try {
@@ -1528,14 +1695,29 @@ function iniciar() {
 
 api('GET', '/api/sessao')
   .then((r) => {
-    sessao.operador = r.operador;
+    aplicarSessao(r);
+    if (r.trocarSenha) { $('#tela-entrada').hidden = false; trocarSenha(true); return; }
     iniciar();
   })
-  .catch((e) => {
+  .catch(async () => {
+    // Sem sessão: descobre se já existe usuário, para pedir login ou a chave.
+    try {
+      const r = await fetch('/api/sessao/modo').then((x) => x.json());
+      sessao.semUsuarios = !!r.semUsuarios;
+    } catch { sessao.semUsuarios = false; }
+    ajustarEntrada();
     $('#tela-entrada').hidden = false;
-    try { $('#in-operador').value = localStorage.getItem('aq.ultimoOperador') || ''; } catch {}
+    try {
+      $('#in-operador').value = localStorage.getItem('aq.ultimoOperador') || '';
+      $('#in-login').value = localStorage.getItem('aq.ultimoLogin') || '';
+    } catch {}
   });
-$('#form-entrada').addEventListener('submit', () => { try { localStorage.setItem('aq.ultimoOperador', $('#in-operador').value.trim()); } catch {} });
+$('#form-entrada').addEventListener('submit', () => {
+  try {
+    localStorage.setItem('aq.ultimoOperador', $('#in-operador').value.trim());
+    localStorage.setItem('aq.ultimoLogin', $('#in-login').value.trim());
+  } catch {}
+});
 </script>
 </body>
 </html>

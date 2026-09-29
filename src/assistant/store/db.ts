@@ -192,7 +192,27 @@ function migrar(d: Database.Database): void {
       criada_em  TEXT NOT NULL,
       ultima_em  TEXT NOT NULL
     );
+
+    -- ═══ Usuários do painel ═══════════════════════════════════════════════
+    -- Login por pessoa no lugar de uma chave compartilhada: a auditoria passa
+    -- a dizer quem fez, e dá para desligar uma pessoa sem trocar a chave de todos.
+    CREATE TABLE IF NOT EXISTS usuario_painel (
+      id            TEXT PRIMARY KEY,
+      login         TEXT NOT NULL UNIQUE,
+      nome          TEXT NOT NULL,
+      senha_hash    TEXT NOT NULL,          -- scrypt: salt:hash
+      papel         TEXT NOT NULL,          -- admin | operador | leitura
+      ativo         INTEGER NOT NULL DEFAULT 1,
+      criado_em     TEXT NOT NULL,
+      ultimo_acesso TEXT,
+      trocar_senha  INTEGER NOT NULL DEFAULT 0
+    );
   `);
+
+  adicionarColunaSeFaltar(d, 'sessao_painel', 'usuario_id', 'TEXT');
+  adicionarColunaSeFaltar(d, 'sessao_painel', 'papel', "TEXT NOT NULL DEFAULT 'admin'");
+  adicionarColunaSeFaltar(d, 'sessao_painel', 'ip', 'TEXT');
+  adicionarColunaSeFaltar(d, 'sessao_painel', 'dispositivo', 'TEXT');
 
   // Colunas acrescentadas depois da primeira versão do schema. SQLite não tem
   // "ADD COLUMN IF NOT EXISTS", então checa antes — bancos já em produção

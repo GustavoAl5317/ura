@@ -28,7 +28,8 @@
     "test:fala": "ts-node --transpile-only test-fala.ts",
     "test:destinos": "ts-node --transpile-only test-destinos.ts",
     "test:atendimento": "ts-node --transpile-only test-atendimento.ts",
-    "test:link": "ts-node --transpile-only test-link.ts"
+    "test:link": "ts-node --transpile-only test-link.ts",
+    "test:usuarios": "ts-node --transpile-only test-usuarios.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",
