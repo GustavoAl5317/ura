@@ -448,6 +448,17 @@ function migrar(d: Database.Database): void {
       criado_em     TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ix_excecao_janela ON plantao_excecao(inicio, fim);
+
+    -- ═══ SLA do incidente (B5) ════════════════════════════════════════════
+    -- Prazo por severidade, separado para reconhecer, começar a atender e
+    -- resolver. Uma linha por severidade; o painel edita os minutos.
+    CREATE TABLE IF NOT EXISTS sla_regra (
+      severidade     TEXT PRIMARY KEY,
+      reconhecer_min INTEGER NOT NULL,
+      atender_min    INTEGER NOT NULL,
+      resolver_min   INTEGER NOT NULL,
+      ativo          INTEGER NOT NULL DEFAULT 1
+    );
   `);
 
   // A coluna vive na tabela `alerta`, criada no bloco acima: por isso só aqui.
@@ -462,6 +473,32 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'equipe', 'substituto_id', 'INTEGER');
   adicionarColunaSeFaltar(d, 'equipe', 'escalonamento', 'TEXT');
   adicionarColunaSeFaltar(d, 'equipe', 'grupo', 'TEXT');
+
+  // Escalonamento e SLA: em que degrau o incidente está e quando cada marco
+  // aconteceu. Sem isso, "ninguém reconheceu" só se descobre olhando.
+  adicionarColunaSeFaltar(d, 'incidente', 'degrau', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltar(d, 'incidente', 'escalonado_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'incidente', 'atendido_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'incidente', 'violacoes', 'TEXT');
+
+  // Entrega por destino: enviado não é entregue, entregue não é visto, e visto
+  // não é reconhecido. Cada estado tem hora própria.
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'mensagem_id', 'TEXT');
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'estado', "TEXT NOT NULL DEFAULT 'enviado'");
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'entregue_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'visto_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'reconhecido_em', 'TEXT');
+  adicionarColunaSeFaltar(d, 'alerta_envio', 'motivo', 'TEXT');
+
+  // Prazos padrão. Só na primeira vez: depois quem manda é o painel.
+  const temSla = (d.prepare(`SELECT COUNT(*) n FROM sla_regra`).get() as { n: number }).n;
+  if (!temSla) {
+    const ins = d.prepare(`INSERT INTO sla_regra (severidade, reconhecer_min, atender_min, resolver_min, ativo) VALUES (?,?,?,?,1)`);
+    for (const [sev, rec, at, res] of [
+      ['informacao', 240, 480, 2880], ['atencao', 120, 240, 1440], ['advertencia', 60, 120, 480],
+      ['critico', 15, 30, 240], ['maior', 10, 20, 120], ['desastre', 5, 10, 60],
+    ] as Array<[string, number, number, number]>) ins.run(sev, rec, at, res);
+  }
 
   // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────
 

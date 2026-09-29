@@ -1,6 +1,7 @@
 // Rotas de operação (Bloco 4): alertas, chamadas da URA, monitores e stream ao vivo.
 
 import { Rota, json, lerJson, ator, ErroHttp } from './http-util';
+import { db } from './store/db';
 import { assinar, eventosRecentes } from './eventos';
 import { listar as listarAlertas, reconhecer } from './alertas';
 import { receberEventoUra, listarChamadas, EventoUra } from './monitors/ura';
@@ -13,7 +14,16 @@ import {
   tempoAteReconhecer,
 } from './incidentes';
 import { cadeia, plantaoAgora } from './plantao';
+import { MARCOS, ROTULO_MARCO, listarRegras, situacao } from './sla-incidente';
+import { cadeiaDoIncidente } from './roteamento';
+import { enviosDoAlerta } from './destinos-alerta';
 import { obter } from './config-dinamica';
+
+/** Como cada mensagem deste incidente terminou: enviada, entregue, vista, reconhecida. */
+function entregasDoIncidente(id: string) {
+  const alertas = db().prepare(`SELECT alerta_id FROM incidente_alerta WHERE incidente_id = ?`).all(id) as Array<{ alerta_id: string }>;
+  return alertas.flatMap((a) => enviosDoAlerta(a.alerta_id));
+}
 
 export const rotasOperacao: Rota = async (req, res, url, p) => {
   // ── Stream ao vivo do painel ──────────────────────────────────────────────
@@ -73,9 +83,12 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
         ...i,
         duracao_seg: duracaoSeg(i),
         reconhecer_seg: tempoAteReconhecer(i),
+        sla: situacao(i),
       })),
       estados: ROTULO_ESTADO,
       severidades: ROTULO_SEVERIDADE,
+      marcos: ROTULO_MARCO,
+      regras_sla: listarRegras(),
     });
     return true;
   }
@@ -87,10 +100,15 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
     if (!inc) throw new ErroHttp(404, 'incidente não encontrado');
     try {
       if (!mInc[3] && req.method === 'GET') {
+        const ligados = alertasDoIncidente(inc.id);
         json(res, 200, {
           incidente: { ...inc, duracao_seg: duracaoSeg(inc), reconhecer_seg: tempoAteReconhecer(inc) },
           linha_do_tempo: linhaDoTempo(inc.id),
-          alertas: alertasDoIncidente(inc.id),
+          alertas: ligados,
+          sla: situacao(inc),
+          marcos: MARCOS.map((m) => ({ marco: m, rotulo: ROTULO_MARCO[m] })),
+          cadeia: cadeiaDoIncidente(inc),
+          entregas: entregasDoIncidente(inc.id),
         });
         return true;
       }

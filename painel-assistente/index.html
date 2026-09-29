@@ -1196,6 +1196,23 @@ const COR_SEVERIDADE = {
   critico: '--inconclusivo', maior: '--inconclusivo', desastre: '--inconclusivo',
 };
 
+/** Relógio do incidente: o que vence primeiro, e se já estourou. */
+function chipSla(sla, rotulos) {
+  if (!sla || !sla.ativo) return null;
+  const estourados = sla.marcos.filter((m) => m.estourado);
+  const texto = (m) => {
+    const min = Math.round(Math.abs(m.restante_seg) / 60);
+    return `${(rotulos && rotulos[m.marco]) || m.marco}: ${m.restante_seg < 0 ? `${min} min além do prazo` : `${min} min`}`;
+  };
+  if (estourados.length) {
+    return el('div', { style: 'margin-top:4px;color:var(--inconclusivo);font-weight:600;font-size:12.5px',
+      text: `SLA estourado · ${estourados.map(texto).join(' · ')}` });
+  }
+  return sla.proximo
+    ? el('div', { class: 'fraco', style: 'margin-top:4px;font-size:12.5px', text: `SLA · ${texto(sla.proximo)} restantes` })
+    : null;
+}
+
 carregadores.incidentes = async () => {
   const alvo = $('#lista-incidentes');
   const estado = $('#f-inc-estado').value;
@@ -1252,7 +1269,9 @@ carregadores.incidentes = async () => {
           + (i.reaberturas ? ` · reabriu ${i.reaberturas}x` : '')),
         el('div', { style: 'margin-top:4px' }, i.dono
           ? el('span', {}, 'Dono: ', el('b', { text: i.dono }), i.reconhecer_seg !== null ? el('span', { class: 'fraco', text: ` (assumiu em ${Math.round(i.reconhecer_seg / 60)} min)` }) : null)
-          : el('span', { style: 'color:var(--inconclusivo);font-weight:600', text: 'SEM DONO' })),
+          : el('span', { style: 'color:var(--inconclusivo);font-weight:600', text: 'SEM DONO' }),
+          i.degrau ? el('span', { class: 'fraco', text: ` · escalonado até o degrau ${i.degrau}` }) : null),
+        chipSla(i.sla, r.marcos),
         el('div', { class: 'linha-acoes', style: 'margin-top:8px' },
           i.dono ? null : acao('Assumir', () => api('POST', `/api/incidentes/${i.numero}/assumir`, {}), 'botao mini'),
           i.estado !== 'atendimento' ? acao('Em atendimento', () => api('POST', `/api/incidentes/${i.numero}/estado`, { estado: 'atendimento' })) : null,
@@ -1331,7 +1350,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1781,6 +1800,7 @@ subCarregadores.permissoes = async () => {
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 
+const SEVERIDADE_INC = { informacao: 'Informação', atencao: 'Atenção', advertencia: 'Advertência', critico: 'Crítico', maior: 'Maior', desastre: 'Desastre' };
 const DIAS_CURTOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const ROT_SEV_EQUIPE = { info: 'Tudo, inclusive informativo', aviso: 'Avisos e críticos', critico: 'Só críticos' };
 
@@ -1790,7 +1810,7 @@ const janelaEscala = (e) => `${e.dias.map((d) => DIAS_CURTOS[d]).join(', ')} · 
 subCarregadores.plantao = async () => {
   const alvo = $('[data-subpainel="plantao"]');
   try {
-    const [vivo, cad] = await Promise.all([api('GET', '/api/plantao'), api('GET', '/api/plantao/cadastro')]);
+    const [vivo, cad, slaR] = await Promise.all([api('GET', '/api/plantao'), api('GET', '/api/plantao/cadastro'), api('GET', '/api/sla')]);
     const nomeDe = (id) => cad.pessoas.find((p) => p.id === id)?.nome || `#${id}`;
     const nomeEquipe = (id) => cad.equipes.find((e) => e.id === id)?.nome || id;
     const recarregar = () => subCarregadores.plantao();
@@ -1983,7 +2003,35 @@ subCarregadores.plantao = async () => {
         el('tbody', {}, cad.equipes.map(linhaEquipe))))
         : el('p', { class: 'vazio-msg', text: 'Nenhuma equipe criada. Crie em Administração → Técnicos.' }));
 
-    alvo.replaceChildren(blocoAgora, blocoEscalas, blocoExc, blocoEquipes);
+    // ── Prazos do SLA por severidade ──
+    const linhaSla = (g) => {
+      const campo = (v) => el('input', { type: 'number', value: String(v), min: '1', max: '10080', style: 'width:90px' });
+      const rec = campo(g.reconhecer_min);
+      const at = campo(g.atender_min);
+      const res = campo(g.resolver_min);
+      const lig = el('input', { type: 'checkbox', checked: g.ativo, 'aria-label': `SLA de ${g.severidade} ligado` });
+      return el('tr', {},
+        el('td', { text: SEVERIDADE_INC[g.severidade] || g.severidade }),
+        el('td', {}, rec), el('td', {}, at), el('td', {}, res),
+        el('td', {}, lig),
+        el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Salvar', onclick: async () => {
+          try {
+            await api('PUT', `/api/sla/${g.severidade}`, {
+              reconhecer_min: Number(rec.value), atender_min: Number(at.value),
+              resolver_min: Number(res.value), ativo: lig.checked,
+            });
+            toast('Prazo salvo.', 'ok'); recarregar();
+          } catch (err) { toast(err.message, 'erro'); }
+        } })));
+    };
+    const blocoSla = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Prazos do incidente (SLA)' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Minutos contados da abertura do incidente. O prazo de reconhecer é o que dispara o escalonamento: estourou e ninguém assumiu, o incidente sobe a cadeia sozinho.' }),
+      el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Severidade', 'Reconhecer (min)', 'Atender (min)', 'Resolver (min)', 'Ativo', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, slaR.regras.map(linhaSla)))));
+
+    alvo.replaceChildren(blocoAgora, blocoEscalas, blocoExc, blocoEquipes, blocoSla);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

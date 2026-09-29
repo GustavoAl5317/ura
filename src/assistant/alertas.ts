@@ -14,9 +14,10 @@ import { obter, dentroDaJanela } from './config-dinamica';
 import { publicar } from './eventos';
 import { dispararWebhooks } from './webhooks';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
-import { destinosDoAlerta, registrarEnvio } from './destinos-alerta';
+import { marcarReconhecido, registrarEnvio } from './destinos-alerta';
 import { alertaResolvido, correlacionar } from './incidentes';
 import { avisoDePlantao } from './plantao';
+import { Alvo, alvosDoAlerta, marcarEscalada, paraEscalar } from './roteamento';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -135,18 +136,15 @@ export async function emitir(p: {
 }
 
 async function despachar(a: Alerta): Promise<void> {
-  const grupo = obter<string>('alertas.destino_grupo');
   const motivoNaoEnvio = (m: string) => {
     db().prepare(`UPDATE alerta SET envio_erro = ? WHERE id = ?`).run(m, a.id);
     a.envio_erro = m;
   };
 
-  const alvos: Array<{ rotulo: string; jid: string }> = [
-    ...(grupo ? [{ rotulo: 'grupo', jid: grupo }] : []),
-    ...destinosDoAlerta(a).map((d) => ({ rotulo: d.nome, jid: d.numero })),
-  ];
+  // Quem recebe depende da gravidade: o roteamento decide grupo, pessoas e plantão.
+  const alvos: Alvo[] = alvosDoAlerta(a);
   if (!alvos.length) {
-    return motivoNaoEnvio('ninguém recebe este tipo de alerta (sem grupo e sem pessoa cadastrada para ele)');
+    return motivoNaoEnvio('ninguém recebe este tipo de alerta (sem grupo, sem pessoa cadastrada e sem plantão para ele)');
   }
 
   const inicio = obter<string>('alertas.silencio_inicio');
@@ -161,9 +159,10 @@ async function despachar(a: Alerta): Promise<void> {
 
   const falhas: string[] = [];
   for (const alvo of alvos) {
-    const ok = await evoTecnicos.enviarTexto(alvo.jid, a.texto);
-    registrarEnvio(a.id, alvo.rotulo, ok, ok ? null : 'falha no WhatsApp (ver log do Evolution)');
-    if (!ok) falhas.push(alvo.rotulo);
+    const r = await evoTecnicos.enviarTextoComId(alvo.jid, a.texto);
+    registrarEnvio(a.id, alvo.rotulo, r.ok, r.ok ? null : 'falha no WhatsApp (ver log do Evolution)',
+      { mensagemId: r.id, motivo: alvo.origem });
+    if (!r.ok) falhas.push(alvo.rotulo);
   }
   if (falhas.length === alvos.length) return motivoNaoEnvio(`falha ao enviar pelo WhatsApp para ${falhas.join(', ')} (ver log do Evolution)`);
 
@@ -197,7 +196,38 @@ export function reconhecer(id: string, usuario: string): boolean {
   const r = db().prepare(
     `UPDATE alerta SET reconhecido_em = ?, reconhecido_por = ? WHERE id = ? AND reconhecido_em IS NULL`,
   ).run(new Date().toISOString(), usuario, id);
+  if (r.changes) marcarReconhecido(id);
   return r.changes > 0;
+}
+
+/**
+ * Sobe um degrau nos incidentes que estouraram o prazo sem ninguém assumir.
+ * Mora aqui porque quem sabe mandar mensagem é este módulo; quem decide a
+ * subida é o roteamento.
+ */
+export async function escalarPendentes(quando = new Date()): Promise<number> {
+  let subiram = 0;
+  for (const e of paraEscalar(quando)) {
+    marcarEscalada(e, quando);
+    subiram++;
+    if (!e.degrau.pessoas.length) {
+      logger.error('Escalonamento sem ninguém para acionar', { numero: e.incidente.numero, degrau: e.degrau.rotulo });
+      continue;
+    }
+    if (!evoTecnicos.disponivel) continue;
+    for (const p of e.degrau.pessoas) {
+      const r = await evoTecnicos.enviarTextoComId(p.numero, e.texto);
+      const alerta = db().prepare(
+        `SELECT alerta_id FROM incidente_alerta WHERE incidente_id = ? ORDER BY rowid DESC LIMIT 1`,
+      ).get(e.incidente.id) as { alerta_id: string } | undefined;
+      if (alerta) {
+        registrarEnvio(alerta.alerta_id, `${p.nome} (${e.degrau.rotulo})`, r.ok,
+          r.ok ? null : 'falha no WhatsApp (ver log do Evolution)',
+          { mensagemId: r.id, motivo: 'escalonamento' });
+      }
+    }
+  }
+  return subiram;
 }
 
 export function listar(opts: { limite?: number; origem?: string; abertos?: boolean } = {}): Alerta[] {

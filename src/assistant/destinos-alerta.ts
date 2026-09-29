@@ -82,15 +82,74 @@ export function destinosDoAlerta(a: Pick<Alerta, 'origem' | 'chave' | 'severidad
     (SEM_GRAVIDADE.includes(tipo) || nivel >= SEVERIDADES.indexOf(d.severidade_minima)));
 }
 
-export function registrarEnvio(alertaId: string, destino: string, ok: boolean, erro: string | null): void {
-  const agora = new Date().toISOString();
-  db().prepare(`INSERT INTO alerta_envio (alerta_id, destino, enviado_em, erro, at) VALUES (?,?,?,?,?)`)
-    .run(alertaId, destino, ok ? agora : null, ok ? null : erro, agora);
+/**
+ * Estados de entrega. "Enviado" não é "entregue", "entregue" não é "visto" e
+ * nada disso é "alguém assumiu": cada um tem hora própria, e a diferença entre
+ * eles é o que explica por que o problema ficou parado.
+ */
+export const ESTADOS_ENVIO = ['enviado', 'entregue', 'visualizado', 'reconhecido', 'falhou'] as const;
+export type EstadoEnvio = (typeof ESTADOS_ENVIO)[number];
+
+export const ROTULO_ENVIO: Record<EstadoEnvio, string> = {
+  enviado: 'Enviado', entregue: 'Entregue', visualizado: 'Visualizado',
+  reconhecido: 'Reconhecido', falhou: 'Falhou',
+};
+
+export interface Envio {
+  id: number;
+  alerta_id: string;
+  destino: string;
+  estado: EstadoEnvio;
+  motivo: string | null;
+  mensagem_id: string | null;
+  enviado_em: string | null;
+  entregue_em: string | null;
+  visto_em: string | null;
+  reconhecido_em: string | null;
+  erro: string | null;
+  at: string;
 }
 
-export function enviosDoAlerta(alertaId: string): Array<{ destino: string; enviado_em: string | null; erro: string | null }> {
-  return db().prepare(`SELECT destino, enviado_em, erro FROM alerta_envio WHERE alerta_id = ? ORDER BY id`)
-    .all(alertaId) as Array<{ destino: string; enviado_em: string | null; erro: string | null }>;
+export function registrarEnvio(
+  alertaId: string, destino: string, ok: boolean, erro: string | null,
+  extra: { mensagemId?: string | null; motivo?: string | null } = {},
+): number {
+  const agora = new Date().toISOString();
+  const r = db().prepare(
+    `INSERT INTO alerta_envio (alerta_id, destino, enviado_em, erro, at, estado, mensagem_id, motivo)
+     VALUES (?,?,?,?,?,?,?,?)`,
+  ).run(alertaId, destino, ok ? agora : null, ok ? null : erro, agora,
+    ok ? 'enviado' : 'falhou', extra.mensagemId ?? null, extra.motivo ?? null);
+  return Number(r.lastInsertRowid);
+}
+
+/** Recibo do WhatsApp: entregue no aparelho, ou aberto pela pessoa. */
+export function marcarRecibo(mensagemId: string, estado: 'entregue' | 'visualizado'): boolean {
+  const agora = new Date().toISOString();
+  const coluna = estado === 'entregue' ? 'entregue_em' : 'visto_em';
+  // Nunca rebaixa: quem já viu não volta a "entregue", e reconhecido é o fim.
+  const ordem = ESTADOS_ENVIO.indexOf(estado);
+  const abaixo = ESTADOS_ENVIO.filter((e) => ESTADOS_ENVIO.indexOf(e) < ordem);
+  const r = db().prepare(
+    `UPDATE alerta_envio SET ${coluna} = COALESCE(${coluna}, ?), estado = ?
+      WHERE mensagem_id = ? AND estado IN (${abaixo.map(() => '?').join(',')})`,
+  ).run(agora, estado, mensagemId, ...abaixo);
+  if (r.changes) return true;
+  // Chegou fora de ordem (visualizado antes do entregue): só carimba a hora.
+  return db().prepare(`UPDATE alerta_envio SET ${coluna} = COALESCE(${coluna}, ?) WHERE mensagem_id = ?`)
+    .run(agora, mensagemId).changes > 0;
+}
+
+/** Alguém assumiu: fecha o ciclo de todos os envios daquele alerta. */
+export function marcarReconhecido(alertaId: string): number {
+  return db().prepare(
+    `UPDATE alerta_envio SET estado = 'reconhecido', reconhecido_em = COALESCE(reconhecido_em, ?)
+      WHERE alerta_id = ? AND estado <> 'falhou'`,
+  ).run(new Date().toISOString(), alertaId).changes;
+}
+
+export function enviosDoAlerta(alertaId: string): Envio[] {
+  return db().prepare(`SELECT * FROM alerta_envio WHERE alerta_id = ? ORDER BY id`).all(alertaId) as Envio[];
 }
 
 export function validarTipos(v: unknown): TipoAlerta[] {

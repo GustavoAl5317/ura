@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -266,6 +266,44 @@ export const DEFINICOES = {
   'plantao.avisar_no_alerta': {
     tipo: 'booleano', grupo: 'plantao', padrao: () => true,
     descricao: 'Escreve no alerta quem está de plantão, ou avisa que a equipe está descoberta. Só aparece quando o alerta vira incidente.',
+  },
+
+  // ── Roteamento e escalonamento ──────────────────────────────────────────
+  'roteamento.ativo': {
+    tipo: 'booleano', grupo: 'roteamento', padrao: () => true,
+    descricao: 'Escolhe os canais pela gravidade. Desligado, todo alerta vai para o grupo e para quem marcou o tipo.',
+  },
+  'roteamento.canais_info': {
+    tipo: 'lista', grupo: 'roteamento', padrao: () => ['grupo', 'pessoas'], opcoes: ['grupo', 'pessoas', 'plantao'],
+    descricao: 'Quem recebe os informativos (inclusive chamada da URA e resumo). "plantao" acrescenta quem está na vez e o grupo da equipe.',
+  },
+  'roteamento.canais_aviso': {
+    tipo: 'lista', grupo: 'roteamento', padrao: () => ['grupo', 'pessoas'], opcoes: ['grupo', 'pessoas', 'plantao'],
+    descricao: 'Quem recebe os avisos.',
+  },
+  'roteamento.canais_critico': {
+    tipo: 'lista', grupo: 'roteamento', padrao: () => ['grupo', 'pessoas', 'plantao'], opcoes: ['grupo', 'pessoas', 'plantao'],
+    descricao: 'Quem recebe os críticos.',
+  },
+  'roteamento.critico_nunca_sem_destino': {
+    tipo: 'booleano', grupo: 'roteamento', padrao: () => true,
+    descricao: 'Alerta crítico que ficaria sem ninguém vai para a gerência. Alerta crítico engavetado é pior que alerta repetido.',
+  },
+  'escalonamento.ativo': {
+    tipo: 'booleano', grupo: 'roteamento', padrao: () => true,
+    descricao: 'Incidente sem reconhecimento dentro do prazo sobe a cadeia sozinho, um degrau por vez.',
+  },
+  'escalonamento.intervalo_min': {
+    tipo: 'inteiro', grupo: 'roteamento', padrao: () => 5, min: 1, max: 240,
+    descricao: 'Tempo mínimo entre um degrau e o próximo.',
+  },
+  'escalonamento.max_degraus': {
+    tipo: 'inteiro', grupo: 'roteamento', padrao: () => 5, min: 1, max: 10,
+    descricao: 'Até onde o escalonamento pode subir. 5 cobre plantonista, substituto, supervisor, segundo nível e gerência.',
+  },
+  'escalonamento.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'roteamento', padrao: () => 60, min: 30, max: 900,
+    descricao: 'De quanto em quanto tempo o monitor confere os prazos.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────

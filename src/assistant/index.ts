@@ -25,7 +25,8 @@ import { registrarFerramentasPlantao } from './tools/plantao';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
-import { parseWebhook } from '../integrations/evolution';
+import { parseRecibo, parseWebhook } from '../integrations/evolution';
+import { marcarRecibo } from './destinos-alerta';
 import { evoTecnicos, processarMensagem } from './channels/whatsapp-tecnicos';
 import { responder } from './agent';
 import { rotasOperacao } from './rotas-operacao';
@@ -44,6 +45,7 @@ import { iniciarMonitorResumo } from './resumo-diario';
 import { iniciarMonitorNetflow } from './monitors/netflow';
 import { iniciarMonitorCtos } from './monitors/ctos';
 import { iniciarMonitorIncidentes } from './monitors/incidentes';
+import { iniciarMonitorEscalonamento } from './monitors/escalonamento';
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -146,7 +148,11 @@ async function rotear(req: http.IncomingMessage, res: http.ServerResponse): Prom
     json(res, 200, { ok: true });
 
     try {
-      const msg = parseWebhook(JSON.parse(await lerCorpo(req)));
+      const corpo = JSON.parse(await lerCorpo(req));
+      // Recibo de entrega: diz se o alerta chegou no aparelho e se foi aberto.
+      const recibo = parseRecibo(corpo);
+      if (recibo) marcarRecibo(recibo.id, recibo.estado);
+      const msg = parseWebhook(corpo);
       if (msg) void processarMensagem(msg).catch((err) => {
         logger.error('Assistente: erro ao processar mensagem', {
           err: err instanceof Error ? err.message : String(err),
@@ -572,6 +578,7 @@ async function main(): Promise<void> {
   iniciarMonitorNetflow();
   iniciarMonitorCtos();
   iniciarMonitorIncidentes();
+  iniciarMonitorEscalonamento();
 
   const atender = (req: http.IncomingMessage, res: http.ServerResponse) => {
     rotear(req, res).catch((err) => {

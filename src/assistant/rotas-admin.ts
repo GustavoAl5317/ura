@@ -25,6 +25,9 @@ import {
   atualizarEscala, criarEscala, criarExcecao, equipes as equipesPlantao, listarEscalas, listarExcecoes,
   pessoas as pessoasPlantao, removerEscala, removerExcecao,
 } from './plantao';
+import {
+  ROTULO_MARCO, listarRegras as listarRegrasSla, salvarRegra as salvarRegraSla,
+} from './sla-incidente';
 
 /** Sessão para o painel: sem o token, que é credencial viva. */
 function sessaoSaida(s: SessaoPainel) {
@@ -633,6 +636,23 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
       json(res, 200, { ok: true });
     } catch (e) {
       throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  // ── SLA do incidente ──────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/sla') {
+    json(res, 200, { regras: listarRegrasSla(), marcos: ROTULO_MARCO });
+    return true;
+  }
+
+  const mSla = p.match(/^\/api\/sla\/([a-z]+)$/);
+  if (req.method === 'PUT' && mSla) {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 200, { ok: true, regra: salvarRegraSla(mSla[1], b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
     }
     return true;
   }

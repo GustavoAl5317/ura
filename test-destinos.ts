@@ -42,6 +42,9 @@ Object.defineProperty(evoTecnicos, 'disponivel', { get: () => true });
   enviados.push({ para, texto });
   return true;
 };
+let idDublê = 0;
+(evoTecnicos as any).enviarTextoComId = async (para: string, texto: string) =>
+  ({ ok: await (evoTecnicos as any).enviarTexto(para, texto), id: `MSG${++idDublê}` });
 const para = () => enviados.map((e) => e.para).sort();
 // Verificação no WhatsApp: por padrão existe com o mesmo JID; o teste muda por número.
 const semWhats = new Set<string>();

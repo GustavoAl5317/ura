@@ -20,7 +20,7 @@ import { logger } from '../logger';
 import { obter } from './config-dinamica';
 import { publicar } from './eventos';
 import type { Alerta, Severidade } from './alertas';
-import { tipoDoAlerta } from './destinos-alerta';
+import { marcarReconhecido, tipoDoAlerta } from './destinos-alerta';
 import { plantaoParaAlerta } from './plantao';
 
 /** Escala do incidente. Mais ampla que a do alerta: o impacto muda a leitura. */
@@ -71,6 +71,13 @@ export interface Incidente {
   reaberturas: number;
   alertas: number;
   atualizado_em: string;
+  /** Degrau atual do escalonamento (B5). 0 = ninguém foi acionado além do envio normal. */
+  degrau: number;
+  escalonado_em: string | null;
+  /** Quando o atendimento começou de fato. Conta para o SLA de atendimento. */
+  atendido_em: string | null;
+  /** JSON com os marcos de SLA já estourados, para não avisar duas vezes. */
+  violacoes: string | null;
 }
 
 export interface LinhaTempo {
@@ -263,6 +270,7 @@ export function correlacionar(a: Alerta, opts: { evento?: boolean } = {}): Incid
   }
 
   const inc: Incidente = {
+    degrau: 0, escalonado_em: null, atendido_em: null, violacoes: null,
     id: randomUUID(), numero: proximoNumero(), titulo: a.titulo, severidade: sev,
     estado: 'aberto', correlacao: alvo.correlacao, equipamento: alvo.equipamento, alvo: alvo.alvo,
     clientes_afetados: alvo.clientes, dono: null, equipe: plantao?.equipe.id ?? null, aberto_em: agora,
@@ -345,6 +353,10 @@ export function assumir(id: string, quem: string, equipe?: string | null): Incid
   registrarLinha(inc.id, primeiro ? 'reconhecido' : 'transferido',
     primeiro ? `${quem} assumiu o incidente` : `Passou para ${quem}`, quem, { de: inc.dono, para: quem });
   registrarAuditoria(quem, primeiro ? 'incidente.assumir' : 'incidente.transferir', inc.numero, { dono: inc.dono }, { dono: quem });
+  // Assumir fecha o ciclo de entrega: o alerta deixa de estar "só enviado".
+  for (const linha of db().prepare(`SELECT alerta_id FROM incidente_alerta WHERE incidente_id = ?`).all(inc.id) as Array<{ alerta_id: string }>) {
+    marcarReconhecido(linha.alerta_id);
+  }
   const atual = porId(inc.id)!;
   publicar('incidente', atual);
   return atual;
@@ -356,9 +368,12 @@ export function mudarEstado(id: string, estado: EstadoIncidente, quem: string, n
   if (!ESTADOS.includes(estado)) throw new Error(`estado inválido: ${estado}`);
   const agora = new Date().toISOString();
   const encerra = FECHADOS.includes(estado);
+  // "Em atendimento" é marco de SLA: guarda a primeira vez, não a última.
   db().prepare(
-    `UPDATE incidente SET estado = ?, encerrado_em = ?, atualizado_em = ? WHERE id = ?`,
-  ).run(estado, encerra ? agora : null, agora, inc.id);
+    `UPDATE incidente SET estado = ?, encerrado_em = ?, atualizado_em = ?,
+       atendido_em = CASE WHEN ? = 'atendimento' THEN COALESCE(atendido_em, ?) ELSE atendido_em END
+     WHERE id = ?`,
+  ).run(estado, encerra ? agora : null, agora, estado, agora, inc.id);
   registrarLinha(inc.id, 'estado', `${ROTULO_ESTADO[estado]}${nota ? `: ${nota}` : ''}`, quem, { de: inc.estado, para: estado });
   registrarAuditoria(quem, 'incidente.estado', inc.numero, { estado: inc.estado }, { estado, nota: nota ?? null });
   const atual = porId(inc.id)!;

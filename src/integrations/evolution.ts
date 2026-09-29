@@ -82,30 +82,40 @@ export class EvolutionClient {
   // ─── Envio ─────────────────────────────────────────────────────────────────
 
   async enviarTexto(destino: string, texto: string): Promise<boolean> {
+    return (await this.enviarTextoComId(destino, texto)).ok;
+  }
+
+  /**
+   * Igual ao enviarTexto, mas devolve o id da mensagem. É o id que liga o
+   * recibo de entrega ("chegou", "foi aberta") ao alerta que foi despachado.
+   */
+  async enviarTextoComId(destino: string, texto: string): Promise<{ ok: boolean; id: string | null }> {
     if (!this.disponivel) {
       logger.error(`${this.rotulo}: não configurado`);
-      return false;
+      return { ok: false, id: null };
     }
     const number = paraJid(destino);
     const path = `/message/sendText/${this.cfg.instance}`;
+    const idDe = (data: unknown): string | null =>
+      ((data as { key?: { id?: string } } | undefined)?.key?.id) ?? null;
 
     try {
-      await this.client.post(path, { number, text: texto });
-      return true;
+      const r = await this.client.post(path, { number, text: texto });
+      return { ok: true, id: idDe(r.data) };
     } catch (err) {
       // Evolution varia por versão — tenta o formato clássico antes de desistir.
       const status = (err as AxiosError).response?.status;
       if (status === 400 || status === 422) {
         try {
-          await this.client.post(path, { number, textMessage: { text: texto } });
-          return true;
+          const r2 = await this.client.post(path, { number, textMessage: { text: texto } });
+          return { ok: true, id: idDe(r2.data) };
         } catch (err2) {
           this.falha('enviarTexto (clássico)', err2, { destino: number });
-          return false;
+          return { ok: false, id: null };
         }
       }
       this.falha('enviarTexto', err, { destino: number });
-      return false;
+      return { ok: false, id: null };
     }
   }
 
@@ -305,6 +315,24 @@ interface WebhookBruto {
  * assistente não deve processar: evento de outro tipo, mensagem própria,
  * status@broadcast ou formato não suportado.
  */
+/** Recibo de entrega do WhatsApp: a mensagem chegou no aparelho ou foi aberta. */
+export interface ReciboMensagem { id: string; estado: 'entregue' | 'visualizado' }
+
+/**
+ * Lê o "messages.update" do Evolution. DELIVERY_ACK é entregue; READ e PLAYED
+ * são visualizado. Qualquer outro status não vira recibo.
+ */
+export function parseRecibo(body: unknown): ReciboMensagem | null {
+  const b = body as { event?: string; data?: { keyId?: string; key?: { id?: string }; status?: string; update?: { status?: string } } } | undefined;
+  if (!b || b.event !== 'messages.update') return null;
+  const id = b.data?.keyId ?? b.data?.key?.id;
+  const status = String(b.data?.status ?? b.data?.update?.status ?? '').toUpperCase();
+  if (!id) return null;
+  if (status === 'DELIVERY_ACK' || status === 'DELIVERED') return { id, estado: 'entregue' };
+  if (status === 'READ' || status === 'PLAYED') return { id, estado: 'visualizado' };
+  return null;
+}
+
 export function parseWebhook(body: unknown): MensagemRecebida | null {
   const b = body as WebhookBruto | undefined;
   if (!b || b.event !== 'messages.upsert') return null;

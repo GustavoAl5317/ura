@@ -45,6 +45,10 @@ function erroDe(fn: () => unknown): string {
 const enviados: Array<{ para: string; texto: string }> = [];
 Object.defineProperty(evoTecnicos, 'disponivel', { get: () => true });
 (evoTecnicos as any).enviarTexto = async (para: string, texto: string) => { enviados.push({ para, texto }); return true; };
+let idDublê = 0;
+(evoTecnicos as any).enviarTextoComId = async (para: string, texto: string) =>
+  ({ ok: await (evoTecnicos as any).enviarTexto(para, texto), id: `MSG${++idDublê}` });
+
 
 // ── Painel ───────────────────────────────────────────────────────────────────
 const servidor = http.createServer((req, res) => {
