@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -304,6 +304,28 @@ export const DEFINICOES = {
   'escalonamento.intervalo_seg': {
     tipo: 'inteiro', grupo: 'roteamento', padrao: () => 60, min: 30, max: 900,
     descricao: 'De quanto em quanto tempo o monitor confere os prazos.',
+  },
+
+  // ── Regras e freio de enxurrada ─────────────────────────────────────────
+  'regras.ativo': {
+    tipo: 'booleano', grupo: 'regras', padrao: () => true,
+    descricao: 'Aplica as regras do painel antes de avisar. Desligado, todo alerta segue o caminho padrão.',
+  },
+  'regras.debounce_min': {
+    tipo: 'inteiro', grupo: 'regras', padrao: () => 0, min: 0, max: 60,
+    descricao: 'Espera antes de avisar: o que normalizar dentro desse tempo não vira mensagem. 0 desliga. Crítico nunca espera.',
+  },
+  'regras.cooldown_min': {
+    tipo: 'inteiro', grupo: 'regras', padrao: () => 0, min: 0, max: 720,
+    descricao: 'Depois de avisar um problema, silencia o MESMO problema por esse tempo. 0 desliga. Crítico não é silenciado.',
+  },
+  'regras.teto_hora': {
+    tipo: 'inteiro', grupo: 'regras', padrao: () => 0, min: 0, max: 500,
+    descricao: 'Máximo de avisos por hora. Acima disso o alerta fica só no painel. 0 desliga. Crítico não conta com o teto.',
+  },
+  'regras.intervalo_seg': {
+    tipo: 'inteiro', grupo: 'regras', padrao: () => 60, min: 30, max: 900,
+    descricao: 'De quanto em quanto tempo o monitor solta os avisos que estavam em espera.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────

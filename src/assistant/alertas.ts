@@ -17,6 +17,7 @@ import { evoTecnicos } from './channels/whatsapp-tecnicos';
 import { marcarReconhecido, registrarEnvio } from './destinos-alerta';
 import { alertaResolvido, correlacionar } from './incidentes';
 import { avisoDePlantao } from './plantao';
+import { Decisao, decidir, esperaVencida, limparEspera, registrarDecisao } from './regras';
 import { Alvo, alvosDoAlerta, marcarEscalada, paraEscalar } from './roteamento';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
@@ -93,7 +94,28 @@ export async function emitir(p: {
     resolvido_em: null,
   };
   if (p.evento) alerta.resolvido_em = alerta.criado_em;
-  const motivoSilencio = p.motivoSemEnvio ?? 'semeado sem envio (já existia quando o monitor iniciou)';
+  let motivoSilencio = p.motivoSemEnvio ?? 'semeado sem envio (já existia quando o monitor iniciou)';
+
+  // Regras e janela de manutenção decidem ANTES de gravar: severidade nova,
+  // só painel, espera, ou nem registrar. O motivo sempre fica visível.
+  let decisao: Decisao | null = null;
+  let silencioso = p.silencioso === true;
+  if (!p.silencioso && !p.evento) {
+    try {
+      decisao = decidir(alerta);
+      alerta.severidade = decisao.severidade;
+      if (!decisao.registrar) {
+        logger.info('Alerta suprimido antes de registrar', { chave: alerta.chave, motivo: decisao.motivo });
+        return null;
+      }
+      if (!decisao.avisar) {
+        silencioso = true;
+        motivoSilencio = decisao.motivo ?? 'não enviado por regra do painel';
+      }
+    } catch (err) {
+      logger.error('Alerta: falha ao aplicar regras', { err: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   const r = db().prepare(
     `INSERT OR IGNORE INTO alerta (id, origem, severidade, titulo, texto, dados, chave, criado_em, envio_erro, resolvido_em)
@@ -101,13 +123,15 @@ export async function emitir(p: {
   ).run(
     alerta.id, alerta.origem, alerta.severidade, alerta.titulo, alerta.texto,
     alerta.dados === null ? null : JSON.stringify(alerta.dados), alerta.chave, alerta.criado_em,
-    p.silencioso ? motivoSilencio : null,
+    silencioso ? motivoSilencio : null,
     alerta.resolvido_em,
   );
   if (!r.changes) return null;   // chave repetida: fato já alertado
+  if (decisao) registrarDecisao(alerta, decisao);
 
-  if (p.silencioso) {
+  if (silencioso) {
     alerta.envio_erro = motivoSilencio;
+    publicar('alerta', alerta);
     return alerta;
   }
 
@@ -131,11 +155,48 @@ export async function emitir(p: {
 
   publicar('alerta', alerta);
   dispararWebhooks('alerta', alerta);
-  await despachar(alerta);
+
+  // Debounce: o aviso espera. Quem solta é o monitor de regras, e só se o
+  // problema ainda estiver de pé.
+  if (decisao?.esperar_ate) {
+    db().prepare(`UPDATE alerta SET aguardando_ate = ?, envio_erro = ? WHERE id = ?`)
+      .run(decisao.esperar_ate, decisao.motivo, alerta.id);
+    alerta.envio_erro = decisao.motivo;
+    return alerta;
+  }
+
+  await despachar(alerta, decisao?.prioritario === true);
   return alerta;
 }
 
-async function despachar(a: Alerta): Promise<void> {
+/**
+ * Solta os avisos que estavam em espera. O que normalizou sozinho não vira
+ * mensagem: fica no painel com o motivo.
+ */
+export async function soltarEspera(quando = new Date()): Promise<{ enviados: number; descartados: number }> {
+  let enviados = 0;
+  let descartados = 0;
+  for (const item of esperaVencida(quando)) {
+    const a = porId(item.id);
+    if (!a) continue;
+    if (item.resolvido) {
+      limparEspera(a.id, 'normalizou sozinho durante a espera: não foi avisado');
+      descartados++;
+      continue;
+    }
+    db().prepare(`UPDATE alerta SET aguardando_ate = NULL, envio_erro = NULL WHERE id = ?`).run(a.id);
+    await despachar(a);
+    enviados++;
+  }
+  return { enviados, descartados };
+}
+
+export function porId(id: string): Alerta | null {
+  const l = db().prepare(`SELECT * FROM alerta WHERE id = ?`).get(id) as Linha | undefined;
+  return l ? paraAlerta(l) : null;
+}
+
+async function despachar(a: Alerta, prioritario = false): Promise<void> {
   const motivoNaoEnvio = (m: string) => {
     db().prepare(`UPDATE alerta SET envio_erro = ? WHERE id = ?`).run(m, a.id);
     a.envio_erro = m;
@@ -149,7 +210,7 @@ async function despachar(a: Alerta): Promise<void> {
 
   const inicio = obter<string>('alertas.silencio_inicio');
   const fim = obter<string>('alertas.silencio_fim');
-  if (a.severidade !== 'critico' && dentroDaJanela(inicio, fim)) {
+  if (!prioritario && a.severidade !== 'critico' && dentroDaJanela(inicio, fim)) {
     return motivoNaoEnvio(`horário de silêncio (${inicio}–${fim}); só crítico é enviado`);
   }
 

@@ -530,6 +530,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="destinos">Quem recebe alertas</button>
           <button class="subaba" data-sub="bots">Sistemas e webhooks</button>
           <button class="subaba" data-sub="plantao">Plantão</button>
+          <button class="subaba" data-sub="regras">Regras e manutenção</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
@@ -540,6 +541,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div data-subpainel="destinos" hidden></div>
         <div data-subpainel="bots" hidden></div>
         <div data-subpainel="plantao" hidden></div>
+        <div data-subpainel="regras" hidden></div>
         <div data-subpainel="prompts" hidden></div>
         <div data-subpainel="monitores" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
@@ -1350,7 +1352,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -2032,6 +2034,139 @@ subCarregadores.plantao = async () => {
         el('tbody', {}, slaR.regras.map(linhaSla)))));
 
     alvo.replaceChildren(blocoAgora, blocoEscalas, blocoExc, blocoEquipes, blocoSla);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.regras = async () => {
+  const alvo = $('[data-subpainel="regras"]');
+  try {
+    const r = await api('GET', '/api/regras');
+    const recarregar = () => subCarregadores.regras();
+    const SEV = { info: 'Informativo', aviso: 'Aviso', critico: 'Crítico' };
+    const textoCondicao = (c) => `${r.campos[c.campo] || c.campo} ${r.operadores[c.operador] || c.operador} "${c.valor}"${c.valor2 ? ` e "${c.valor2}"` : ''}`;
+
+    // ── Regras ──
+    const linhas = el('div', { class: 'grade', style: 'gap:8px' });
+    const novaLinha = () => {
+      const campo = el('select', { 'aria-label': 'Campo' }, Object.entries(r.campos).map(([k, t]) => el('option', { value: k, text: t })));
+      const op = el('select', { 'aria-label': 'Comparação' }, Object.entries(r.operadores).map(([k, t]) => el('option', { value: k, text: t })));
+      const valor = el('input', { type: 'text', placeholder: 'valor', required: true });
+      const valor2 = el('input', { type: 'text', placeholder: 'e (só no "entre")' });
+      const linha = el('div', { class: 'linha-acoes', style: 'flex-wrap:wrap' }, campo, op, valor, valor2,
+        el('button', { class: 'botao sec mini', type: 'button', text: 'Tirar', onclick: () => { if (linhas.children.length > 1) linha.remove(); } }));
+      linha.dados = () => ({ campo: campo.value, operador: op.value, valor: valor.value, valor2: valor2.value || undefined });
+      return linha;
+    };
+    linhas.append(novaLinha());
+
+    const acao = el('select', { id: 'rg-acao' }, Object.entries(r.acoes).map(([k, t]) => el('option', { value: k, text: t })));
+    const sev = el('select', { id: 'rg-sev' }, Object.entries(SEV).map(([k, t]) => el('option', { value: k, text: t })));
+    const formRegra = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'rg-nome', text: 'Nome da regra' }), el('input', { type: 'text', id: 'rg-nome', required: true, placeholder: 'Ex.: porta de cliente à noite não acorda ninguém' })),
+        el('div', { class: 'campo' }, el('label', { for: 'rg-acao', text: 'Então' }), acao),
+        el('div', { class: 'campo' }, el('label', { for: 'rg-sev', text: 'Nova gravidade (só em "mudar a gravidade")' }), sev)),
+      el('div', { class: 'campo' }, el('label', { text: 'Quando (todas as condições precisam bater)' }), linhas,
+        el('div', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Adicionar condição', onclick: () => linhas.append(novaLinha()) }))),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'rg-rep', text: 'E só se repetir (vezes)' }), el('input', { type: 'number', id: 'rg-rep', min: '2', max: '50', placeholder: 'vazio = não olha repetição' })),
+        el('div', { class: 'campo' }, el('label', { for: 'rg-jan', text: 'Nesses minutos' }), el('input', { type: 'number', id: 'rg-jan', min: '1', max: '1440', placeholder: '10' })),
+        el('div', { class: 'campo' }, el('label', { for: 'rg-ordem', text: 'Ordem (menor decide antes)' }), el('input', { type: 'number', id: 'rg-ordem', value: '100', min: '1', max: '999' }))),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Criar regra' })));
+    formRegra.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const corpo = {
+        nome: $('#rg-nome', formRegra).value,
+        acao: acao.value,
+        severidade: acao.value === 'mudar_severidade' ? sev.value : null,
+        ordem: Number($('#rg-ordem', formRegra).value) || 100,
+        repeticoes: Number($('#rg-rep', formRegra).value) || 0,
+        janela_min: Number($('#rg-jan', formRegra).value) || 0,
+        condicoes: [...linhas.children].map((l) => l.dados()),
+      };
+      try { await api('POST', '/api/regras', corpo); toast('Regra criada.', 'ok'); recarregar(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const blocoRegras = el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: 'Regras' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'As regras decidem na ordem: a primeira que suprimir ou mandar só para o painel encerra a conversa. Regra que nunca bateu costuma estar escrita errado.' }),
+      r.regras.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['#', 'Regra', 'Quando', 'Então', 'Bateu', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.regras.map((g) => el('tr', {},
+          el('td', { class: 'dado', text: String(g.ordem) }),
+          el('td', { text: g.nome }),
+          el('td', { style: 'font-size:12.5px' },
+            g.condicoes.map((c) => el('div', { text: textoCondicao(c) })),
+            g.repeticoes ? el('div', { class: 'mudo', text: `e repetiu ${g.repeticoes}x em ${g.janela_min} min` }) : null),
+          el('td', { style: 'font-size:12.5px', text: (r.acoes[g.acao] || g.acao) + (g.severidade ? `: ${SEV[g.severidade] || g.severidade}` : '') }),
+          el('td', { class: 'dado', text: `${g.acionada}${g.ultima_em ? ` · ${quando(g.ultima_em)}` : ''}` }),
+          el('td', {}, el('span', { style: `color:var(${g.ativo ? '--confirmado' : '--inconclusivo'})`, text: g.ativo ? 'Ativa' : 'Desligada' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            el('button', { class: 'botao sec mini', type: 'button', text: g.ativo ? 'Desligar' : 'Ligar', onclick: async () => {
+              try { await api('PUT', `/api/regras/${g.id}`, { ativo: !g.ativo }); toast('Pronto.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } }),
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              if (!confirm(`Remover a regra ${g.nome}?`)) return;
+              try { await api('DELETE', `/api/regras/${g.id}`); toast('Removida.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } })))))))) : el('p', { class: 'vazio-msg', text: 'Nenhuma regra: todo alerta segue o caminho padrão.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formRegra));
+
+    // ── Manutenção ──
+    const tipoMan = el('select', { id: 'mn-tipo' }, Object.entries(r.alvos).map(([k, t]) => el('option', { value: k, text: t })));
+    const formMan = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'mn-tipo', text: 'O que entra em manutenção' }), tipoMan),
+        el('div', { class: 'campo' }, el('label', { for: 'mn-alvo', text: 'Qual (nome da OLT, PON, região…)' }), el('input', { type: 'text', id: 'mn-alvo', placeholder: 'vazio só em "Tudo"' })),
+        el('div', { class: 'campo' }, el('label', { for: 'mn-efeito', text: 'Efeito' }),
+          el('select', { id: 'mn-efeito' }, Object.entries(r.efeitos).map(([k, t]) => el('option', { value: k, text: t }))))),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'mn-ini', text: 'De' }), el('input', { type: 'datetime-local', id: 'mn-ini', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'mn-fim', text: 'Até' }), el('input', { type: 'datetime-local', id: 'mn-fim', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'mn-motivo', text: 'Motivo' }), el('input', { type: 'text', id: 'mn-motivo', placeholder: 'Ex.: troca de placa' }))),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Abrir janela' })));
+    formMan.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const corpo = {
+        alvo_tipo: tipoMan.value,
+        alvo: $('#mn-alvo', formMan).value,
+        efeito: $('#mn-efeito', formMan).value,
+        inicio: new Date($('#mn-ini', formMan).value).toISOString(),
+        fim: new Date($('#mn-fim', formMan).value).toISOString(),
+        motivo: $('#mn-motivo', formMan).value,
+      };
+      try { await api('POST', '/api/manutencoes', corpo); toast('Janela aberta.', 'ok'); recarregar(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const vigente = (m) => new Date(m.inicio) <= new Date() && new Date(m.fim) > new Date();
+    const blocoMan = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Janelas de manutenção' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Manutenção declarada evita que a equipe aprenda a ignorar alerta. A janela mais específica vale mais que uma janela geral esquecida aberta.' }),
+      r.manutencoes.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['O quê', 'Qual', 'Efeito', 'De', 'Até', 'Motivo', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.manutencoes.map((m) => el('tr', {},
+          el('td', { text: r.alvos[m.alvo_tipo] || m.alvo_tipo }),
+          el('td', { class: 'dado', text: m.alvo || '—' }),
+          el('td', { style: 'font-size:12.5px', text: r.efeitos[m.efeito] || m.efeito }),
+          el('td', { class: 'dado', text: quando(m.inicio) }),
+          el('td', { class: 'dado', text: quando(m.fim) }),
+          el('td', { style: 'font-size:12.5px', text: m.motivo || '—' }),
+          el('td', {}, el('span', { style: `color:var(${vigente(m) ? '--inconclusivo' : '--tinta-2'})`, text: vigente(m) ? 'Em andamento' : 'Fora da janela' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            vigente(m) ? el('button', { class: 'botao sec mini', type: 'button', text: 'Encerrar agora', onclick: async () => {
+              try { await api('POST', `/api/manutencoes/${m.id}/encerrar`); toast('Janela encerrada.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } }) : null,
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              try { await api('DELETE', `/api/manutencoes/${m.id}`); toast('Removida.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } })))))))) : el('p', { class: 'vazio-msg', text: 'Nenhuma janela nos últimos 30 dias.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formMan));
+
+    alvo.replaceChildren(blocoRegras, blocoMan);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

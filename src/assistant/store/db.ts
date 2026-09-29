@@ -452,6 +452,38 @@ function migrar(d: Database.Database): void {
     -- ═══ SLA do incidente (B5) ════════════════════════════════════════════
     -- Prazo por severidade, separado para reconhecer, começar a atender e
     -- resolver. Uma linha por severidade; o painel edita os minutos.
+    -- ═══ Regras e manutenção (B6) ═════════════════════════════════════════
+    -- "Quando isto, e aquilo, então": exceção da operação vira linha de banco,
+    -- não deploy.
+    CREATE TABLE IF NOT EXISTS regra_alerta (
+      id         TEXT PRIMARY KEY,
+      nome       TEXT NOT NULL,
+      ordem      INTEGER NOT NULL DEFAULT 100,
+      ativo      INTEGER NOT NULL DEFAULT 1,
+      condicoes  TEXT NOT NULL,            -- JSON: [{campo, operador, valor}]
+      acao       TEXT NOT NULL,            -- suprimir | so_painel | mudar_severidade | sempre_avisar
+      severidade TEXT,
+      repeticoes INTEGER NOT NULL DEFAULT 0,
+      janela_min INTEGER NOT NULL DEFAULT 0,
+      criado_em  TEXT NOT NULL,
+      acionada   INTEGER NOT NULL DEFAULT 0,
+      ultima_em  TEXT
+    );
+
+    -- Janela declarada: o que já se sabe que vai cair não acorda ninguém.
+    CREATE TABLE IF NOT EXISTS manutencao (
+      id         TEXT PRIMARY KEY,
+      alvo_tipo  TEXT NOT NULL,            -- tudo | equipamento | pon | olt | pop | regiao | origem
+      alvo       TEXT,
+      inicio     TEXT NOT NULL,
+      fim        TEXT NOT NULL,
+      efeito     TEXT NOT NULL,            -- nao_notificar | rebaixar | suprimir | manter
+      motivo     TEXT,
+      criado_por TEXT,
+      criado_em  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_manutencao_janela ON manutencao(inicio, fim);
+
     CREATE TABLE IF NOT EXISTS sla_regra (
       severidade     TEXT PRIMARY KEY,
       reconhecer_min INTEGER NOT NULL,
@@ -489,6 +521,9 @@ function migrar(d: Database.Database): void {
   adicionarColunaSeFaltar(d, 'alerta_envio', 'visto_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'alerta_envio', 'reconhecido_em', 'TEXT');
   adicionarColunaSeFaltar(d, 'alerta_envio', 'motivo', 'TEXT');
+
+  // Debounce: o aviso fica em espera até esta hora. Se normalizar antes, não sai.
+  adicionarColunaSeFaltar(d, 'alerta', 'aguardando_ate', 'TEXT');
 
   // Prazos padrão. Só na primeira vez: depois quem manda é o painel.
   const temSla = (d.prepare(`SELECT COUNT(*) n FROM sla_regra`).get() as { n: number }).n;

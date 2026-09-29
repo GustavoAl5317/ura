@@ -28,6 +28,14 @@ import {
 import {
   ROTULO_MARCO, listarRegras as listarRegrasSla, salvarRegra as salvarRegraSla,
 } from './sla-incidente';
+import {
+  ROTULO_ACAO, ROTULO_CAMPO, ROTULO_OPERADOR, TIPOS_PARA_REGRA, atualizarRegra, criarRegra,
+  listarRegras, removerRegra,
+} from './regras';
+import {
+  ROTULO_ALVO, ROTULO_EFEITO, criar as criarManutencao, encerrar as encerrarManutencao,
+  listar as listarManutencoes, remover as removerManutencao,
+} from './manutencao';
 
 /** Sessão para o painel: sem o token, que é credencial viva. */
 function sessaoSaida(s: SessaoPainel) {
@@ -653,6 +661,75 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
       json(res, 200, { ok: true, regra: salvarRegraSla(mSla[1], b, ator(req)) });
     } catch (e) {
       throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  // ── Regras e janelas de manutenção ────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/regras') {
+    json(res, 200, {
+      regras: listarRegras(),
+      campos: ROTULO_CAMPO,
+      operadores: ROTULO_OPERADOR,
+      acoes: ROTULO_ACAO,
+      tipos: TIPOS_PARA_REGRA,
+      manutencoes: listarManutencoes({ desde: new Date(Date.now() - 30 * 86_400_000).toISOString() }),
+      efeitos: ROTULO_EFEITO,
+      alvos: ROTULO_ALVO,
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/regras') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 201, { ok: true, regra: criarRegra(b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mRegra = p.match(/^\/api\/regras\/([0-9a-f-]{36})$/);
+  if (mRegra && (req.method === 'PUT' || req.method === 'DELETE')) {
+    try {
+      if (req.method === 'DELETE') {
+        removerRegra(mRegra[1], ator(req));
+        json(res, 200, { ok: true });
+      } else {
+        const b = await lerJson<Record<string, unknown>>(req);
+        json(res, 200, { ok: true, regra: atualizarRegra(mRegra[1], b, ator(req)) });
+      }
+    } catch (e) {
+      throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/manutencoes') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 201, { ok: true, manutencao: criarManutencao(b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mMan = p.match(/^\/api\/manutencoes\/([0-9a-f-]{36})(\/encerrar)?$/);
+  if (mMan && (req.method === 'DELETE' || req.method === 'POST')) {
+    try {
+      if (req.method === 'POST' && mMan[2]) {
+        json(res, 200, { ok: true, manutencao: encerrarManutencao(mMan[1], ator(req)) });
+      } else if (req.method === 'DELETE') {
+        removerManutencao(mMan[1], ator(req));
+        json(res, 200, { ok: true });
+      } else {
+        throw new ErroHttp(404, 'rota não encontrada');
+      }
+    } catch (e) {
+      if (e instanceof ErroHttp) throw e;
+      throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
     }
     return true;
   }
