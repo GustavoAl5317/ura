@@ -35,7 +35,8 @@
     "test:plantao": "ts-node --transpile-only test-plantao.ts",
     "test:escalonamento": "ts-node --transpile-only test-escalonamento.ts",
     "test:regras": "ts-node --transpile-only test-regras.ts",
-    "test:canais": "ts-node --transpile-only test-canais.ts"
+    "test:canais": "ts-node --transpile-only test-canais.ts",
+    "test:historico": "ts-node --transpile-only test-historico.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

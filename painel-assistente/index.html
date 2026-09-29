@@ -396,7 +396,8 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
     <button class="aba" role="tab" data-aba="chat">Perguntar</button>
     <button class="aba" role="tab" data-aba="consultas">Consultas</button>
     <button class="aba" role="tab" data-aba="incidentes">Incidentes <span class="contador" id="cont-incidentes" hidden>0</span></button>
-    <button class="aba" role="tab" data-aba="alertas">Alertas <span class="contador" id="cont-alertas" hidden>0</span></button>
+    <button class="aba" role="tab" data-aba="alertas">Alertas <span class="contador" id="cont-alertas" hidden>0</span></button>
+    <button class="aba" role="tab" data-aba="historico">Histórico</button>
     <button class="aba" role="tab" data-aba="chamadas">Chamadas da URA</button>
     <button class="aba" role="tab" data-aba="admin">Administração</button>
     <div class="rodape">
@@ -498,6 +499,23 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <label class="interruptor" style="padding-bottom:8px"><input type="checkbox" id="f-inc-sem-dono"> Só sem dono</label>
         </div>
         <div id="lista-incidentes"></div>
+      </section>
+
+      <!-- Histórico -->
+      <section data-painel="historico" hidden>
+        <div class="cabeca-aba">
+          <div><h1>Histórico</h1><p>O que vive acontecendo, quanto tempo a operação leva e o que ficou combinado depois.</p></div>
+        </div>
+        <div class="filtros">
+          <div class="campo"><label for="h-texto">Buscar</label><input type="text" id="h-texto" placeholder="título, número, alvo"></div>
+          <div class="campo"><label for="h-pon">PON</label><input type="text" id="h-pon" placeholder="3"></div>
+          <div class="campo"><label for="h-equip">Equipamento</label><input type="text" id="h-equip" placeholder="OLT-3"></div>
+          <div class="campo"><label for="h-regiao">Região</label><input type="text" id="h-regiao" placeholder="Maracanaú"></div>
+          <div class="campo"><label for="h-dias">Período</label>
+            <select id="h-dias"><option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="365">1 ano</option></select></div>
+          <button class="botao sec" type="button" id="h-buscar">Buscar</button>
+        </div>
+        <div id="lista-historico"></div>
       </section>
 
       <!-- Alertas -->
@@ -1388,6 +1406,118 @@ function chipSla(sla, rotulos) {
     ? el('div', { class: 'fraco', style: 'margin-top:4px;font-size:12.5px', text: `SLA · ${texto(sla.proximo)} restantes` })
     : null;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Histórico: o que vive acontecendo, e quanto tempo a operação leva
+   ───────────────────────────────────────────────────────────────────────── */
+const dur = (s) => s === null || s === undefined ? '—'
+  : s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+
+carregadores.historico = async () => {
+  const alvo = $('#lista-historico');
+  const q = new URLSearchParams();
+  for (const [campo, id] of [['texto', 'h-texto'], ['pon', 'h-pon'], ['equipamento', 'h-equip'], ['regiao', 'h-regiao']]) {
+    const v = $(`#${id}`)?.value.trim();
+    if (v) q.set(campo, v);
+  }
+  q.set('dias', $('#h-dias').value || '30');
+  try {
+    const r = await api('GET', `/api/historico?${q}`);
+    const m = r.metricas;
+
+    const fato = (rotulo, valor, nota) => el('div', { class: 'bloco', style: 'padding:12px' },
+      el('div', { class: 'mudo', style: 'font-size:12px', text: rotulo }),
+      el('div', { style: 'font-size:22px;font-weight:600', text: valor }),
+      nota ? el('div', { class: 'mudo', style: 'font-size:11.5px', text: nota }) : null);
+
+    const numeros = el('div', { class: 'grade grade-3', style: 'margin-bottom:14px' },
+      fato('Incidentes no período', String(m.incidentes), `${m.abertos} ainda abertos`),
+      fato('Até alguém assumir (MTTA)', dur(m.mtta_seg), `${m.taxa_reconhecimento}% foram assumidos`),
+      fato('Até normalizar (MTTR)', dur(m.mttr_seg), `${m.taxa_reabertura}% reabriram`),
+      fato('Da detecção ao incidente (MTTD)', dur(m.mttd_seg), 'mede o pipeline, não o instante da falha'),
+      fato('SLA estourado', `${m.taxa_violacao_sla}%`, `${m.violacoes_sla} incidente(s)`),
+      fato('Falso positivo', `${m.taxa_falso_positivo}%`, `${m.falsos_positivos} incidente(s)`));
+
+    const tabelaRecorrencia = (titulo, linhas, vazio) => el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: titulo }),
+      linhas.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Alvo', 'Vezes', 'Tempo somado', 'Reaberturas', 'Última vez'].map((t) => el('th', { text: t })))),
+        el('tbody', {}, linhas.map((l) => el('tr', {},
+          el('td', { text: l.rotulo }),
+          el('td', { class: 'dado', text: String(l.incidentes) }),
+          el('td', { class: 'dado', text: dur(l.tempo_total_seg) }),
+          el('td', { class: 'dado', text: String(l.reaberturas) }),
+          el('td', { class: 'fraco', text: quando(l.ultima_vez) }))))))
+        : el('p', { class: 'vazio-msg', text: vazio }));
+
+    const pendentes = el('div', { class: 'bloco', style: 'margin-top:14px' },
+      el('h2', { class: 'secao', text: 'Ações combinadas que ninguém fechou' }),
+      r.acoes_pendentes.length ? el('ul', { class: 'lacunas' }, r.acoes_pendentes.map((a) =>
+        el('li', {}, el('span', { class: 'dado', text: a.numero }), ' ', a.acao.o_que,
+          a.acao.responsavel ? el('span', { class: 'fraco', text: ` — ${a.acao.responsavel}` }) : null,
+          a.acao.prazo ? el('span', { class: 'fraco', text: ` (até ${a.acao.prazo})` }) : null)))
+        : el('p', { class: 'vazio-msg', text: 'Nenhuma ação em aberto.' }));
+
+    const linhaIncidente = (i) => {
+      const pos = el('div', { hidden: true });
+      const abrirPos = async () => {
+        if (pos.children.length) { pos.hidden = !pos.hidden; return; }
+        const atual = (await api('GET', `/api/incidentes/${i.numero}/pos`)).pos;
+        const relato = el('textarea', { rows: '2', placeholder: 'O que aconteceu, em duas linhas', style: 'width:100%' });
+        const causa = el('textarea', { rows: '2', placeholder: 'Causa raiz', style: 'width:100%' });
+        const licoes = el('textarea', { rows: '2', placeholder: 'O que evita a próxima vez', style: 'width:100%' });
+        const acoes = el('textarea', { rows: '3', placeholder: 'Uma ação por linha: o que fazer | responsável | prazo', style: 'width:100%' });
+        if (atual) {
+          relato.value = atual.o_que_aconteceu;
+          causa.value = atual.causa_raiz;
+          licoes.value = atual.licoes || '';
+          acoes.value = atual.acoes.map((a) => [a.o_que, a.responsavel || '', a.prazo || ''].join(' | ')).join('\n');
+        }
+        const salvar = el('button', { class: 'botao sec mini', type: 'button', text: atual ? 'Atualizar pós-incidente' : 'Registrar pós-incidente', onclick: async () => {
+          const lista = acoes.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+            const [o_que, responsavel, prazo] = l.split('|').map((x) => x.trim());
+            return { o_que, responsavel: responsavel || null, prazo: prazo || null, feito: false };
+          });
+          try {
+            await api('POST', `/api/incidentes/${i.numero}/pos`, {
+              o_que_aconteceu: relato.value, causa_raiz: causa.value, licoes: licoes.value, acoes: lista,
+            });
+            toast('Pós-incidente salvo.', 'ok');
+            carregadores.historico();
+          } catch (e) { toast(e.message, 'erro'); }
+        } });
+        pos.replaceChildren(el('div', { class: 'grade', style: 'gap:8px;margin-top:8px' },
+          relato, causa, acoes, licoes, el('div', {}, salvar)));
+        pos.hidden = false;
+      };
+      return el('tr', {},
+        el('td', { class: 'dado', text: i.numero }),
+        el('td', {}, el('div', { text: i.titulo }),
+          el('div', { class: 'fraco', style: 'font-size:12px', text: [i.alvo, i.equipamento].filter(Boolean).join(' · ') }),
+          pos),
+        el('td', { text: r.severidades[i.severidade] || i.severidade }),
+        el('td', { text: r.estados[i.estado] || i.estado }),
+        el('td', { class: 'dado', text: dur(i.duracao_seg) }),
+        el('td', { class: 'dado', text: dur(i.reconhecer_seg) }),
+        el('td', { text: i.dono || '—' }),
+        el('td', { class: 'fraco', text: quando(i.aberto_em) }),
+        el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Pós-incidente', onclick: abrirPos })));
+    };
+
+    const tabela = el('div', { class: 'bloco', style: 'margin-top:14px' },
+      el('h2', { class: 'secao', text: `Incidentes (${r.incidentes.length})` }),
+      r.incidentes.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Número', 'O quê', 'Severidade', 'Estado', 'Durou', 'Assumido em', 'Dono', 'Aberto', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.incidentes.map(linhaIncidente))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhum incidente nesse filtro.' }));
+
+    alvo.replaceChildren(numeros,
+      el('div', { class: 'grade grade-2' },
+        tabelaRecorrencia('O que mais repete', r.recorrencia, 'Nada repetiu no período.'),
+        tabelaRecorrencia('Equipamentos que mais quebram', r.recorrencia_equipamento, 'Sem equipamento identificado.')),
+      pendentes, tabela);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
 
 carregadores.incidentes = async () => {
   const alvo = $('#lista-incidentes');
@@ -2487,6 +2617,11 @@ function iniciar() {
   irPara(aba);
   // A visão geral refaz a leitura de tempos em tempos; o resto é sob demanda + stream.
   setInterval(() => { if (!$('[data-painel="visao"]').hidden) carregadores.visao(); }, 60_000);
+  $('#h-buscar').addEventListener('click', () => carregadores.historico());
+  for (const id of ['h-texto', 'h-pon', 'h-equip', 'h-regiao']) {
+    $(`#${id}`).addEventListener('keydown', (ev) => { if (ev.key === 'Enter') carregadores.historico(); });
+  }
+  $('#h-dias').addEventListener('change', () => carregadores.historico());
 }
 
 api('GET', '/api/sessao')

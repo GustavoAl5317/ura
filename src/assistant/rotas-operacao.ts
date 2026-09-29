@@ -17,6 +17,9 @@ import { cadeia, plantaoAgora } from './plantao';
 import { MARCOS, ROTULO_MARCO, listarRegras, situacao } from './sla-incidente';
 import { cadeiaDoIncidente } from './roteamento';
 import { enviosDoAlerta } from './destinos-alerta';
+import {
+  acoesPendentes, buscar as buscarHistorico, metricas, posDoIncidente, recorrencia, salvarPos,
+} from './historico';
 import { obter } from './config-dinamica';
 
 /** Como cada mensagem deste incidente terminou: enviada, entregue, vista, reconhecida. */
@@ -159,6 +162,48 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
       paineis_conectados: paineisConectados(),
     });
     return true;
+  }
+
+  // ── Histórico, métrica e pós-incidente ────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/historico') {
+    const q = (k: string) => url.searchParams.get(k) || undefined;
+    const filtro = {
+      texto: q('texto'), equipamento: q('equipamento'), pon: q('pon'), cto: q('cto'),
+      regiao: q('regiao'), equipe: q('equipe'), severidade: q('severidade'), estado: q('estado'),
+      dias: Number(url.searchParams.get('dias')) || 30,
+      limite: Number(url.searchParams.get('limite')) || 100,
+    };
+    const lista = buscarHistorico(filtro);
+    json(res, 200, {
+      filtro,
+      incidentes: lista.map((i) => ({ ...i, duracao_seg: duracaoSeg(i), reconhecer_seg: tempoAteReconhecer(i) })),
+      metricas: metricas(filtro),
+      recorrencia: recorrencia({ ...filtro, limite: 15 }),
+      recorrencia_equipamento: recorrencia({ ...filtro, por: 'equipamento', limite: 15 }),
+      acoes_pendentes: acoesPendentes(50),
+      estados: ROTULO_ESTADO,
+      severidades: ROTULO_SEVERIDADE,
+    });
+    return true;
+  }
+
+  const mPos = p.match(/^\/api\/incidentes\/([A-Za-z0-9-]+)\/pos$/);
+  if (mPos) {
+    const inc = incidentePorId(mPos[1]);
+    if (!inc) throw new ErroHttp(404, 'incidente não encontrado');
+    if (req.method === 'GET') {
+      json(res, 200, { pos: posDoIncidente(inc.id) });
+      return true;
+    }
+    if (req.method === 'POST') {
+      const b = await lerJson<Record<string, unknown>>(req);
+      try {
+        json(res, 200, { ok: true, pos: salvarPos(inc.id, b, ator(req)) });
+      } catch (e) {
+        throw new ErroHttp(400, (e as Error).message);
+      }
+      return true;
+    }
   }
 
   // ── Monitores ─────────────────────────────────────────────────────────────

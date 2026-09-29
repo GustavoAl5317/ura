@@ -484,6 +484,20 @@ function migrar(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS ix_manutencao_janela ON manutencao(inicio, fim);
 
+    -- ═══ Pós-incidente (B8) ═══════════════════════════════════════════════
+    -- Causa raiz e ações combinadas. Uma linha por incidente: o registro é do
+    -- incidente, não um documento solto que ninguém acha depois.
+    CREATE TABLE IF NOT EXISTS pos_incidente (
+      incidente_id    TEXT PRIMARY KEY,
+      o_que_aconteceu TEXT NOT NULL,
+      causa_raiz      TEXT NOT NULL,
+      acoes           TEXT NOT NULL,       -- JSON: [{o_que, responsavel, prazo, feito}]
+      licoes          TEXT,
+      autor           TEXT,
+      criado_em       TEXT NOT NULL,
+      atualizado_em   TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sla_regra (
       severidade     TEXT PRIMARY KEY,
       reconhecer_min INTEGER NOT NULL,

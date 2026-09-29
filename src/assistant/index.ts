@@ -22,6 +22,7 @@ import { registrarFerramentasCtos } from './tools/ctos';
 import { registrarFerramentasAtendimento } from './tools/atendimento';
 import { registrarFerramentasIncidentes } from './tools/incidentes';
 import { registrarFerramentasPlantao } from './tools/plantao';
+import { registrarFerramentasHistorico } from './tools/historico';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
@@ -549,6 +550,7 @@ async function main(): Promise<void> {
   registrarFerramentasAtendimento();
   registrarFerramentasIncidentes();
   registrarFerramentasPlantao();
+  registrarFerramentasHistorico();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;
