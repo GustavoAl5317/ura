@@ -418,6 +418,8 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <div><h1>Visão geral</h1><p>O que está acontecendo agora na rede e no assistente.</p></div>
           <div class="fraco" id="visao-atualizado"></div>
         </div>
+        <div class="aviso erro" id="faixa-contingencia" hidden></div>
+        <div id="controles-aviso"></div>
         <div class="fatos" id="fatos"></div>
         <div class="grade grade-2">
           <div class="bloco">
@@ -896,6 +898,169 @@ async function semearLinhaDoTempo() {
   } catch {}
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Avisos no painel: notificação do navegador, som e voz
+
+   O WhatsApp é o canal principal, e ele cai. Quando cai, o alerta chega aqui
+   e precisa se fazer notar sem ninguém estar olhando para a tela. Silenciar o
+   som NÃO reconhece nada: reconhecer é assumir o incidente, e isso continua
+   sendo um clique consciente.
+   ───────────────────────────────────────────────────────────────────────── */
+const avisos = {
+  cfg: { push: true, falar_a_partir_de: 'critico', silencio_inicio: '', silencio_fim: '', contingencia: true },
+  prefs: { push: true, som: true, voz: true, minimo: 'aviso', mudoAte: 0 },
+  audio: null,
+};
+
+const ORDEM_SEV = { info: 0, aviso: 1, critico: 2 };
+
+function lerPrefsAvisos() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem('avisos') || '{}');
+    avisos.prefs = { ...avisos.prefs, ...salvo };
+  } catch {}
+}
+
+function salvarPrefsAvisos() {
+  try { localStorage.setItem('avisos', JSON.stringify(avisos.prefs)); } catch {}
+}
+
+/** Silêncio do painel: horário configurado pela empresa. Crítico ignora. */
+function painelEmSilencio() {
+  const { silencio_inicio: i, silencio_fim: f } = avisos.cfg;
+  if (!i || !f) return false;
+  const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ });
+  return i <= f ? (agora >= i && agora < f) : (agora >= i || agora < f);
+}
+
+const mudo = () => Date.now() < (avisos.prefs.mudoAte || 0);
+
+function bip(severidade) {
+  if (!avisos.prefs.som) return;
+  try {
+    avisos.audio ||= new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = avisos.audio;
+    const agora = ctx.currentTime;
+    const notas = severidade === 'critico' ? [880, 660, 880] : [660];
+    notas.forEach((hz, k) => {
+      const osc = ctx.createOscillator();
+      const vol = ctx.createGain();
+      osc.frequency.value = hz;
+      osc.type = 'sine';
+      vol.gain.setValueAtTime(0.0001, agora + k * 0.18);
+      vol.gain.exponentialRampToValueAtTime(0.2, agora + k * 0.18 + 0.02);
+      vol.gain.exponentialRampToValueAtTime(0.0001, agora + k * 0.18 + 0.16);
+      osc.connect(vol).connect(ctx.destination);
+      osc.start(agora + k * 0.18);
+      osc.stop(agora + k * 0.18 + 0.18);
+    });
+  } catch {}
+}
+
+/** Texto limpo para a voz: sem marcação, sem emoji, sem rodapé de instrução. */
+function paraFalar(titulo, texto) {
+  const corpo = String(texto || '').split('\n').filter((l) => !l.trim().startsWith('_')).join('. ');
+  return `${titulo}. ${corpo}`
+    .replace(/[*_`#]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 400)
+    .trim();
+}
+
+function falar(texto) {
+  if (!avisos.prefs.voz || !('speechSynthesis' in window)) return;
+  try {
+    const fala = new SpeechSynthesisUtterance(texto);
+    fala.lang = 'pt-BR';
+    fala.rate = 0.95;
+    speechSynthesis.speak(fala);
+  } catch {}
+}
+
+function notificar(titulo, corpo, tag) {
+  if (!avisos.prefs.push || !avisos.cfg.push) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try { new Notification(titulo, { body: corpo.slice(0, 220), tag, renotify: false }); } catch {}
+}
+
+/**
+ * Decide o que fazer com um alerta que acabou de chegar. Contingência (o
+ * WhatsApp caiu) fura silêncio e mudo: nessa hora o painel é o único canal.
+ */
+function avisarNoPainel(a, { contingencia = false } = {}) {
+  const sev = a.severidade || 'aviso';
+  const critico = sev === 'critico';
+  if (!contingencia) {
+    if ((ORDEM_SEV[sev] ?? 1) < (ORDEM_SEV[avisos.prefs.minimo] ?? 1)) return;
+    if (mudo() && !critico) return;
+    if (painelEmSilencio() && !critico) return;
+  }
+  const titulo = contingencia ? `WhatsApp fora · ${a.titulo}` : a.titulo;
+  notificar(titulo, a.texto || '', a.chave || a.id);
+  bip(sev);
+  const limite = avisos.cfg.falar_a_partir_de;
+  const falaVale = contingencia || (limite !== 'nunca' && (ORDEM_SEV[sev] ?? 1) >= (ORDEM_SEV[limite] ?? 2));
+  if (falaVale && !(mudo() && !contingencia)) falar(paraFalar(titulo, a.texto));
+}
+
+function barraContingencia(dados) {
+  const barra = $('#faixa-contingencia');
+  if (!barra) return;
+  barra.hidden = false;
+  barra.replaceChildren(
+    el('b', { text: 'WhatsApp fora. ' }),
+    el('span', { text: `${dados.motivo}. O alerta "${dados.alerta.titulo}" chegou só pelo painel.` }),
+    el('button', { class: 'botao sec mini', type: 'button', style: 'margin-left:10px', text: 'Entendi', onclick: () => { barra.hidden = true; } }));
+}
+
+function controlesDeAviso() {
+  const chave = (rotulo, campo) => {
+    const cx = el('input', { type: 'checkbox', checked: avisos.prefs[campo] });
+    cx.addEventListener('change', () => { avisos.prefs[campo] = cx.checked; salvarPrefsAvisos(); });
+    return el('label', { style: 'display:inline-flex;gap:6px;align-items:center' }, cx, rotulo);
+  };
+  const minimo = el('select', { 'aria-label': 'Avisar a partir de' },
+    Object.entries({ info: 'tudo', aviso: 'avisos e críticos', critico: 'só críticos' }).map(([k, t]) =>
+      el('option', { value: k, selected: avisos.prefs.minimo === k, text: t })));
+  minimo.addEventListener('change', () => { avisos.prefs.minimo = minimo.value; salvarPrefsAvisos(); });
+
+  const estadoMudo = el('span', { class: 'mudo', style: 'font-size:12.5px' });
+  const pintarMudo = () => {
+    estadoMudo.textContent = mudo()
+      ? `silenciado até ${new Date(avisos.prefs.mudoAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} (nada foi reconhecido)`
+      : '';
+  };
+  pintarMudo();
+
+  const permitir = el('button', { class: 'botao sec mini', type: 'button', text: 'Permitir notificações', onclick: async () => {
+    if (!('Notification' in window)) return toast('Este navegador não tem notificação.', 'erro');
+    const r = await Notification.requestPermission();
+    toast(r === 'granted' ? 'Notificações ligadas neste navegador.' : 'Notificação recusada no navegador.', r === 'granted' ? 'ok' : 'erro');
+    permitir.hidden = r === 'granted';
+  } });
+  permitir.hidden = !('Notification' in window) || Notification.permission === 'granted';
+
+  return el('div', { class: 'linha-acoes', style: 'flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:10px' },
+    el('span', { class: 'mudo', style: 'font-size:12.5px', text: 'Avisos neste navegador:' }),
+    chave('notificação', 'push'), chave('som', 'som'), chave('voz', 'voz'),
+    el('label', { style: 'display:inline-flex;gap:6px;align-items:center' }, 'a partir de ', minimo),
+    permitir,
+    el('button', { class: 'botao sec mini', type: 'button', text: 'Silenciar 15 min', onclick: () => {
+      avisos.prefs.mudoAte = Date.now() + 15 * 60_000;
+      salvarPrefsAvisos(); pintarMudo();
+      toast('Som e voz silenciados por 15 min. Nenhum alerta foi reconhecido.', 'ok');
+    } }),
+    estadoMudo);
+}
+
+async function prepararAvisos() {
+  lerPrefsAvisos();
+  try { avisos.cfg = { ...avisos.cfg, ...(await api('GET', '/api/canais')) }; } catch {}
+  const area = $('#controles-aviso');
+  if (area) area.replaceChildren(controlesDeAviso());
+}
+
 function abrirStream() {
   fontesStream?.close();
   const es = new EventSource('/api/eventos/stream');
@@ -907,11 +1072,20 @@ function abrirStream() {
     const { recentes } = JSON.parse(m.data);
     for (const ev of recentes) eventoNaLinha(ev);
   });
-  for (const tipo of ['alerta', 'chamada', 'consulta', 'monitor']) {
+  es.addEventListener('contingencia', (m) => {
+    const ev = JSON.parse(m.data);
+    barraContingencia(ev.dados);
+    avisarNoPainel(ev.dados.alerta, { contingencia: true });
+  });
+  for (const tipo of ['alerta', 'incidente', 'chamada', 'consulta', 'monitor']) {
     es.addEventListener(tipo, (m) => {
       const ev = JSON.parse(m.data);
       eventoNaLinha(ev);
-      if (tipo === 'alerta') atualizarContadorAlertas();
+      if (tipo === 'alerta') {
+        atualizarContadorAlertas();
+        // Alerta que nasceu sem envio (regra, manutenção, espera) não faz barulho aqui.
+        if (ev.dados && !ev.dados.envio_erro && !ev.dados.resolvido_em) avisarNoPainel(ev.dados);
+      }
       if (tipo === 'incidente') {
         atualizarContadorIncidentes();
         if (!$('[data-painel="incidentes"]').hidden) carregadores.incidentes();
@@ -1352,7 +1526,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -2302,6 +2476,7 @@ function iniciar() {
   $('#tela-app').hidden = false;
   $('#rodape-operador').textContent = sessao.operador;
   abrirStream();
+  prepararAvisos().catch(() => {});
   carregarStatus().catch(() => {});
   semearLinhaDoTempo();
   atualizarContadorAlertas();

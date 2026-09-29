@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import type http from 'http';
 import { logger } from '../logger';
 
-export type TipoEvento = 'alerta' | 'incidente' | 'chamada' | 'consulta' | 'monitor' | 'sistema';
+export type TipoEvento = 'alerta' | 'incidente' | 'chamada' | 'consulta' | 'monitor' | 'sistema' | 'contingencia';
 
 export interface Evento {
   id: string;
@@ -65,4 +65,12 @@ export function assinar(req: http.IncomingMessage, res: http.ServerResponse): vo
 
 export function eventosRecentes(limite = 50): Evento[] {
   return recentes.slice(-limite);
+}
+
+/**
+ * Quantos painéis estão ouvindo agora. É o que diz se dá para contar com o
+ * navegador quando o WhatsApp cai — e se não dá, o alerta ficou sem canal.
+ */
+export function paineisConectados(): number {
+  return clientes.size;
 }

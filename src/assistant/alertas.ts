@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { logger } from '../logger';
 import { db } from './store/db';
 import { obter, dentroDaJanela } from './config-dinamica';
-import { publicar } from './eventos';
+import { paineisConectados, publicar } from './eventos';
 import { dispararWebhooks } from './webhooks';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 import { marcarReconhecido, registrarEnvio } from './destinos-alerta';
@@ -215,6 +215,7 @@ async function despachar(a: Alerta, prioritario = false): Promise<void> {
   }
 
   if (!evoTecnicos.disponivel) {
+    contingencia(a, 'a instância do WhatsApp não está configurada');
     return motivoNaoEnvio('instância Evolution dos técnicos não configurada');
   }
 
@@ -225,7 +226,10 @@ async function despachar(a: Alerta, prioritario = false): Promise<void> {
       { mensagemId: r.id, motivo: alvo.origem });
     if (!r.ok) falhas.push(alvo.rotulo);
   }
-  if (falhas.length === alvos.length) return motivoNaoEnvio(`falha ao enviar pelo WhatsApp para ${falhas.join(', ')} (ver log do Evolution)`);
+  if (falhas.length === alvos.length) {
+    contingencia(a, 'o WhatsApp recusou todos os envios');
+    return motivoNaoEnvio(`falha ao enviar pelo WhatsApp para ${falhas.join(', ')} (ver log do Evolution)`);
+  }
 
   const agora = new Date().toISOString();
   const parcial = falhas.length ? `não chegou para: ${falhas.join(', ')}` : null;
@@ -233,6 +237,26 @@ async function despachar(a: Alerta, prioritario = false): Promise<void> {
   a.enviado_em = agora;
   a.envio_erro = parcial;
   logger.info(`Alerta enviado: ${a.titulo}`, { para: alvos.length, falhas: falhas.length });
+}
+
+/**
+ * WhatsApp fora: o alerta não pode simplesmente sumir. Vai para o painel como
+ * contingência, e o painel avisa com som e notificação do navegador. Sem
+ * painel aberto também, isso é registrado como alerta sem canal nenhum — que
+ * é a única informação honesta nessa situação.
+ */
+function contingencia(a: Alerta, motivo: string): void {
+  if (!obter<boolean>('canais.contingencia')) return;
+  const paineis = paineisConectados();
+  publicar('contingencia', {
+    alerta: { id: a.id, titulo: a.titulo, texto: a.texto, severidade: a.severidade, chave: a.chave },
+    motivo, paineis,
+  });
+  if (paineis > 0) {
+    logger.warn('Alerta em contingência: entregue pelo painel', { chave: a.chave, motivo, paineis });
+  } else {
+    logger.error('Alerta sem canal: WhatsApp fora e nenhum painel aberto', { chave: a.chave, motivo });
+  }
 }
 
 export function marcarResolvido(chave: string): Alerta | null {

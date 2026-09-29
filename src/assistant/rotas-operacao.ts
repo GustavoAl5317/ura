@@ -2,7 +2,7 @@
 
 import { Rota, json, lerJson, ator, ErroHttp } from './http-util';
 import { db } from './store/db';
-import { assinar, eventosRecentes } from './eventos';
+import { assinar, eventosRecentes, paineisConectados } from './eventos';
 import { listar as listarAlertas, reconhecer } from './alertas';
 import { receberEventoUra, listarChamadas, EventoUra } from './monitors/ura';
 import { estadoMonitores } from './monitors/base';
@@ -142,6 +142,21 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
       ativo: obter<boolean>('plantao.ativo'),
       agora: quando.toISOString(),
       equipes: plantaoAgora(quando).map((e) => ({ ...e, cadeia: cadeia(e.equipe.id, quando) })),
+    });
+    return true;
+  }
+
+  // ── Avisos no painel ──────────────────────────────────────────────────────
+  // Só as chaves de canal: o painel precisa delas para decidir som e voz, e
+  // quem não é admin não pode ler a configuração inteira.
+  if (req.method === 'GET' && p === '/api/canais') {
+    json(res, 200, {
+      push: obter<boolean>('canais.push_padrao'),
+      falar_a_partir_de: obter<string>('canais.falar_a_partir_de'),
+      silencio_inicio: obter<string>('canais.silencio_painel_inicio'),
+      silencio_fim: obter<string>('canais.silencio_painel_fim'),
+      contingencia: obter<boolean>('canais.contingencia'),
+      paineis_conectados: paineisConectados(),
     });
     return true;
   }

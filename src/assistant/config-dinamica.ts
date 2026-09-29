@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'canais' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -326,6 +326,28 @@ export const DEFINICOES = {
   'regras.intervalo_seg': {
     tipo: 'inteiro', grupo: 'regras', padrao: () => 60, min: 30, max: 900,
     descricao: 'De quanto em quanto tempo o monitor solta os avisos que estavam em espera.',
+  },
+
+  // ── Canais extras (painel, voz, contingência) ───────────────────────────
+  'canais.contingencia': {
+    tipo: 'booleano', grupo: 'canais', padrao: () => true,
+    descricao: 'WhatsApp fora: o alerta vai para o painel com aviso de contingência. Sem painel aberto, fica registrado como alerta sem canal.',
+  },
+  'canais.push_padrao': {
+    tipo: 'booleano', grupo: 'canais', padrao: () => true,
+    descricao: 'Oferece notificação do navegador a quem abre o painel. Cada pessoa ainda precisa permitir no próprio navegador.',
+  },
+  'canais.falar_a_partir_de': {
+    tipo: 'texto', grupo: 'canais', padrao: () => 'critico', opcoes: ['nunca', 'critico', 'aviso', 'info'],
+    descricao: 'A partir de que gravidade o painel FALA o alerta em voz alta. Silenciar a voz não reconhece o alerta.',
+  },
+  'canais.silencio_painel_inicio': {
+    tipo: 'hora', grupo: 'canais', padrao: () => '',
+    descricao: 'Início do silêncio do painel (HH:MM): sem som e sem voz nesse intervalo. Crítico continua avisando.',
+  },
+  'canais.silencio_painel_fim': {
+    tipo: 'hora', grupo: 'canais', padrao: () => '',
+    descricao: 'Fim do silêncio do painel.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────
