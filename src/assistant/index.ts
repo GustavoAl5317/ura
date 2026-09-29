@@ -21,6 +21,7 @@ import { registrarFerramentasNetflow } from './tools/netflow';
 import { registrarFerramentasCtos } from './tools/ctos';
 import { registrarFerramentasAtendimento } from './tools/atendimento';
 import { registrarFerramentasIncidentes } from './tools/incidentes';
+import { registrarFerramentasPlantao } from './tools/plantao';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
@@ -540,6 +541,7 @@ async function main(): Promise<void> {
   registrarFerramentasCtos();
   registrarFerramentasAtendimento();
   registrarFerramentasIncidentes();
+  registrarFerramentasPlantao();
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;

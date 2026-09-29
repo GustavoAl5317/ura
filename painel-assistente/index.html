@@ -529,6 +529,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="permissoes">Técnicos</button>
           <button class="subaba" data-sub="destinos">Quem recebe alertas</button>
           <button class="subaba" data-sub="bots">Sistemas e webhooks</button>
+          <button class="subaba" data-sub="plantao">Plantão</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
@@ -538,6 +539,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div data-subpainel="permissoes" hidden></div>
         <div data-subpainel="destinos" hidden></div>
         <div data-subpainel="bots" hidden></div>
+        <div data-subpainel="plantao" hidden></div>
         <div data-subpainel="prompts" hidden></div>
         <div data-subpainel="monitores" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
@@ -1329,7 +1331,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -1776,6 +1778,212 @@ subCarregadores.permissoes = async () => {
       el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formEq));
 
     alvo.replaceChildren(form, tabela, blocoEq);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+const DIAS_CURTOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const ROT_SEV_EQUIPE = { info: 'Tudo, inclusive informativo', aviso: 'Avisos e críticos', critico: 'Só críticos' };
+
+/** "seg, ter, qua · 08:00–18:00" */
+const janelaEscala = (e) => `${e.dias.map((d) => DIAS_CURTOS[d]).join(', ')} · ${e.hora_inicio}–${e.hora_fim}`;
+
+subCarregadores.plantao = async () => {
+  const alvo = $('[data-subpainel="plantao"]');
+  try {
+    const [vivo, cad] = await Promise.all([api('GET', '/api/plantao'), api('GET', '/api/plantao/cadastro')]);
+    const nomeDe = (id) => cad.pessoas.find((p) => p.id === id)?.nome || `#${id}`;
+    const nomeEquipe = (id) => cad.equipes.find((e) => e.id === id)?.nome || id;
+    const recarregar = () => subCarregadores.plantao();
+    const opcoesPessoa = (sel, vazio) => [el('option', { value: '', text: vazio, selected: !sel })]
+      .concat(cad.pessoas.map((p) => el('option', { value: String(p.id), selected: String(p.id) === String(sel), text: p.ativo ? p.nome : `${p.nome} (desativado)` })));
+
+    // ── Quem está agora ──
+    const cartoes = vivo.equipes.map((p) => el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: p.equipe.nome + (p.equipe.regiao ? ` · ${p.equipe.regiao}` : '') }),
+      p.vazio
+        ? el('p', { class: 'aviso erro', style: 'margin:0 0 10px', text: `Sem ninguém na vez: ${p.motivo_vazio}` })
+        : el('p', { style: 'margin:0 0 10px;font-size:15px' }, p.plantonistas.map((x) =>
+          el('div', {}, el('strong', { text: x.nome }), el('span', { class: 'dado', style: 'margin-left:8px', text: x.numero.replace('@s.whatsapp.net', '') })))),
+      p.turnos.length
+        ? el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 6px', text: p.turnos.map((t) => `${t.turno.nome}: ${t.turno.inicio} até ${t.turno.fim}`).join(' · ') })
+        : null,
+      p.extras.length
+        ? el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 6px', text: `Plantão extraordinário: ${p.extras.map((x) => x.nome).join(', ')}` })
+        : null,
+      p.substituicoes.length
+        ? el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 6px', text: p.substituicoes.map((s) => `${s.de.nome} fora (${cad.rotulo_excecao[s.tipo] || s.tipo})${s.para ? ` · no lugar: ${s.para.nome}` : ''}`).join(' · ') })
+        : null,
+      p.proximo
+        ? el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 6px', text: `Próximo turno: ${p.proximo.turno.nome}, ${p.proximo.turno.inicio} · ${p.proximo.plantonistas.map((x) => x.nome).join(', ') || 'ninguém escalado'}` })
+        : null,
+      el('details', {}, el('summary', { style: 'cursor:pointer;font-size:12.5px', text: 'Cadeia de acionamento' }),
+        el('ol', { style: 'margin:8px 0 0;padding-left:20px;font-size:12.5px' }, p.cadeia.map((d) =>
+          el('li', { text: `${d.rotulo}: ${d.pessoas.map((x) => x.nome).join(', ') || 'ninguém cadastrado'}` }))))));
+
+    const blocoAgora = el('div', {},
+      vivo.ativo ? null : el('p', { class: 'aviso erro', text: 'O plantão está desligado em Comportamento → Plantão: a escala abaixo não está valendo.' }),
+      el('h2', { class: 'secao', text: `De plantão agora · ${quando(vivo.agora)}` }),
+      cartoes.length ? el('div', { class: 'grade grade-3' }, cartoes) : el('p', { class: 'vazio-msg', text: 'Nenhuma equipe ativa cadastrada.' }));
+
+    // ── Escalas ──
+    const formEscala = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'es-equipe', text: 'Equipe' }),
+          el('select', { id: 'es-equipe' }, cad.equipes.map((e) => el('option', { value: e.id, text: e.nome })))),
+        el('div', { class: 'campo' }, el('label', { for: 'es-nome', text: 'Nome do turno' }),
+          el('input', { type: 'text', id: 'es-nome', required: true, placeholder: 'Ex.: Noturno' })),
+        el('div', { class: 'campo' }, el('label', { for: 'es-tipo', text: 'Tipo' }),
+          el('select', { id: 'es-tipo' },
+            el('option', { value: 'fixa', text: 'Fixa: todos da fila' }),
+            el('option', { value: 'rotativa', text: 'Rotativa: um por vez' })))),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'es-ini', text: 'Começa' }), el('input', { type: 'time', id: 'es-ini', value: '08:00', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'es-fim', text: 'Termina' }), el('input', { type: 'time', id: 'es-fim', value: '18:00', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'es-rot', text: 'Ciclo da rotação (dias)' }), el('input', { type: 'number', id: 'es-rot', value: '7', min: '1', max: '90' }))),
+      el('div', { class: 'campo' }, el('label', { text: 'Dias da semana' }),
+        el('div', { class: 'opcoes-lista', id: 'es-dias' }, DIAS_CURTOS.map((d, i) =>
+          el('label', {}, el('input', { type: 'checkbox', value: String(i), checked: i >= 1 && i <= 5 }), d)))),
+      el('div', { class: 'campo' }, el('label', { text: 'Fila de pessoas — na rotativa, a ordem é a ordem da vez' }),
+        el('div', { class: 'opcoes-lista', id: 'es-pessoas' }, cad.pessoas.map((p) =>
+          el('label', {}, el('input', { type: 'checkbox', value: String(p.id) }), p.nome)))),
+      el('div', { class: 'campo' }, el('label', { for: 'es-ancora', text: 'A rotação começou em' }),
+        el('input', { type: 'date', id: 'es-ancora', value: new Date().toISOString().slice(0, 10) })),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Criar turno' })));
+    formEscala.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const corpo = {
+        equipe_id: $('#es-equipe', formEscala).value,
+        nome: $('#es-nome', formEscala).value,
+        tipo: $('#es-tipo', formEscala).value,
+        hora_inicio: $('#es-ini', formEscala).value,
+        hora_fim: $('#es-fim', formEscala).value,
+        rotacao_dias: Number($('#es-rot', formEscala).value),
+        ancora: $('#es-ancora', formEscala).value,
+        dias: $$('#es-dias input', formEscala).filter((x) => x.checked).map((x) => Number(x.value)),
+        pessoas: $$('#es-pessoas input', formEscala).filter((x) => x.checked).map((x) => Number(x.value)),
+      };
+      try { await api('POST', '/api/plantao/escalas', corpo); toast('Turno criado.', 'ok'); recarregar(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const blocoEscalas = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Turnos' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Fixa: todo mundo da fila está de plantão no turno. Rotativa: uma pessoa por ciclo, na ordem da fila, contada a partir da data de início.' }),
+      cad.escalas.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Turno', 'Equipe', 'Tipo', 'Quando', 'Fila', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, cad.escalas.map((e) => el('tr', {},
+          el('td', { text: e.nome }),
+          el('td', { text: nomeEquipe(e.equipe_id) }),
+          el('td', { text: e.tipo === 'rotativa' ? `Rotativa · ${e.rotacao_dias}d` : 'Fixa' }),
+          el('td', { class: 'dado', text: janelaEscala(e) }),
+          el('td', { style: 'font-size:12.5px', text: e.pessoas.map(nomeDe).join(' → ') }),
+          el('td', {}, el('span', { style: `color:var(${e.ativo ? '--confirmado' : '--inconclusivo'})`, text: e.ativo ? 'Ativo' : 'Desligado' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            el('button', { class: 'botao sec mini', type: 'button', text: e.ativo ? 'Desligar' : 'Ligar', onclick: async () => {
+              try { await api('PUT', `/api/plantao/escalas/${e.id}`, { ativo: !e.ativo }); toast('Pronto.', 'ok'); recarregar(); }
+              catch (err) { toast(err.message, 'erro'); }
+            } }),
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              if (!confirm(`Remover o turno ${e.nome} da ${nomeEquipe(e.equipe_id)}?`)) return;
+              try { await api('DELETE', `/api/plantao/escalas/${e.id}`); toast('Removido.', 'ok'); recarregar(); }
+              catch (err) { toast(err.message, 'erro'); }
+            } })))))))) : el('p', { class: 'vazio-msg', text: 'Nenhum turno cadastrado: sem escala, ninguém fica de plantão.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formEscala));
+
+    // ── Folgas, férias e trocas ──
+    const formExc = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'ex-tipo', text: 'O que é' }),
+          el('select', { id: 'ex-tipo' }, cad.tipos_excecao.map((t) => el('option', { value: t, text: cad.rotulo_excecao[t] })))),
+        el('div', { class: 'campo' }, el('label', { for: 'ex-pessoa', text: 'Quem' }),
+          el('select', { id: 'ex-pessoa', required: true }, opcoesPessoa('', 'Escolha'))),
+        el('div', { class: 'campo' }, el('label', { for: 'ex-sub', text: 'Quem fica no lugar' }),
+          el('select', { id: 'ex-sub' }, opcoesPessoa('', 'Ninguém: passa a vez na fila')))),
+      el('div', { class: 'grade grade-3' },
+        el('div', { class: 'campo' }, el('label', { for: 'ex-ini', text: 'De' }), el('input', { type: 'datetime-local', id: 'ex-ini', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'ex-fim', text: 'Até' }), el('input', { type: 'datetime-local', id: 'ex-fim', required: true })),
+        el('div', { class: 'campo' }, el('label', { for: 'ex-equipe', text: 'Equipe (só no plantão extraordinário)' }),
+          el('select', { id: 'ex-equipe' }, [el('option', { value: '', text: '—' })].concat(cad.equipes.map((e) => el('option', { value: e.id, text: e.nome })))))),
+      el('div', { class: 'campo' }, el('label', { for: 'ex-motivo', text: 'Motivo' }), el('input', { type: 'text', id: 'ex-motivo', placeholder: 'Opcional' })),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Registrar' })));
+    formExc.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const corpo = {
+        tipo: $('#ex-tipo', formExc).value,
+        pessoa_id: Number($('#ex-pessoa', formExc).value),
+        substituto_id: $('#ex-sub', formExc).value ? Number($('#ex-sub', formExc).value) : null,
+        equipe_id: $('#ex-equipe', formExc).value || null,
+        inicio: new Date($('#ex-ini', formExc).value).toISOString(),
+        fim: new Date($('#ex-fim', formExc).value).toISOString(),
+        motivo: $('#ex-motivo', formExc).value,
+      };
+      try { await api('POST', '/api/plantao/excecoes', corpo); toast('Registrado.', 'ok'); recarregar(); }
+      catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const blocoExc = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Folgas, férias, trocas e plantão extra' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Quem está fora sai da vez. Com alguém no lugar, a vez passa para essa pessoa; sem ninguém, a rotação anda para o próximo da fila.' }),
+      cad.excecoes.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['O que', 'Quem', 'No lugar', 'Equipe', 'De', 'Até', 'Motivo', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, cad.excecoes.map((x) => el('tr', {},
+          el('td', { text: cad.rotulo_excecao[x.tipo] || x.tipo }),
+          el('td', { text: nomeDe(x.pessoa_id) }),
+          el('td', { text: x.substituto_id ? nomeDe(x.substituto_id) : '—' }),
+          el('td', { text: x.equipe_id ? nomeEquipe(x.equipe_id) : 'todas' }),
+          el('td', { class: 'dado', text: quando(x.inicio) }),
+          el('td', { class: 'dado', text: quando(x.fim) }),
+          el('td', { style: 'font-size:12.5px', text: x.motivo || '—' }),
+          el('td', {}, el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+            try { await api('DELETE', `/api/plantao/excecoes/${x.id}`); toast('Removido.', 'ok'); recarregar(); }
+            catch (err) { toast(err.message, 'erro'); }
+          } })))))))
+        : el('p', { class: 'vazio-msg', text: 'Nada registrado nos últimos 30 dias.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, formExc));
+
+    // ── Equipes: dono, região e que tipo de alerta cada uma atende ──
+    const linhaEquipe = (e) => {
+      const sup = el('select', { 'aria-label': `Supervisor da ${e.nome}` }, opcoesPessoa(e.supervisor?.id, 'Sem supervisor'));
+      const subst = el('select', { 'aria-label': `Substituto da ${e.nome}` }, opcoesPessoa(e.substituto?.id, 'Sem substituto'));
+      const regiao = el('input', { type: 'text', value: e.regiao || '', placeholder: 'Todas', 'aria-label': `Região da ${e.nome}`, style: 'min-width:110px' });
+      const sev = el('select', { 'aria-label': `Gravidade mínima da ${e.nome}` }, cad.severidades.map((s) =>
+        el('option', { value: s, selected: s === e.severidade_minima, text: ROT_SEV_EQUIPE[s] || s })));
+      const tipos = el('div', { class: 'opcoes-lista' }, Object.entries(cad.tipos_alerta).map(([k, t]) =>
+        el('label', {}, el('input', { type: 'checkbox', value: k, checked: !!e.tipos && e.tipos.includes(k) }), t)));
+      const escal = el('div', { class: 'opcoes-lista' }, cad.equipes.filter((o) => o.id !== e.id).map((o) =>
+        el('label', {}, el('input', { type: 'checkbox', value: o.id, checked: e.escalonamento.includes(o.id) }), o.nome)));
+      return el('tr', {},
+        el('td', {}, el('strong', { text: e.nome }),
+          el('div', { class: 'mudo', style: 'font-size:12px', text: e.ativo ? '' : 'equipe bloqueada' })),
+        el('td', {}, sup),
+        el('td', {}, subst),
+        el('td', {}, regiao),
+        el('td', {}, sev),
+        el('td', {}, tipos, el('div', { class: 'mudo', style: 'font-size:12px', text: 'nada marcado = atende tudo' })),
+        el('td', {}, escal),
+        el('td', {}, el('button', { class: 'botao sec mini', type: 'button', text: 'Salvar', onclick: async () => {
+          const corpo = {
+            supervisor_id: sup.value ? Number(sup.value) : null,
+            substituto_id: subst.value ? Number(subst.value) : null,
+            regiao: regiao.value,
+            severidade_minima: sev.value,
+            tipos: $$('input', tipos).filter((x) => x.checked).map((x) => x.value),
+            escalonamento: $$('input', escal).filter((x) => x.checked).map((x) => x.value),
+          };
+          try { await api('PUT', `/api/plantao/equipes/${encodeURIComponent(e.id)}`, corpo); toast('Equipe salva.', 'ok'); recarregar(); }
+          catch (err) { toast(err.message, 'erro'); }
+        } })));
+    };
+
+    const blocoEquipes = el('div', { class: 'bloco', style: 'margin-top:16px' },
+      el('h2', { class: 'secao', text: 'Equipes: quem responde por quê' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'A equipe é criada em Técnicos. Aqui ela ganha dono, região e os tipos de alerta que atende. Escalar para outra equipe é o degrau de segundo nível da cadeia.' }),
+      cad.equipes.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Equipe', 'Supervisor', 'Substituto', 'Região', 'Gravidade mínima', 'Tipos que atende', 'Escala para', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, cad.equipes.map(linhaEquipe))))
+        : el('p', { class: 'vazio-msg', text: 'Nenhuma equipe criada. Crie em Administração → Técnicos.' }));
+
+    alvo.replaceChildren(blocoAgora, blocoEscalas, blocoExc, blocoEquipes);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

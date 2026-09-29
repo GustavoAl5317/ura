@@ -12,6 +12,8 @@ import {
   duracaoSeg, linhaDoTempo, listar as listarIncidentes, mudarEstado, porId as incidentePorId,
   tempoAteReconhecer,
 } from './incidentes';
+import { cadeia, plantaoAgora } from './plantao';
+import { obter } from './config-dinamica';
 
 export const rotasOperacao: Rota = async (req, res, url, p) => {
   // ── Stream ao vivo do painel ──────────────────────────────────────────────
@@ -111,6 +113,19 @@ export const rotasOperacao: Rota = async (req, res, url, p) => {
     } catch (e) {
       throw new ErroHttp(400, (e as Error).message);
     }
+  }
+
+  // ── Plantão ───────────────────────────────────────────────────────────────
+  // Leitura para qualquer papel: saber quem chamar não é privilégio de admin.
+  if (req.method === 'GET' && p === '/api/plantao') {
+    const q = url.searchParams.get('quando');
+    const quando = q && !Number.isNaN(Date.parse(q)) ? new Date(q) : new Date();
+    json(res, 200, {
+      ativo: obter<boolean>('plantao.ativo'),
+      agora: quando.toISOString(),
+      equipes: plantaoAgora(quando).map((e) => ({ ...e, cadeia: cadeia(e.equipe.id, quando) })),
+    });
+    return true;
   }
 
   // ── Monitores ─────────────────────────────────────────────────────────────

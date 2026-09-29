@@ -16,6 +16,7 @@ import { dispararWebhooks } from './webhooks';
 import { evoTecnicos } from './channels/whatsapp-tecnicos';
 import { destinosDoAlerta, registrarEnvio } from './destinos-alerta';
 import { alertaResolvido, correlacionar } from './incidentes';
+import { avisoDePlantao } from './plantao';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -111,16 +112,19 @@ export async function emitir(p: {
 
   // O incidente nasce ANTES do despacho: a mensagem já sai com o número, e
   // quem recebe consegue responder "assumir INC-...".
-  let incidente: { numero: string; severidade: string } | null = null;
+  let incidente: { numero: string; severidade: string; equipe: string | null } | null = null;
   try {
     incidente = correlacionar(alerta, { evento: p.evento });
   } catch (err) {
     logger.error('Alerta: falha ao correlacionar incidente', { err: err instanceof Error ? err.message : String(err) });
   }
   if (incidente) {
-    alerta.texto = `${alerta.texto}
-
-_${incidente.numero} · responda "assumir ${incidente.numero}" para assumir_`;
+    // Quem está de plantão vai junto: quem lê o alerta sabe de quem é a vez sem
+    // abrir o painel, e equipe descoberta aparece em vez de sumir.
+    const plantao = obter<boolean>('plantao.avisar_no_alerta') ? avisoDePlantao(incidente.equipe) : null;
+    const rodape = [`_${incidente.numero} · responda "assumir ${incidente.numero}" para assumir_`]
+      .concat(plantao ? [`_${plantao}_`] : []).join('\n');
+    alerta.texto = `${alerta.texto}\n\n${rodape}`;
     db().prepare(`UPDATE alerta SET texto = ? WHERE id = ?`).run(alerta.texto, alerta.id);
   }
 

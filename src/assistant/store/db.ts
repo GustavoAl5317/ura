@@ -412,10 +412,56 @@ function migrar(d: Database.Database): void {
       at         TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ix_alerta_envio_alerta ON alerta_envio(alerta_id);
+
+    -- ═══ Plantão (B4) ═════════════════════════════════════════════════════
+    -- Turno com fila de pessoas. Fixa: todos da fila. Rotativa: um por ciclo,
+    -- contado da âncora — a conta vale para qualquer data, sem estado salvo.
+    -- As pessoas são linhas de alerta_destino: não há segundo cadastro de gente.
+    CREATE TABLE IF NOT EXISTS escala (
+      id           TEXT PRIMARY KEY,
+      equipe_id    TEXT NOT NULL,
+      nome         TEXT NOT NULL,
+      tipo         TEXT NOT NULL,           -- fixa | rotativa
+      dias         TEXT NOT NULL,           -- JSON [0..6], 0 = domingo
+      hora_inicio  TEXT NOT NULL,           -- HH:MM, hora local
+      hora_fim     TEXT NOT NULL,
+      pessoas      TEXT NOT NULL,           -- JSON: ids de alerta_destino, em ordem
+      rotacao_dias INTEGER NOT NULL DEFAULT 7,
+      ancora       TEXT NOT NULL,           -- AAAA-MM-DD: dia em que a rotação começou
+      ativo        INTEGER NOT NULL DEFAULT 1,
+      criado_em    TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_escala_equipe ON escala(equipe_id);
+
+    -- Folga, férias, ausência, troca e plantão extraordinário. Vale mais que a
+    -- escala; com substituto, passa a vez.
+    CREATE TABLE IF NOT EXISTS plantao_excecao (
+      id            TEXT PRIMARY KEY,
+      tipo          TEXT NOT NULL,          -- folga | ferias | ausencia | troca | extra
+      pessoa_id     INTEGER NOT NULL,
+      substituto_id INTEGER,
+      equipe_id     TEXT,
+      inicio        TEXT NOT NULL,
+      fim           TEXT NOT NULL,
+      motivo        TEXT,
+      criado_por    TEXT,
+      criado_em     TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_excecao_janela ON plantao_excecao(inicio, fim);
   `);
 
   // A coluna vive na tabela `alerta`, criada no bloco acima: por isso só aqui.
   adicionarColunaSeFaltar(d, 'alerta', 'incidente_id', 'TEXT');
+
+  // Plantão: a equipe deixa de ser só teto de permissão e passa a ter dono,
+  // região e tipo de evento. Colunas novas numa tabela que já está em produção.
+  adicionarColunaSeFaltar(d, 'equipe', 'regiao', 'TEXT');
+  adicionarColunaSeFaltar(d, 'equipe', 'tipos', 'TEXT');
+  adicionarColunaSeFaltar(d, 'equipe', 'severidade_minima', "TEXT NOT NULL DEFAULT 'aviso'");
+  adicionarColunaSeFaltar(d, 'equipe', 'supervisor_id', 'INTEGER');
+  adicionarColunaSeFaltar(d, 'equipe', 'substituto_id', 'INTEGER');
+  adicionarColunaSeFaltar(d, 'equipe', 'escalonamento', 'TEXT');
+  adicionarColunaSeFaltar(d, 'equipe', 'grupo', 'TEXT');
 
   // ── (3) Correções de dado: só depois de TODA tabela e coluna existir ───────
 

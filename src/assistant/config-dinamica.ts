@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -252,6 +252,20 @@ export const DEFINICOES = {
   'incidentes.intervalo_seg': {
     tipo: 'inteiro', grupo: 'incidentes', padrao: () => 60, min: 30, max: 900,
     descricao: 'De quanto em quanto tempo o monitor encerra o que já normalizou.',
+  },
+
+  // ── Plantão ─────────────────────────────────────────────────────────────
+  'plantao.ativo': {
+    tipo: 'booleano', grupo: 'plantao', padrao: () => true,
+    descricao: 'Usa a escala para dizer de quem é a vez. Desligado, o alerta continua indo para o grupo e para quem marcou o tipo.',
+  },
+  'plantao.gerencia': {
+    tipo: 'lista', grupo: 'plantao', padrao: () => [],
+    descricao: 'Último degrau da cadeia, quando nem plantonista, nem substituto, nem supervisor respondem. São números da aba "Quem recebe alertas" (o painel preenche).',
+  },
+  'plantao.avisar_no_alerta': {
+    tipo: 'booleano', grupo: 'plantao', padrao: () => true,
+    descricao: 'Escreve no alerta quem está de plantão, ou avisa que a equipe está descoberta. Só aparece quando o alerta vira incidente.',
   },
 
   // ── Resumo diário ───────────────────────────────────────────────────────

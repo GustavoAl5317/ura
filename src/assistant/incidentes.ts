@@ -20,6 +20,8 @@ import { logger } from '../logger';
 import { obter } from './config-dinamica';
 import { publicar } from './eventos';
 import type { Alerta, Severidade } from './alertas';
+import { tipoDoAlerta } from './destinos-alerta';
+import { plantaoParaAlerta } from './plantao';
 
 /** Escala do incidente. Mais ampla que a do alerta: o impacto muda a leitura. */
 export const SEVERIDADES_INCIDENTE = ['informacao', 'atencao', 'advertencia', 'critico', 'maior', 'desastre'] as const;
@@ -141,6 +143,7 @@ export function classificar(sevAlerta: Severidade, clientes: number | null): Sev
 /** Dado do alerta que interessa ao incidente: alvo, equipamento e impacto. */
 export function extrairAlvo(a: Pick<Alerta, 'origem' | 'chave' | 'dados' | 'titulo'>): {
   correlacao: string; equipamento: string | null; alvo: string | null; clientes: number | null;
+  regiao: string | null;
 } {
   const d = (a.dados ?? {}) as Record<string, any>;
   const host: string | null = d.host ?? d.equipamento ?? null;
@@ -148,25 +151,27 @@ export function extrairAlvo(a: Pick<Alerta, 'origem' | 'chave' | 'dados' | 'titu
     typeof d.clientes_afetados === 'number' ? d.clientes_afetados
       : typeof d.impacto?.clientes === 'number' ? d.impacto.clientes
         : typeof d.clientes === 'number' ? d.clientes : null;
+  // Região serve para escolher a equipe de plantão; o monitor manda o que tiver.
+  const regiao: string | null = d.regiao ?? d.cidade ?? d.pop ?? d.bairro ?? null;
 
   switch (a.origem) {
     case 'ctos': {
       const pon = d.pon ?? null;
       return {
         correlacao: pon ? `pon:${pon}` : `cto:${d.cto_id ?? d.nome ?? a.chave}`,
-        equipamento: host, alvo: pon ? `PON ${pon}` : (d.nome ?? null), clientes,
+        equipamento: host, alvo: pon ? `PON ${pon}` : (d.nome ?? null), clientes, regiao,
       };
     }
     case 'zabbix':
-      return { correlacao: host ? `host:${host}` : `zabbix:${d.tipo ?? 'outro'}`, equipamento: host, alvo: d.nome ?? a.titulo, clientes };
+      return { correlacao: host ? `host:${host}` : `zabbix:${d.tipo ?? 'outro'}`, equipamento: host, alvo: d.nome ?? a.titulo, clientes, regiao };
     case 'netflow':
-      return { correlacao: 'netflow', equipamento: host, alvo: d.alvo ?? null, clientes };
+      return { correlacao: 'netflow', equipamento: host, alvo: d.alvo ?? null, clientes, regiao };
     case 'sla':
-      return { correlacao: 'atendimento', equipamento: null, alvo: null, clientes };
+      return { correlacao: 'atendimento', equipamento: null, alvo: null, clientes, regiao };
     case 'bot':
-      return { correlacao: `bot:${d.bot ?? 'desconhecido'}`, equipamento: host, alvo: d.alvo ?? null, clientes };
+      return { correlacao: `bot:${d.bot ?? 'desconhecido'}`, equipamento: host, alvo: d.alvo ?? null, clientes, regiao };
     default:
-      return { correlacao: `${a.origem}:${a.chave}`, equipamento: host, alvo: null, clientes };
+      return { correlacao: `${a.origem}:${a.chave}`, equipamento: host, alvo: null, clientes, regiao };
   }
 }
 
@@ -248,10 +253,19 @@ export function correlacionar(a: Alerta, opts: { evento?: boolean } = {}): Incid
     return atual;
   }
 
+  // Equipe de plantão: o incidente já nasce sabendo de quem é a vez. Falha
+  // aqui não pode impedir o incidente de existir.
+  let plantao: ReturnType<typeof plantaoParaAlerta> = null;
+  try {
+    plantao = plantaoParaAlerta({ tipo: tipoDoAlerta(a), severidade: a.severidade, regiao: alvo.regiao });
+  } catch (err) {
+    logger.warn('Incidente: falha ao consultar o plantão', { err: err instanceof Error ? err.message : String(err) });
+  }
+
   const inc: Incidente = {
     id: randomUUID(), numero: proximoNumero(), titulo: a.titulo, severidade: sev,
     estado: 'aberto', correlacao: alvo.correlacao, equipamento: alvo.equipamento, alvo: alvo.alvo,
-    clientes_afetados: alvo.clientes, dono: null, equipe: null, aberto_em: agora,
+    clientes_afetados: alvo.clientes, dono: null, equipe: plantao?.equipe.id ?? null, aberto_em: agora,
     reconhecido_em: null, reconhecido_por: null, normalizado_em: null, encerrado_em: null,
     reaberturas: 0, alertas: 1, atualizado_em: agora,
   };
@@ -262,12 +276,23 @@ export function correlacionar(a: Alerta, opts: { evento?: boolean } = {}): Incid
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     inc.id, inc.numero, inc.titulo, inc.severidade, inc.estado, inc.correlacao, inc.equipamento,
-    inc.alvo, inc.clientes_afetados, null, null, inc.aberto_em, null, null, null, null, 0, 1, agora,
+    inc.alvo, inc.clientes_afetados, null, inc.equipe, inc.aberto_em, null, null, null, null, 0, 1, agora,
   );
   ligarAlerta(inc.id, a.id);
   registrarLinha(inc.id, 'detectado', `Detectado: ${a.titulo}`, null, {
     chave: a.chave, origem: a.origem, severidade: inc.severidade, clientes: inc.clientes_afetados,
   });
+  if (plantao) {
+    // Quem estava na vez quando o problema apareceu. Fica registrado mesmo que
+    // a escala mude depois: a linha do tempo conta o que era verdade na hora.
+    registrarLinha(inc.id, 'plantao',
+      plantao.plantonistas.length
+        ? `Plantão da ${plantao.equipe.nome}: ${plantao.plantonistas.map((p) => p.nome).join(', ')}`
+        : `Equipe ${plantao.equipe.nome} descoberta: ${plantao.motivo_vazio}`,
+      null,
+      { equipe: plantao.equipe.id, plantonistas: plantao.plantonistas.map((p) => p.nome), descoberta: plantao.vazio },
+    );
+  }
   logger.info('Incidente aberto', { numero: inc.numero, severidade: inc.severidade, correlacao: inc.correlacao });
   publicar('incidente', inc);
   return inc;

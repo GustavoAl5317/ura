@@ -20,6 +20,11 @@ import {
   DESCRICAO_PAPEL, PAPEIS_PAINEL, SessaoPainel, atualizarUsuario, criarUsuario, fecharSessao,
   listarSessoes, listarUsuarios, removerUsuario, revogarSessoesDoUsuario, sessoesDoUsuario,
 } from './usuarios';
+import {
+  DIAS_SEMANA, ROTULO_EXCECAO, TIPOS_ESCALA, TIPOS_EXCECAO, atualizarEquipe as atualizarEquipePlantao,
+  atualizarEscala, criarEscala, criarExcecao, equipes as equipesPlantao, listarEscalas, listarExcecoes,
+  pessoas as pessoasPlantao, removerEscala, removerExcecao,
+} from './plantao';
 
 /** Sessão para o painel: sem o token, que é credencial viva. */
 function sessaoSaida(s: SessaoPainel) {
@@ -554,6 +559,81 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
     const depois = db().prepare(`SELECT * FROM permissao WHERE usuario = ?`).get(usuario) as LinhaPermissao;
     registrarAuditoria(ator(req), 'permissao.editar', usuario, paraSaida(antes), paraSaida(depois));
     json(res, 200, { ok: true, permissao: paraSaida(depois) });
+    return true;
+  }
+
+  // ── Plantão: equipes, escalas e ausências ─────────────────────────────────
+  if (req.method === 'GET' && p === '/api/plantao/cadastro') {
+    json(res, 200, {
+      equipes: equipesPlantao(),
+      pessoas: pessoasPlantao(),
+      escalas: listarEscalas(),
+      excecoes: listarExcecoes({ desde: new Date(Date.now() - 30 * 86_400_000).toISOString() }),
+      tipos_alerta: TIPOS_ALERTA,
+      severidades: SEVERIDADES,
+      dias: DIAS_SEMANA,
+      tipos_escala: TIPOS_ESCALA,
+      tipos_excecao: TIPOS_EXCECAO,
+      rotulo_excecao: ROTULO_EXCECAO,
+    });
+    return true;
+  }
+
+  const mEqPl = p.match(/^\/api\/plantao\/equipes\/([^/]+)$/);
+  if (req.method === 'PUT' && mEqPl) {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 200, { ok: true, equipe: atualizarEquipePlantao(decodeURIComponent(mEqPl[1]), b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/plantao/escalas') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 201, { ok: true, escala: criarEscala(b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mEsc = p.match(/^\/api\/plantao\/escalas\/([0-9a-f-]{36})$/);
+  if (mEsc && (req.method === 'PUT' || req.method === 'DELETE')) {
+    try {
+      if (req.method === 'DELETE') {
+        removerEscala(mEsc[1], ator(req));
+        json(res, 200, { ok: true });
+      } else {
+        const b = await lerJson<Record<string, unknown>>(req);
+        json(res, 200, { ok: true, escala: atualizarEscala(mEsc[1], b, ator(req)) });
+      }
+    } catch (e) {
+      throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/plantao/excecoes') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 201, { ok: true, excecao: criarExcecao(b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mExc = p.match(/^\/api\/plantao\/excecoes\/([0-9a-f-]{36})$/);
+  if (req.method === 'DELETE' && mExc) {
+    try {
+      removerExcecao(mExc[1], ator(req));
+      json(res, 200, { ok: true });
+    } catch (e) {
+      throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
     return true;
   }
 
