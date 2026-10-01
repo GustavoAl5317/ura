@@ -717,6 +717,31 @@ export function servicosPorCto(cto: string, limite = 200): ResultadoBusca[] {
     .all(cto, limite) as LinhaBusca[]).map((l) => mapear(l, 'cto'));
 }
 
+const semAcento = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const palavrasDe = (x: string) => semAcento(x).replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+
+/**
+ * CTOs do cadastro cujo nome contém TODAS as palavras do termo, sem acento e
+ * sem pontuação. Existe porque ninguém fala o nome exato: "a caixinha da
+ * Araca" precisa achar "CTO 3 - Rua Araça, 194". "cto" e "rua" não contam
+ * como palavra: estão em quase todo nome e não distinguem nada.
+ */
+export function ctosParecidas(termo: string, limite = 10): string[] {
+  const procura = palavrasDe(termo).filter((p) => p.length >= 2 && !['cto', 'rua', 'r', 'av', 'da', 'do', 'de'].includes(p));
+  if (!procura.length) return [];
+  const nomes = db().prepare(
+    `SELECT DISTINCT cto_nome FROM sgp_servico WHERE cto_nome IS NOT NULL AND TRIM(cto_nome) <> ''`,
+  ).all() as Array<{ cto_nome: string }>;
+  return nomes
+    .map((n) => n.cto_nome)
+    .filter((nome) => {
+      const doNome = palavrasDe(nome);
+      return procura.every((p) => doNome.includes(p) || doNome.some((w) => w.startsWith(p) && p.length >= 4));
+    })
+    .sort()
+    .slice(0, limite);
+}
+
 // ─── Agendamento ─────────────────────────────────────────────────────────────
 
 let timer: NodeJS.Timeout | null = null;

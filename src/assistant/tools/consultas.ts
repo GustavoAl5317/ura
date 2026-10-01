@@ -9,7 +9,7 @@ import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { zabbix, ZabbixClient } from '../../integrations/zabbix';
 import { onuPorTermo } from '../../integrations/zabbix-metricas';
 import { db } from '../store/db';
-import { buscar, statusIndice, servicosPorCto, idadeEspelho } from '../store/sgp-index';
+import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas } from './base';
 import { Envelope } from '../types';
 
@@ -428,19 +428,41 @@ const clientesDaCto: Ferramenta = {
   fonte: 'sgp',
   descricao:
     'Lista os clientes atendidos por uma CTO, com sinal do último sync. Use para dimensionar ' +
-    'quantos são afetados por um incidente naquela CTO.',
+    'quantos são afetados por um incidente naquela CTO. Aceita o nome inteiro ou só o pedaço que a ' +
+    'pessoa falou ("Araca", "731"): sem acento e sem pontuação. Se mais de uma caixa casar, devolve ' +
+    'as opções — pergunte qual é, não escolha.',
   parametros: {
     type: 'object',
-    properties: { cto: { type: 'string', description: 'Nome exato da CTO, ex.: "CTO 4 RUA 731, 310"' } },
+    properties: { cto: { type: 'string', description: 'Nome da CTO, inteiro ou como a pessoa falou, ex.: "CTO 4 RUA 731, 310" ou "Araca"' } },
     required: ['cto'],
   },
   async executar(args, ctx) {
     const cto = String(args.cto ?? '').trim();
     return [
-      await medir(ctx, 'sgp', 'sgp.clientes_da_cto', { cto }, async () => {
-        const lista = servicosPorCto(cto);
+      await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.clientes_da_cto', { cto }, async () => {
+        let nome = cto;
+        let lista = servicosPorCto(cto);
+        let casouPor = 'nome exato';
+        if (!lista.length) {
+          // Ninguém fala o nome exato: tenta pelas palavras, sem acento.
+          const parecidas = ctosParecidas(cto);
+          if (parecidas.length === 1) {
+            nome = parecidas[0];
+            lista = servicosPorCto(nome);
+            casouPor = 'palavras do nome';
+          } else if (parecidas.length > 1) {
+            return {
+              vazio: true,
+              dados: {
+                cto_procurada: cto,
+                candidatas: parecidas,
+                instrucao: 'Mais de uma caixa casa com esse nome. Mostre as opções e pergunte qual é; não escolha.',
+              },
+            };
+          }
+        }
         return {
-          dados: { cto, total: lista.length, clientes: lista, origem: idadeEspelho() },
+          dados: { cto: nome, cto_procurada: cto, casou_por: casouPor, total: lista.length, clientes: lista, origem: idadeEspelho() },
           vazio: lista.length === 0,
         };
       }),

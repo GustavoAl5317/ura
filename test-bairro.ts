@@ -20,6 +20,7 @@ const { db, fecharDb } = require(path.join(RAIZ, 'src', 'assistant', 'store', 'd
 const geo = require(path.join(RAIZ, 'src', 'assistant', 'geografia')) as typeof import('./src/assistant/geografia');
 const { questdb } = require(path.join(RAIZ, 'src', 'integrations', 'questdb')) as typeof import('./src/integrations/questdb');
 const { sgp } = require(path.join(RAIZ, 'src', 'integrations', 'sgp')) as typeof import('./src/integrations/sgp');
+const idx = require(path.join(RAIZ, 'src', 'assistant', 'store', 'sgp-index')) as typeof import('./src/assistant/store/sgp-index');
 const { ferramentas } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'base')) as typeof import('./src/assistant/tools/base');
 const { registrarFerramentasCtos } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'ctos')) as typeof import('./src/assistant/tools/ctos');
 const { registrarFerramentas } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'consultas')) as typeof import('./src/assistant/tools/consultas');
@@ -191,6 +192,25 @@ async function main(): Promise<void> {
   ];
   (sgp as any).ordensServicoPorCadastro = async () => ({ ordens: ORDENS, janelaCompleta: true });
   registrarFerramentas();
+  console.log('--- CTO pelo nome que a pessoa fala ---');
+  cliente(20, 'Gil', 'Henrique Jorge', 'Fortaleza', 743, 'CTO 3 - Rua Araça, 194');
+  cliente(21, 'Hugo', 'Henrique Jorge', 'Fortaleza', 744, 'CTO 1 - Rua Araça, 50');
+  cliente(22, 'Iris', 'Henrique Jorge', 'Fortaleza', 745, 'CTO 4 RUA 731, 310');
+  checa('"Araca" sem cedilha acha as caixas da Rua Araca', idx.ctosParecidas('Araca').length === 2, idx.ctosParecidas('Araca'));
+  checa('"araca 194" acha uma so', idx.ctosParecidas('araca 194').length === 1 && /194/.test(idx.ctosParecidas('araca 194')[0]));
+  checa('"cto" e "rua" sozinhos nao casam tudo', idx.ctosParecidas('cto rua').length === 0);
+  checa('palavra que nao existe nao casa', idx.ctosParecidas('araca 999').length === 0);
+  const daCto = async (args: Record<string, unknown>) =>
+    (await ferramentas.get('clientes_da_cto')!.executar(args, ctx))[0] as any;
+  e = await daCto({ cto: 'Araca' });
+  checa('duas caixas possiveis: devolve as opcoes e manda perguntar',
+    e.vazio === true && e.dados.candidatas.length === 2 && /pergunte qual/.test(e.dados.instrucao), e.dados);
+  e = await daCto({ cto: 'araca 194' });
+  checa('uma caixa possivel: traz os clientes dela', e.ok && e.dados.total === 1 && e.dados.casou_por === 'palavras do nome', e.dados);
+  checa('e diz o nome certo da caixa', e.dados.cto === 'CTO 3 - Rua Araça, 194');
+  e = await daCto({ cto: 'CTO 4 RUA 731, 310' });
+  checa('nome exato continua indo direto', e.ok && e.dados.casou_por === 'nome exato' && e.dados.total === 1, e.dados);
+
   const doTecnico = async (args: Record<string, unknown>) =>
     (await ferramentas.get('os_do_tecnico')!.executar(args, ctx))[0] as any;
 
