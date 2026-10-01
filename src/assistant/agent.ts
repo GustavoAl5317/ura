@@ -389,7 +389,10 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
         'o nível (saudável, ponto de atenção, em degradação, crítico ou sem base para avaliar), o motivo, o impacto ' +
         'em clientes, desde quando e o que fazer. Para pergunta sobre COMO ESTÁ um lugar, chame saude_da_rede: o ' +
         'nível vem dela, calculado, e você não muda. Se não chamou saude_da_rede, NÃO declare nível nenhum — ' +
-        'descreva o que os números mostram, sem rótulo de saúde. "Sem base" nunca vira "saudável".',
+        'descreva o que os números mostram, sem rótulo de saúde. "Sem base" nunca vira "saudável". ' +
+        'Urgência depende da IDADE do problema: o que abriu hoje ou nos últimos dias pede ação; o que está aberto ' +
+        'há meses sem mudança costuma ser alarme velho — diga que é antigo e recomende revisar se ainda faz ' +
+        'sentido, sem chamar de urgente nem de crítico por causa da quantidade.',
     });
   }
 

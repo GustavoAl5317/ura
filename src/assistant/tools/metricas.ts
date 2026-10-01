@@ -126,7 +126,13 @@ const equipamentos: Ferramenta = {
               .filter((h) => h.problemasAbertos > 0)
               .sort((a, b) => (b.piorSeveridade ?? 0) - (a.piorSeveridade ?? 0))
               .slice(0, 25)
-              .map((h) => ({ nome: h.nome, fabricante: h.fabricante, problemas: h.problemasAbertos, pior_severidade: h.piorSeveridade })),
+              .map((h) => ({
+                nome: h.nome, fabricante: h.fabricante, problemas: h.problemasAbertos,
+                abertos_ha_mais_de_30_dias: h.problemasCronicos, pior_severidade: h.piorSeveridade,
+              })),
+            como_ler_problemas_antigos:
+              'abertos_ha_mais_de_30_dias costuma ser alarme velho, não emergência. Equipamento cujo problema é ' +
+              'todo antigo não está "em crise": diga que são pendências antigas a revisar no Zabbix.',
             // Com filtro de fabricante ou tipo, a lista inteira interessa: é a pergunta.
             equipamentos: filtrou
               ? ativos.slice(0, 80).map((h) => ({

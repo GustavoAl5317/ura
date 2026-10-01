@@ -274,8 +274,11 @@ const zabbixProblemas: Ferramenta = {
           const padroes = filtro ? [filtro] : config.zabbix.searchPatterns;
           brutos = await zabbix.problemasPorPadroes(padroes);
         }
+        const agora = Date.now();
         const incidentes = brutos.map((p) => {
           const h = p.hosts?.[0];
+          const desdeMs = parseInt(p.clock, 10) * 1000;
+          const dias = Math.max(0, Math.floor((agora - desdeMs) / 86_400_000));
           return {
             eventid: p.eventid,
             nome: p.name,
@@ -283,14 +286,44 @@ const zabbixProblemas: Ferramenta = {
             host: h?.host ?? '',
             hostVisivel: h?.name ?? '',
             tipo: ZabbixClient.classificar(p.name, h?.name ?? ''),
-            desde: new Date(parseInt(p.clock, 10) * 1000).toISOString(),
+            desde: new Date(desdeMs).toISOString(),
+            aberto_ha_dias: dias,
+            idade: idadeDoProblema(dias),
           };
         });
-        return { dados: { total: incidentes.length, incidentes }, vazio: incidentes.length === 0 };
+        const cronicos = incidentes.filter((i) => i.idade === 'cronico');
+        return {
+          dados: {
+            total: incidentes.length,
+            por_idade: {
+              novos_hoje: incidentes.filter((i) => i.idade === 'novo').length,
+              desta_semana_ou_mes: incidentes.filter((i) => i.idade === 'recente').length,
+              cronicos_mais_de_30_dias: cronicos.length,
+            },
+            incidentes,
+            como_ler_a_idade: cronicos.length
+              ? `${cronicos.length} problema(s) aberto(s) há mais de ${DIAS_CRONICO} dias. Problema que está aberto há meses ` +
+                'sem mudança costuma ser alarme velho (porta desativada de propósito, parceiro BGP que já saiu, ' +
+                'gatilho esquecido), não emergência. NÃO chame de urgente: diga que é antigo e recomende revisar no ' +
+                'Zabbix se ainda faz sentido. Urgente é o que abriu hoje ou nos últimos dias.'
+              : undefined,
+          },
+          vazio: incidentes.length === 0,
+        };
       }),
     ];
   },
 };
+
+/** Acima disto, problema aberto é crônico: costuma ser alarme velho, não emergência. */
+const DIAS_CRONICO = 30;
+
+/** novo = hoje; recente = até 30 dias; crônico = mais que isso. */
+export function idadeDoProblema(dias: number): 'novo' | 'recente' | 'cronico' {
+  if (dias < 1) return 'novo';
+  if (dias <= DIAS_CRONICO) return 'recente';
+  return 'cronico';
+}
 
 const zabbixHistorico: Ferramenta = {
   nome: 'zabbix_historico_quedas',

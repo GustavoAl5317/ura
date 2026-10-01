@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     return {
       hostid: String(k + 1), nome: h.nome, habilitado: true, emManutencao: false,
       disponibilidade: k === 1 ? 'indisponivel' : 'disponivel', erroInterface: k === 1 ? 'SNMP timeout' : null,
-      problemasAbertos: k === 0 ? 2 : 0, piorSeveridade: k === 0 ? 4 : null,
+      problemasAbertos: k === 0 ? 2 : 0, problemasCronicos: k === 0 ? 2 : 0, piorSeveridade: k === 0 ? 4 : null,
       fabricante: id.fabricante, fabricantePor: id.por, modelo: id.modelo, tipo: id.tipo,
     };
   });
@@ -124,13 +124,20 @@ async function main(): Promise<void> {
   (zabbix as any).problemasPorPadroes = async () => { usouPadroes = true; return []; };
   (zabbix as any).hostsPorNome = async (t: string) => (t === 'NE8K' ? [{ hostid: '1', nome: 'NE8K-AQUI-FOR-BGP' }] : []);
   (zabbix as any).problemasDosHosts = async () => [
-    { eventid: '1', name: 'High CPU utilization (over 90% for 5m)', severity: '3', clock: '1700000000', objectid: '9', hosts: [{ host: 'NE8K-AQUI-FOR-BGP', name: 'NE8K-AQUI-FOR-BGP' }] },
-    { eventid: '2', name: 'BGP peer 200.1.1.1 down', severity: '4', clock: '1700000100', objectid: '10', hosts: [{ host: 'NE8K-AQUI-FOR-BGP', name: 'NE8K-AQUI-FOR-BGP' }] },
+    { eventid: '1', name: 'High CPU utilization (over 90% for 5m)', severity: '3', clock: String(Math.floor(Date.now() / 1000) - 600), objectid: '9', hosts: [{ host: 'NE8K-AQUI-FOR-BGP', name: 'NE8K-AQUI-FOR-BGP' }] },
+    { eventid: '2', name: 'BGP peer 200.1.1.1 down', severity: '4', clock: String(Math.floor(Date.now() / 1000) - 400 * 86400), objectid: '10', hosts: [{ host: 'NE8K-AQUI-FOR-BGP', name: 'NE8K-AQUI-FOR-BGP' }] },
   ];
   e = await probs({ host: 'NE8K' });
   checa('equipamento sem filtro: traz TODOS os problemas, inclusive CPU e BGP',
     e.ok && e.dados.total === 2 && e.dados.incidentes.some((x: any) => /CPU/.test(x.nome)) && e.dados.incidentes.some((x: any) => /BGP/.test(x.nome)), e.dados);
   checa('e nao passa pelos padroes da operacao', usouPadroes === false);
+
+  checa('o problema de agora e novo', e.dados.incidentes.find((x: any) => /CPU/.test(x.nome)).idade === 'novo');
+  checa('o de 400 dias e cronico', e.dados.incidentes.find((x: any) => /BGP/.test(x.nome)).idade === 'cronico');
+  checa('a conta por idade separa os dois', e.dados.por_idade.novos_hoje === 1 && e.dados.por_idade.cronicos_mais_de_30_dias === 1, e.dados.por_idade);
+  checa('e proibe chamar o antigo de urgente', /NÃO chame de urgente/.test(e.dados.como_ler_a_idade ?? ''));
+  const { idadeDoProblema } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'consultas'));
+  checa('fronteiras da idade', idadeDoProblema(0) === 'novo' && idadeDoProblema(30) === 'recente' && idadeDoProblema(31) === 'cronico');
 
   e = await probs({ host: 'NOME-ERRADO' });
   checa('host que nao existe: diz que nao encontrou, sem buscar na rede toda',

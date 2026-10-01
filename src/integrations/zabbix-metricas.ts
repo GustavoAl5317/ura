@@ -118,6 +118,8 @@ export interface StatusHost {
   disponibilidade: Disponibilidade;
   erroInterface: string | null;
   problemasAbertos: number;
+  /** Dos abertos, quantos estão assim há mais de 30 dias. */
+  problemasCronicos: number;
   piorSeveridade: number | null;
   fabricante: string | null;
   /** De onde veio o fabricante: inventário, template, ou dedução pelo nome. */
@@ -147,14 +149,15 @@ export async function statusHosts(filtroNome?: string): Promise<StatusHost[]> {
 
   if (!hosts.length) return [];
 
-  const problemas = await zabbix.api<Array<{ objectid: string; severity: string }>>('problem.get', {
-    output: ['objectid', 'severity'],
+  const problemas = await zabbix.api<Array<{ objectid: string; severity: string; clock: string }>>('problem.get', {
+    output: ['objectid', 'severity', 'clock'],
     hostids: hosts.map((h) => h.hostid),
     suppressed: false,
   }) ?? [];
 
   // problem.get não devolve host; resolve pelo trigger.
-  const porHost = new Map<string, { n: number; pior: number }>();
+  const porHost = new Map<string, { n: number; pior: number; cronicos: number }>();
+  const limiteCronico = Date.now() / 1000 - 30 * 86_400;
   if (problemas.length) {
     const trigs = await zabbix.api<Array<{ triggerid: string; hosts?: Array<{ hostid: string }> }>>('trigger.get', {
       output: ['triggerid'],
@@ -165,8 +168,10 @@ export async function statusHosts(filtroNome?: string): Promise<StatusHost[]> {
     for (const p of problemas) {
       const hid = hostDoTrigger.get(p.objectid);
       if (!hid) continue;
-      const atual = porHost.get(hid) ?? { n: 0, pior: 0 };
+      const atual = porHost.get(hid) ?? { n: 0, pior: 0, cronicos: 0 };
       atual.n++;
+      // Aberto há mais de 30 dias: costuma ser alarme velho, não emergência.
+      if ((parseInt(p.clock, 10) || 0) < limiteCronico) atual.cronicos++;
       atual.pior = Math.max(atual.pior, parseInt(p.severity, 10) || 0);
       porHost.set(hid, atual);
     }
@@ -198,6 +203,7 @@ export async function statusHosts(filtroNome?: string): Promise<StatusHost[]> {
       disponibilidade,
       erroInterface: ifs.find((i) => i.error)?.error || null,
       problemasAbertos: p?.n ?? 0,
+      problemasCronicos: p?.cronicos ?? 0,
       piorSeveridade: p ? p.pior : null,
     };
   });
