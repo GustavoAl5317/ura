@@ -141,6 +141,25 @@ async function main(): Promise<void> {
   l = sr.consolidar('Bairro F', [classifica({ a: aval(null, null) }), classifica({ a: aval(null, null) })], opts);
   checa('nada medido: o lugar fica sem base, nunca saudável', l.nivel === 'sem_base' && /sem base/.test(l.resumo), l.resumo);
 
+  console.log('--- O que o gestor le ---');
+  const fraca = (id: number) => classifica({ c: cto({ cto_id: id, nome: `CX-F${id}`, clientes: 1 }), a: aval(-27.5, -27.5) });
+  const cheia = (id: number) => classifica({ c: cto({ cto_id: id, nome: `CX-L${id}`, ocupacao: 100 }) });
+  const quase = (id: number) => classifica({ c: cto({ cto_id: id, nome: `CX-Q${id}`, ocupacao: 95 }) });
+  l = sr.consolidar('Rede', [fraca(1), fraca(2), fraca(3), ...Array.from({ length: 30 }, (_, i) => saudavel(100 + i))], opts);
+  checa('sinal fraco e estavel e dito como FRACO, nao como piorando',
+    /sinal da fibra muito fraco/.test(l.motivo) && !/pior que o normal/.test(l.motivo), l.motivo);
+  l = sr.consolidar('Rede', [cheia(1), cheia(2), quase(3), ...Array.from({ length: 10 }, (_, i) => saudavel(100 + i))], opts);
+  checa('lotacao aparece como CAPACIDADE, separada de saude',
+    /capacidade: 2 caixas lotadas e 1 quase lotada/.test(l.motivo) && !/sinal e estabilidade/.test(l.motivo), l.motivo);
+  checa('lotada e quase lotada geram UMA acao de ampliacao, nao duas',
+    l.o_que_fazer.filter((f) => /ampliação/.test(f)).length === 1, l.o_que_fazer);
+  l = sr.consolidar('Rede', [classifica({ c: cto({ cto_id: 9, nome: 'CX-CEGA', semLeituraRecente: true, idadeMin: 5000 }), a: aval(null, -20) }), saudavel(1)], opts);
+  checa('sem leitura aparece como MONITORAMENTO', /monitoramento: 1 caixa sem leitura recente/.test(l.motivo), l.motivo);
+  l = sr.consolidar('Bairro pequeno', [fraca(1), saudavel(2), saudavel(3)], opts);
+  checa('uma caixa fraca com 1 cliente num bairro pequeno: atencao, nao degradacao', l.nivel === 'atencao', l.resumo);
+  l = sr.consolidar('Bairro pequeno', [fraca(1), fraca(2), saudavel(3)], opts);
+  checa('duas caixas com problema no mesmo bairro pequeno: degradacao', l.nivel === 'degradacao', l.resumo);
+
   l = sr.consolidar('Bairro G', [ruim(1)], opts);
   checa('sem incidente, o "desde quando" admite que não sabe o início',
     l.desde === null && /início exato não é conhecido/.test(l.desde_explicacao), l.desde_explicacao);
@@ -178,21 +197,21 @@ async function main(): Promise<void> {
   checa('a caixa com 5 dB de piora puxa a rede para baixo', rede.leitura.pontos_de_atencao[0]?.nome === 'HJ-02', rede.leitura.pontos_de_atencao);
   const hj = await sr.lerSaude({ bairro: 'henrique jorge' });
   checa('recorte por bairro funciona sem acento', hj.lugar_encontrado && hj.leitura.impacto.caixas === 2, hj.leitura.impacto);
-  checa('1 de 2 caixas ruins no bairro (50%): degradação', hj.leitura.nivel === 'degradacao', hj.leitura.resumo);
+  checa('uma caixa só com problema, mesmo sendo metade do bairro: atenção, não degradação', hj.leitura.nivel === 'atencao', hj.leitura.resumo);
   const prg = await sr.lerSaude({ bairro: 'Parangaba' });
   checa('bairro sem problema: saudável', prg.leitura.nivel === 'saudavel', prg.leitura.resumo);
   const nenhum = await sr.lerSaude({ bairro: 'Copacabana' });
   checa('lugar que não é nosso: não encontrado', nenhum.lugar_encontrado === false);
 
   const bairros = await sr.lerSaudePorBairro();
-  checa('por bairro, o pior vem primeiro', bairros[0].alvo === 'Henrique Jorge' && bairros[0].nivel === 'degradacao', bairros.map((b) => [b.alvo, b.nivel]));
+  checa('por bairro, o pior vem primeiro', bairros[0].alvo === 'Henrique Jorge' && bairros[0].nivel === 'atencao', bairros.map((b) => [b.alvo, b.nivel]));
 
   console.log('\n─── Ferramenta ───');
   registrarFerramentasSaude();
   const ctx = { proximoId: (() => { let n = 0; return () => `evd_${++n}`; })(), usuario: 'teste', fontesPermitidas: null };
   const rodar = async (args: Record<string, unknown>) => (await ferramentas.get('saude_da_rede')!.executar(args, ctx))[0] as any;
   let e = await rodar({ bairro: 'Henrique Jorge' });
-  checa('devolve a leitura para gestão pronta', e.ok && e.dados.leitura_para_gestao.rotulo === 'Em degradação', e.dados?.leitura_para_gestao);
+  checa('devolve a leitura para gestão pronta', e.ok && e.dados.leitura_para_gestao.rotulo === 'Ponto de atenção', e.dados?.leitura_para_gestao);
   checa('com motivo, impacto e ação', !!e.dados.leitura_para_gestao.motivo && e.dados.leitura_para_gestao.impacto.clientes_em_risco > 0 && e.dados.leitura_para_gestao.o_que_fazer.length > 0);
   checa('e os números técnicos das caixas que puxam para baixo',
     e.dados.pontos_de_atencao[0].piora_db === 5 && e.dados.pontos_de_atencao[0].sinal_atual_dbm === -25, e.dados.pontos_de_atencao[0]);

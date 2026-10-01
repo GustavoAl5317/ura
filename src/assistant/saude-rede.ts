@@ -37,8 +37,18 @@ export const ROTULO_NIVEL: Record<Nivel, string> = {
 /** Ordem de gravidade. "Sem base" não é melhor nem pior: é desconhecido. */
 const PESO: Record<Nivel, number> = { sem_base: -1, saudavel: 0, atencao: 1, degradacao: 2, critico: 3 };
 
+/**
+ * Do que se trata o motivo. Separa SAÚDE (sinal, queda) de CAPACIDADE
+ * (lotação) e de MONITORAMENTO (sem leitura): para o gestor, "40 pontos de
+ * atenção" sem dizer que 32 são caixa cheia soa como rede quebrada.
+ */
+export type Causa =
+  | 'incidente_grave' | 'incidente' | 'piora_forte' | 'piora' | 'inicio_piora' | 'sinal_fraco'
+  | 'recorrencia' | 'queda_recente' | 'lotada' | 'quase_lotada' | 'sem_leitura';
+
 export interface Motivo {
   nivel: Nivel;
+  causa: Causa;
   texto: string;
   fazer: string;
 }
@@ -62,6 +72,7 @@ export interface SaudeCto {
   quedas_30_dias: number;
   /** Quando o problema mais antigo ainda aberto começou. */
   desde: string | null;
+  causas: Causa[];
 }
 
 export interface Limiares {
@@ -77,6 +88,9 @@ export interface IncidenteResumo {
   aberto_em: string;
   dono: string | null;
 }
+
+/** Lotada e quase lotada pedem a mesma coisa: uma ação só, não duas parecidas. */
+const FAZER_AMPLIAR = 'planejar ampliação das caixas cheias ou caixa nova no trecho, antes de faltar porta para venda';
 
 /**
  * Classifica UMA caixa. Função pura: recebe tudo pronto e devolve nível,
@@ -97,6 +111,7 @@ export function classificarCto(e: {
   for (const i of graves) {
     motivos.push({
       nivel: 'critico',
+      causa: 'incidente_grave',
       texto: `incidente ${i.numero} aberto (${ROTULO_SEVERIDADE[i.severidade as keyof typeof ROTULO_SEVERIDADE] ?? i.severidade})`,
       fazer: i.dono ? `acompanhar o atendimento do ${i.numero} (com ${i.dono})` : `garantir que alguém assuma o ${i.numero}: está sem dono`,
     });
@@ -104,6 +119,7 @@ export function classificarCto(e: {
   for (const i of e.incidentes.filter((x) => !graves.includes(x))) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'incidente',
       texto: `incidente ${i.numero} aberto`,
       fazer: i.dono ? `acompanhar o ${i.numero}` : `garantir que alguém assuma o ${i.numero}`,
     });
@@ -114,18 +130,21 @@ export function classificarCto(e: {
   if (a.situacao === 'piorou' && piora !== null && piora >= Math.max(L.criticoDb, a.limiar_db)) {
     motivos.push({
       nivel: 'critico',
+      causa: 'piora_forte',
       texto: `sinal da fibra ${fmt(piora)} dB pior que o normal desta caixa: queda forte`,
       fazer: 'vistoriar a caixa e o trecho de fibra agora: piora desse tamanho costuma virar queda',
     });
   } else if (a.situacao === 'piorou' && piora !== null) {
     motivos.push({
       nivel: 'degradacao',
+      causa: 'piora',
       texto: `sinal da fibra ${fmt(piora)} dB pior que o normal desta caixa`,
       fazer: 'vistoriar conector, emenda e dobra de fibra no trecho antes que vire queda',
     });
   } else if (piora !== null && piora >= a.limiar_db / 2) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'inicio_piora',
       texto: `sinal começando a piorar (${fmt(piora)} dB abaixo do normal)`,
       fazer: 'acompanhar nas próximas horas; se continuar caindo, vistoriar',
     });
@@ -134,6 +153,7 @@ export function classificarCto(e: {
   if (a.atual !== null && a.atual <= SINAL_RUIM_DBM) {
     motivos.push({
       nivel: 'degradacao',
+      causa: 'sinal_fraco',
       texto: `sinal da fibra muito fraco (${fmt(a.atual)} dBm), abaixo do aceitável mesmo para esta caixa`,
       fazer: 'medir o trecho: sinal assim deixa cliente lento ou caindo',
     });
@@ -142,12 +162,14 @@ export function classificarCto(e: {
   if (e.quedas30 >= L.quedasRecorrentes) {
     motivos.push({
       nivel: 'degradacao',
+      causa: 'recorrencia',
       texto: `caiu ${e.quedas30} vezes nos últimos 30 dias: o problema volta`,
       fazer: 'tratar a causa de fundo: queda repetida no mesmo lugar é defeito físico não resolvido',
     });
   } else if (e.quedas30 > 0) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'queda_recente',
       texto: `${e.quedas30 === 1 ? 'teve 1 queda' : `teve ${e.quedas30} quedas`} nos últimos 30 dias`,
       fazer: 'conferir se a causa da última queda foi registrada',
     });
@@ -156,20 +178,23 @@ export function classificarCto(e: {
   if (c.ocupacao !== null && c.ocupacao >= 100) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'lotada',
       texto: 'caixa lotada: não cabe cliente novo',
-      fazer: 'planejar ampliação da caixa ou caixa nova no trecho',
+      fazer: FAZER_AMPLIAR,
     });
   } else if (c.ocupacao !== null && c.ocupacao >= L.ocupacaoAtencaoPct) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'quase_lotada',
       texto: `caixa ${fmt(c.ocupacao)}% ocupada: pouco espaço para cliente novo`,
-      fazer: 'planejar ampliação antes de lotar',
+      fazer: FAZER_AMPLIAR,
     });
   }
 
   if (c.semLeituraRecente) {
     motivos.push({
       nivel: 'atencao',
+      causa: 'sem_leitura',
       texto: `sem leitura há ${tempo(c.idadeMin)}: não dá para afirmar como está (ponto cego)`,
       fazer: 'conferir por que o monitoramento parou de ler esta caixa',
     });
@@ -204,6 +229,7 @@ export function classificarCto(e: {
     incidentes_abertos: e.incidentes.map((i) => i.numero),
     quedas_30_dias: e.quedas30,
     desde,
+    causas: [...new Set(ordenados.map((m) => m.causa))],
   };
 }
 
@@ -260,22 +286,53 @@ export function consolidar(alvo: string, caixas: SaudeCto[], opts: {
   const clientesEmRisco = soma(emRisco);
   const proporcao = avaliadas ? ((contagem.degradacao + contagem.critico) / avaliadas) * 100 : 0;
 
+  // Proporção só pesa com pelo menos duas caixas com problema: num bairro de
+  // cinco caixas, UMA caixa fraca com um cliente não é "bairro em degradação".
+  const comProblema = contagem.degradacao + contagem.critico;
   let nivel: Nivel;
   if (!avaliadas && !caixas.some((c) => c.nivel !== 'sem_base')) nivel = 'sem_base';
   else if (contagem.critico) nivel = 'critico';
-  else if (proporcao >= opts.degradacaoPct || clientesEmRisco >= opts.clientesParaDegradacao) nivel = 'degradacao';
+  else if ((proporcao >= opts.degradacaoPct && comProblema >= 2) || clientesEmRisco >= opts.clientesParaDegradacao) nivel = 'degradacao';
   else if (contagem.degradacao || contagem.atencao) nivel = 'atencao';
   else nivel = 'saudavel';
 
-  // Motivo: o que mais pesa, em contagem, na língua de quem lê.
-  const motivos: string[] = [];
-  if (contagem.critico) motivos.push(`${plural(contagem.critico, 'caixa em situação crítica', 'caixas em situação crítica')}`);
-  if (contagem.degradacao) motivos.push(`${plural(contagem.degradacao, 'caixa', 'caixas')} com sinal ou estabilidade piorando`);
-  if (contagem.atencao) motivos.push(`${plural(contagem.atencao, 'ponto de atenção', 'pontos de atenção')}`);
-  const pontoCego = caixas.filter((c) => c.sem_leitura_recente).length;
-  if (pontoCego) motivos.push(`${plural(pontoCego, 'caixa', 'caixas')} sem leitura recente`);
-  const motivo = motivos.length
-    ? `${motivos.join(', ')}, de ${plural(caixas.length, 'caixa', 'caixas')}`
+  // Motivo por CAUSA, separando saúde de capacidade e de monitoramento. Contar
+  // "pontos de atenção" no atacado mistura caixa cheia (boa notícia comercial,
+  // problema de planejamento) com sinal caindo (problema técnico).
+  const com = (...cs: Causa[]) => caixas.filter((c) => c.causas.some((x) => cs.includes(x))).length;
+  const saude: string[] = [];
+  const n = {
+    critica: contagem.critico,
+    piora: com('piora', 'piora_forte'),
+    fraco: com('sinal_fraco'),
+    volta: com('recorrencia'),
+    incidente: com('incidente', 'incidente_grave'),
+    comecando: com('inicio_piora'),
+    queda: com('queda_recente'),
+    lotadas: com('lotada'),
+    quase: com('quase_lotada'),
+    cegas: com('sem_leitura'),
+  };
+  if (n.critica) saude.push(plural(n.critica, 'caixa em situação crítica', 'caixas em situação crítica'));
+  if (n.piora) saude.push(`${plural(n.piora, 'caixa', 'caixas')} com sinal pior que o normal delas`);
+  if (n.fraco) saude.push(`${plural(n.fraco, 'caixa', 'caixas')} com sinal da fibra muito fraco`);
+  if (n.volta) saude.push(`${plural(n.volta, 'caixa', 'caixas')} que caem repetidamente`);
+  if (n.incidente) saude.push(`${plural(n.incidente, 'caixa', 'caixas')} com incidente aberto`);
+  if (n.comecando) saude.push(`${plural(n.comecando, 'caixa', 'caixas')} com sinal começando a piorar`);
+  if (n.queda && !n.volta) saude.push(`${plural(n.queda, 'caixa', 'caixas')} com queda nos últimos 30 dias`);
+
+  const partes: string[] = [];
+  if (saude.length) partes.push(`sinal e estabilidade: ${saude.join(', ')}`);
+  if (n.lotadas || n.quase) {
+    partes.push(`capacidade: ${[
+      n.lotadas ? plural(n.lotadas, 'caixa lotada', 'caixas lotadas') : null,
+      n.quase ? plural(n.quase, 'quase lotada', 'quase lotadas') : null,
+    ].filter(Boolean).join(' e ')}`);
+  }
+  if (n.cegas) partes.push(`monitoramento: ${plural(n.cegas, 'caixa', 'caixas')} sem leitura recente`);
+
+  const motivo = partes.length
+    ? `${partes.join('; ')} (de ${plural(caixas.length, 'caixa', 'caixas')})`
     : avaliadas
       ? `todas as ${plural(avaliadas, 'caixa avaliada', 'caixas avaliadas')} dentro do normal delas`
       : 'nenhuma caixa com leitura e histórico suficientes para comparar';
