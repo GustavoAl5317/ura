@@ -56,6 +56,17 @@ async function main(): Promise<void> {
   checa('C600 ZTE pelo nome', fab.identificar({ nome: 'OLT ZTE C600 BOM JARDIM' }).fabricante === 'ZTE');
   checa('"Interface" no nome nao vira fabricante', fab.identificar({ nome: 'Interface Virtual-Ethernet0/2/201' }).fabricante === null);
 
+  console.log('--- Nomes reais da rede ---');
+  i = fab.identificar({ nome: 'Retificadora ETP4860-B1A2 - 172.16.22.254' });
+  checa('retificadora ETP4860 e Huawei, tipo energia', i.fabricante === 'Huawei' && i.tipo === 'energia', i);
+  checa('VM-CORE-DATABASE e servidor, nao roteador', fab.identificar({ nome: 'VM-CORE-DATABASE' }).tipo === 'servidor');
+  checa('nobreak e energia', fab.identificar({ nome: 'Nobreak 1 - 172.16.6.43' }).tipo === 'energia');
+  checa('gerador e energia', fab.identificar({ nome: 'Gerador - 172.16.6.45' }).tipo === 'energia');
+  checa('ESXI e servidor', fab.identificar({ nome: 'ESXI-02 - BKP' }).tipo === 'servidor');
+  checa('servidor do SGP e servidor, sem fabricante', (() => { const x = fab.identificar({ nome: 'SGP SESSOES' }); return x.tipo === 'servidor' && x.fabricante === null; })());
+  checa('NE8K continua roteador', fab.identificar({ nome: 'NE8K-AQUI-FOR-BGP' }).tipo === 'roteador');
+  checa('OLT continua OLT', fab.identificar({ nome: 'OLT-3' }).tipo === 'olt');
+
   console.log('\n─── Fabricante como a pessoa escreve ───');
   checa('hawuei vira Huawei', fab.fabricantePedido('hawuei') === 'Huawei');
   checa('huawey vira Huawei', fab.fabricantePedido('huawey') === 'Huawei');

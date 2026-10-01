@@ -60,7 +60,7 @@ const equipamentos: Ferramenta = {
   descricao:
     'Equipamentos monitorados no Zabbix: fabricante, modelo, tipo (OLT, roteador, switch), se o ' +
     'SNMP/agente responde, se estão em manutenção e quantos problemas abertos cada um tem. Responde ' +
-    '"quais equipamentos Huawei temos?", "quantas OLTs?", "algum roteador fora?", "esse equipamento está de pé?". ' +
+    '"quais equipamentos Huawei temos?", "quantas OLTs?", "algum roteador fora?", "algum nobreak com problema?", "esse equipamento está de pé?". ' +
     'Filtre por fabricante (aceita erro de digitação: "hawuei" vira Huawei), por tipo, ou por trecho do nome. ' +
     'O fabricante vem do inventário ou do template do Zabbix; quando só dá para deduzir pelo nome do modelo, ' +
     'o campo "por" diz "nome" — fale "pelo modelo, é Huawei", não "é Huawei" seco. Equipamento sem fabricante ' +
@@ -71,7 +71,7 @@ const equipamentos: Ferramenta = {
     properties: {
       filtro: { type: 'string', description: 'Trecho do nome do equipamento. Vazio = todos.' },
       fabricante: { type: 'string', description: 'Fabricante (Huawei, ZTE, Datacom, MikroTik, Cisco...). Aceita erro de digitação.' },
-      tipo: { type: 'string', enum: ['olt', 'roteador', 'switch', 'outro'], description: 'Tipo de equipamento' },
+      tipo: { type: 'string', enum: ['olt', 'roteador', 'switch', 'servidor', 'energia', 'outro'], description: 'Tipo de equipamento. energia = nobreak, retificadora, gerador.' },
     },
     required: [],
   },

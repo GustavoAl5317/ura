@@ -370,7 +370,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
       role: 'system',
       content:
         'Quem perguntou NÃO usou termo técnico. Responda sem sigla e sem jargão: diga "a caixa na rua" ' +
-        'em vez de CTO, "o aparelho do cliente" em vez de ONU, "o sinal da fibra" em vez de potência ' +
+        'em vez de CTO, "o aparelho do cliente" em vez de ONU, "o equipamento central que alimenta as caixas" em vez de OLT ' +
+        '(nunca chame OLT de "aparelho": aparelho é o do cliente), "o sinal da fibra" em vez de potência ' +
         'óptica, "a rua/o trecho" em vez de PON. Se precisar citar o termo técnico, ponha entre ' +
         'parênteses depois da explicação. Não mude os números nem o veredito: muda só a palavra.',
     });

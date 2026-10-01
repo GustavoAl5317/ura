@@ -15,7 +15,7 @@ export interface Identificacao {
   fabricante: string | null;
   por: OrigemFabricante | null;
   modelo: string | null;
-  tipo: 'olt' | 'roteador' | 'switch' | 'outro';
+  tipo: 'olt' | 'roteador' | 'switch' | 'servidor' | 'energia' | 'outro';
 }
 
 interface Regra {
@@ -30,7 +30,7 @@ const REGRAS: Regra[] = [
   {
     fabricante: 'Huawei',
     marca: /huawei|\bvrp\b|smartax|optix/i,
-    modelos: [/\bne ?(?:8000|8k|5000e?|40e?|20e?)\b/i, /\bne(?:8k|20|40)/i, /\b(?:ma|ea)5[68]\d\d/i, /\bs(?:53|57|58|63|67|68|127)\d\d/i, /\bce(?:12|68|88|58|67)\d\d/i, /\bar(?:1|2|3|6)\d{2,3}\b/i],
+    modelos: [/\bne ?(?:8000|8k|5000e?|40e?|20e?)\b/i, /\bne(?:8k|20|40)/i, /\b(?:ma|ea)5[68]\d\d/i, /\bs(?:53|57|58|63|67|68|127)\d\d/i, /\bce(?:12|68|88|58|67)\d\d/i, /\bar(?:1|2|3|6)\d{2,3}\b/i, /\betp ?48\d\d/i],
   },
   { fabricante: 'ZTE', marca: /\bzte\b|zxa10|zxr10/i, modelos: [/\bzxa10/i, /\bc(?:300|320|350|600|620|650)\b/i] },
   { fabricante: 'Datacom', marca: /datacom/i, modelos: [/\bdm ?\d{4}/i] },
@@ -49,8 +49,11 @@ const REGRAS: Regra[] = [
 export const FABRICANTES = REGRAS.map((r) => r.fabricante);
 
 function tipoDe(texto: string): Identificacao['tipo'] {
-  // Modelo é mais preciso que palavra: um S6730 é switch mesmo com "CORE" no
-  // nome. Por isso modelos primeiro, palavras depois.
+  // Servidor e energia primeiro: "VM-CORE-DATABASE" tem "CORE" no nome e não
+  // é roteador. Depois modelo, que é mais preciso que palavra: um S6730 é
+  // switch mesmo com "CORE" no nome.
+  if (/\bvm\b|\bvm-|\besxi|\bdatabase\b|\bdb\b|\bdns\b|\bns\d\b|web_?server|\bveeam\b|\bsgp\b|\bzabbix\b|\bproxy\b|\bpbx\b|asterisk|\bservidor\b|\bserver\b|\bmanager\b|\b005-/i.test(texto)) return 'servidor';
+  if (/nobreak|\bups\b|retificadora|gerador|\bfase \d|\betp ?48\d\d/i.test(texto)) return 'energia';
   if (/\bolt\b|\b(?:ma|ea)5[68]\d\d|\bzxa10|\bc(?:300|320|350|600|620|650)\b|\ban55\d\d|\bisam\b/i.test(texto)) return 'olt';
   if (/\bs(?:53|57|58|63|67|68|127)\d\d|\bce(?:12|68|88|58|67)\d\d|\bcrs\d|\bdm ?\d{4}/i.test(texto)) return 'switch';
   if (/\bne ?(?:8000|8k|5000|40|20)|\bne(?:8k|20|40)|\bccr\d|\bmx ?\d|\basr ?\d/i.test(texto)) return 'roteador';
