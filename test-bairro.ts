@@ -167,6 +167,18 @@ async function main(): Promise<void> {
   e = await porBairro({ ordem: 'mais_vazias' });
   checa('ordem mais_vazias prioriza quem tem CTO vazia',
     e.dados.bairros[0].ctos_vazias >= e.dados.bairros[1].ctos_vazias, e.dados.bairros.map((b: any) => b.ctos_vazias));
+  e = await porBairro({ bairro: 'Copacabana' });
+  checa('bairro que nao e nosso nao vira conclusao',
+    e.vazio === true && e.dados.lugar_encontrado === false, e.dados);
+  checa('e devolve os bairros conhecidos',
+    e.dados.bairros_conhecidos.includes('Henrique Jorge'), e.dados.bairros_conhecidos);
+  checa('a contagem de sem bairro e da rede inteira, nao do filtro',
+    e.dados.rede.ctos_sem_bairro_identificado === 1, e.dados.rede);
+  checa('e proibe usar as sem bairro como se fossem daquele bairro',
+    /NAO use|NÃO use/.test(e.dados.instrucao), e.dados.instrucao);
+  e = await porBairro({ bairro: 'parangaba' });
+  checa('com filtro, a contagem de sem bairro continua a da rede',
+    e.dados.rede.ctos_sem_bairro_identificado === 1 && e.dados.rede.bairros_listados === 1, e.dados.rede);
   e = await porBairro({ ordem: 'inventada' });
   checa('ordem desconhecida cai no padrao, sem quebrar', e.ok && e.dados.bairros.length === 2);
 

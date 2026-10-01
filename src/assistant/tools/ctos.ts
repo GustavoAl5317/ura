@@ -400,7 +400,14 @@ const porBairro: Ferramenta = {
       const limite = Math.min(100, Math.max(1, Number(args.limite) || 20));
       const normalizar = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-      let lista = resumoPorBairro(todas);
+      // A rede inteira primeiro: é dela que sai "quantas ficaram sem bairro".
+      // Contar isso depois do filtro fazia um filtro sem resultado reportar a
+      // rede toda como "sem bairro identificado" — e o modelo repetiu isso
+      // como se fosse achado.
+      const todosOsBairros = resumoPorBairro(todas);
+      const semBairro = Math.max(0, todas.length - todosOsBairros.reduce((a, b) => a + b.ctos, 0));
+
+      let lista = todosOsBairros;
       if (typeof args.bairro === 'string' && args.bairro.trim()) {
         const alvo = normalizar(args.bairro);
         lista = lista.filter((b) => normalizar(b.bairro).includes(alvo) || alvo.includes(normalizar(b.bairro)));
@@ -423,14 +430,34 @@ const porBairro: Ferramenta = {
       };
       lista = [...lista].sort(porOrdem[ordem] ?? porOrdem.mais_ctos);
 
-      const semBairro = todas.length - lista.reduce((a, b) => a + b.ctos, 0);
+      // Lugar pedido que não existe na nossa rede: resposta própria, com os
+      // nomes que existem. Sem isso o modelo preenche o vazio com palpite.
+      const pediuLugar = !!(typeof args.bairro === 'string' && args.bairro.trim())
+        || !!(typeof args.cidade === 'string' && args.cidade.trim());
+      if (pediuLugar && !lista.length) {
+        return {
+          vazio: true,
+          dados: {
+            filtro: { bairro: args.bairro ?? null, cidade: args.cidade ?? null },
+            lugar_encontrado: false,
+            bairros_conhecidos: todosOsBairros.map((b) => b.bairro).slice(0, 40),
+            rede: { ctos: todas.length, bairros: todosOsBairros.length, ctos_sem_bairro_identificado: semBairro },
+            instrucao:
+              'Não temos CTO identificada nesse lugar. NÃO conclua nada sobre ele, e NÃO use ' +
+              'ctos_sem_bairro_identificado como se fossem CTOs desse bairro. Mostre os bairros parecidos ' +
+              'da lista e pergunte qual é.',
+          },
+        };
+      }
+
       return {
         vazio: lista.length === 0,
         dados: {
           rede: {
             ctos: todas.length,
-            bairros: lista.length,
-            ctos_sem_bairro_identificado: Math.max(0, semBairro),
+            bairros: todosOsBairros.length,
+            bairros_listados: lista.length,
+            ctos_sem_bairro_identificado: semBairro,
           },
           filtro: {
             bairro: args.bairro ?? null, cidade: args.cidade ?? null,
