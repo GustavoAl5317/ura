@@ -21,7 +21,7 @@ process.chdir(dir);
 /* eslint-disable @typescript-eslint/no-var-requires */
 const { config } = require(path.join(RAIZ, 'src', 'config')) as typeof import('./src/config');
 const { db, fecharDb } = require(path.join(RAIZ, 'src', 'assistant', 'store', 'db')) as typeof import('./src/assistant/store/db');
-const { definir } = require(path.join(RAIZ, 'src', 'assistant', 'config-dinamica')) as typeof import('./src/assistant/config-dinamica');
+const { definir, validar } = require(path.join(RAIZ, 'src', 'assistant', 'config-dinamica')) as typeof import('./src/assistant/config-dinamica');
 const { sgp } = require(path.join(RAIZ, 'src', 'integrations', 'sgp')) as typeof import('./src/integrations/sgp');
 const R = require(path.join(RAIZ, 'src', 'assistant', 'resumo-diario')) as typeof import('./src/assistant/resumo-diario');
 /* eslint-enable @typescript-eslint/no-var-requires */
@@ -69,6 +69,29 @@ async function main() {
 
   // ── Hora de enviar ─────────────────────────────────────────────────────────
   console.log('\n─── Quando enviar ───');
+  // Varios horarios no dia (UTC-3): 08, 10, 14, 16, 20, 22.
+  const HS = ['08:00', '10:00', '14:00', '16:00', '20:00', '22:00'];
+  let pr = R.proximoResumo(new Date('2026-09-14T10:30:00Z'), HS);
+  checa('07:30 ainda nao manda, e diz o proximo', !pr.enviar && /08:00/.test(pr.motivo), pr);
+  pr = R.proximoResumo(new Date('2026-09-14T11:00:00Z'), HS);
+  checa('08:00 manda o das 08', pr.enviar && pr.horario === '08:00' && pr.chave === 'resumo:2026-09-14:0800', pr);
+  pr = R.proximoResumo(new Date('2026-09-14T13:10:00Z'), HS);
+  checa('10:10 manda o das 10, nao o das 08', pr.enviar && pr.horario === '10:00', pr);
+  pr = R.proximoResumo(new Date('2026-09-14T15:30:00Z'), HS);
+  checa('12:30, longe do das 10, nao manda atrasado', !pr.enviar && /passou/.test(pr.motivo), pr);
+  pr = R.proximoResumo(new Date('2026-09-15T01:05:00Z'), HS);
+  checa('22:05 manda o das 22', pr.enviar && pr.horario === '22:00', pr);
+  pr = R.proximoResumo(new Date('2026-09-14T11:00:00Z'), ['10:00', 'lixo', '08:00', '08:00']);
+  checa('horario mal escrito e repetido sao ignorados', pr.horario === '08:00', pr);
+  checa('sem horario nenhum, nao manda', !R.proximoResumo(new Date(), []).enviar);
+  const erroCfg = (v: unknown) => { try { validar('resumo.horarios', v); return ''; } catch (e) { return (e as Error).message; } };
+  checa('horarios do painel: ordena e tira repetido',
+    JSON.stringify(validar('resumo.horarios', '22:00, 08:00,08:00')) === '["08:00","22:00"]');
+  checa('horario fora do formato e recusado no painel', /formato HH:MM/.test(erroCfg('8h')) && /formato HH:MM/.test(erroCfg(['25:00'])));
+  checa('lista vazia e recusada', /pelo menos um/.test(erroCfg([])));
+  checa('titulo diz o periodo real', R.tituloResumo(new Date('2026-09-14T09:00:00Z'), new Date('2026-09-14T11:00:00Z')) === 'Resumo das últimas 2 horas');
+  checa('uma hora no singular', R.tituloResumo(new Date('2026-09-14T09:00:00Z'), new Date('2026-09-14T10:00:00Z')) === 'Resumo da última hora');
+
   checa('06:59 ainda não', !R.situacaoDoDia(new Date('2026-09-14T09:59:00Z'), '07:00').enviar);
   checa('07:00 envia', R.situacaoDoDia(new Date('2026-09-14T10:00:00Z'), '07:00').enviar);
   const atrasado = R.situacaoDoDia(new Date('2026-09-14T11:30:00Z'), '07:00');
@@ -194,7 +217,7 @@ async function main() {
   // ── Texto completo ─────────────────────────────────────────────────────────
   console.log('\n─── Texto ───');
   sgpMut.ordensServicoPorCadastro = async () => { throw new Error('SGP fora'); };
-  const r = await R.montarResumo(FIM, ['rede', 'os', 'ura', 'atendimento', 'assistente']);
+  const r = await R.montarResumo(FIM, ['rede', 'os', 'ura', 'atendimento', 'assistente'], 24);
   checa('cabeçalho com a janela em horário local', r.texto.includes('13/09 07:00 → 14/09 07:00'), r.texto.split('\n')[1]);
   checa('sem "undefined", "null" ou "NaN" no texto', !/undefined|null|NaN/.test(r.texto));
   checa('O.S. com SGP fora não mostra número', /Ordens de serviço \(SGP\)\*\n• _SGP não respondeu/.test(r.texto));

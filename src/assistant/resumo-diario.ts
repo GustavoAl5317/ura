@@ -515,10 +515,16 @@ export async function coletarClientes(inicio: Date, fim: Date): Promise<ResumoCl
 const plural = (n: number, um: string, varios: string) => `${n.toLocaleString('pt-BR')} ${n === 1 ? um : varios}`;
 const naoDisponivel = (s: Indisponivel) => `• _${s.motivo.charAt(0).toUpperCase()}${s.motivo.slice(1)}._`;
 
+/** "Resumo das últimas 2 horas" — o título diz o período de verdade, não um fixo de 24 h. */
+export function tituloResumo(inicio: Date, fim: Date): string {
+  const h = Math.max(1, Math.round((fim.getTime() - inicio.getTime()) / 3600_000));
+  return h === 1 ? 'Resumo da última hora' : `Resumo das últimas ${h} horas`;
+}
+
 export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
   const inicio = new Date(r.inicio);
   const fim = new Date(r.fim);
-  const partes: string[] = [`📋 *Resumo das últimas 24 horas*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
+  const partes: string[] = [`📋 *${tituloResumo(inicio, fim)}*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
 
   const { saude, rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
 
@@ -678,8 +684,12 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
 
 // ─── Montagem e envio ────────────────────────────────────────────────────────
 
-export async function montarResumo(fim = new Date(), secoes: readonly string[] = obter<string[]>('resumo.secoes')): Promise<Resumo> {
-  const inicio = new Date(fim.getTime() - 24 * 3600_000);
+export async function montarResumo(
+  fim = new Date(),
+  secoes: readonly string[] = obter<string[]>('resumo.secoes'),
+  horas: number = obter<number>('resumo.periodo_horas'),
+): Promise<Resumo> {
+  const inicio = new Date(fim.getTime() - Math.max(1, horas) * 3600_000);
   const quer = new Set(secoes);
   const base: Omit<Resumo, 'texto'> = { inicio: inicio.toISOString(), fim: fim.toISOString(), secoes: {} };
 
@@ -709,7 +719,7 @@ export async function enviarResumo(p: { chave: string; fim?: Date }): Promise<Al
   return emitir({
     origem: 'sistema',
     severidade: 'info',
-    titulo: 'Resumo das últimas 24 horas',
+    titulo: tituloResumo(new Date(r.inicio), new Date(r.fim)),
     texto: r.texto,
     chave: p.chave,
     dados: { inicio: r.inicio, fim: r.fim, secoes: r.secoes },
@@ -740,23 +750,53 @@ export function situacaoDoDia(agora: Date, hora: string): { enviar: boolean; cha
   return { enviar: true, chave, motivo: passados ? `atrasado ${passados} min (não rodou no horário)` : 'no horário' };
 }
 
+/** Atraso tolerado por horário. Menor que o espaço entre envios: senão um restart manda dois seguidos. */
+const ATRASO_HORARIO_MIN = 60;
+
+const HORA_VALIDA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Qual resumo mandar agora, com vários horários no dia. Só o horário mais
+ * recente que já passou conta: se o serviço ficou fora e perdeu dois, sai o
+ * último, não uma rajada de resumos atrasados.
+ */
+export function proximoResumo(agora: Date, horarios: readonly string[]): {
+  enviar: boolean; chave: string | null; horario: string | null; motivo: string;
+} {
+  const validos = [...new Set(horarios.filter((h) => HORA_VALIDA.test(h)))].sort();
+  if (!validos.length) return { enviar: false, chave: null, horario: null, motivo: 'sem horário configurado' };
+  const agoraMin = minutosDoDia(horaLocal(agora));
+  const passados = validos.filter((h) => minutosDoDia(h) <= agoraMin);
+  const proximo = validos.find((h) => minutosDoDia(h) > agoraMin) ?? `${validos[0]} de amanhã`;
+  if (!passados.length) return { enviar: false, chave: null, horario: null, motivo: `próximo às ${proximo}` };
+
+  const h = passados[passados.length - 1];
+  const chave = `resumo:${diaLocal(agora)}:${h.replace(':', '')}`;
+  if (jaExiste(chave)) return { enviar: false, chave, horario: h, motivo: `resumo das ${h} já registrado; próximo às ${proximo}` };
+  const atraso = agoraMin - minutosDoDia(h);
+  if (atraso > ATRASO_HORARIO_MIN) {
+    return { enviar: false, chave, horario: h, motivo: `o envio das ${h} passou há mais de ${ATRASO_HORARIO_MIN} min; próximo às ${proximo}` };
+  }
+  return { enviar: true, chave, horario: h, motivo: atraso ? `atrasado ${atraso} min` : 'no horário' };
+}
+
 export function iniciarMonitorResumo(): () => void {
   return iniciarMonitor({
     nome: 'resumo_diario',
-    descricao: 'Resumo das últimas 24 horas no grupo de alertas',
+    descricao: 'Resumo do período no grupo de alertas, nos horários configurados',
     ativo: () => obter<boolean>('resumo.ativo'),
-    // Acorda a cada minuto só para comparar o relógio; o trabalho sai uma vez por dia.
+    // Acorda a cada minuto só para comparar o relógio.
     intervaloSeg: () => 60,
     async ciclo() {
       const agora = new Date();
-      const s = situacaoDoDia(agora, obter<string>('resumo.hora'));
-      if (!s.enviar) return { alertas: 0, detalhe: { situacao: s.motivo } };
+      const s = proximoResumo(agora, obter<string[]>('resumo.horarios'));
+      if (!s.enviar || !s.chave) return { alertas: 0, detalhe: { situacao: s.motivo } };
 
       const a = await enviarResumo({ chave: s.chave, fim: agora });
       return {
         alertas: a ? 1 : 0,
         detalhe: {
-          situacao: a ? `resumo de hoje gerado (${s.motivo})` : 'resumo de hoje já registrado',
+          situacao: a ? `resumo das ${s.horario} gerado (${s.motivo})` : `resumo das ${s.horario} já registrado`,
           envio: a ? (a.enviado_em ? 'enviado ao grupo' : `não enviado: ${a.envio_erro}`) : null,
         },
       };

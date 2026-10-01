@@ -866,7 +866,7 @@ function renderAlertasCurtos(lista) {
 const rotuloSev = (s) => ({ critico: 'Crítico', aviso: 'Aviso', info: 'Info' }[s] || s);
 
 function renderMonitores(alvo, lista, curto) {
-  const nomes = { zabbix: 'Incidentes da rede', sla_whatsapp: 'Atendimento aguardando retorno', resumo_diario: 'Resumo diário' };
+  const nomes = { zabbix: 'Incidentes da rede', sla_whatsapp: 'Atendimento aguardando retorno', resumo_diario: 'Resumo periódico' };
   alvo.replaceChildren(...lista.map((m) => el('div', { style: 'padding:6px 0;border-top:1px solid var(--linha)' },
     el('div', { style: 'display:flex;justify-content:space-between;gap:8px' },
       el('strong', { text: nomes[m.nome] || m.nome }),
@@ -1660,7 +1660,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', retencao: 'Retenção de dados (LGPD)', saude: 'Saúde da plataforma e backup', leitura: 'Leitura para gestão', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', retencao: 'Retenção de dados (LGPD)', saude: 'Saúde da plataforma e backup', leitura: 'Leitura para gestão', resumo: 'Resumo periódico', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {
@@ -2694,7 +2694,7 @@ subCarregadores.monitores = async () => {
       finally { btnPrevia.disabled = false; }
     });
     btnEnviarResumo.addEventListener('click', async () => {
-      if (!confirm('Enviar agora o resumo das últimas 24 horas no grupo de alertas? O resumo do horário programado continua saindo.')) return;
+      if (!confirm('Enviar agora o resumo do período no grupo de alertas? Os resumos dos horários programados continuam saindo.')) return;
       btnEnviarResumo.disabled = true;
       try {
         const r = await api('POST', '/api/resumo/enviar');

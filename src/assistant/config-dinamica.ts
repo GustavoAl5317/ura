@@ -21,6 +21,8 @@ interface Definicao {
   min?: number;
   max?: number;
   opcoes?: readonly string[];
+  /** Lista cujos itens são horários HH:MM. */
+  itemHora?: boolean;
 }
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -460,11 +462,18 @@ export const DEFINICOES = {
   // ── Resumo diário ───────────────────────────────────────────────────────
   'resumo.ativo': {
     tipo: 'booleano', grupo: 'resumo', padrao: () => true,
-    descricao: 'Manda todo dia no grupo de alertas um resumo das últimas 24 horas.',
+    descricao: 'Manda no grupo de alertas, nos horários abaixo, um resumo do que aconteceu no período.',
   },
-  'resumo.hora': {
-    tipo: 'hora', grupo: 'resumo', padrao: () => '07:00',
-    descricao: 'Horário do envio (HH:MM). O resumo cobre as 24 horas anteriores a ele.',
+  'resumo.horarios': {
+    tipo: 'lista', grupo: 'resumo', itemHora: true,
+    padrao: () => ['08:00', '10:00', '14:00', '16:00', '20:00', '22:00'],
+    descricao:
+      'Horários de envio (HH:MM, separados por vírgula). Padrão: dois de manhã, dois de tarde, dois de noite. ' +
+      'Se o serviço ficar fora e perder um horário, sai só o mais recente, nunca uma rajada de atrasados.',
+  },
+  'resumo.periodo_horas': {
+    tipo: 'inteiro', grupo: 'resumo', padrao: () => 2, min: 1, max: 24,
+    descricao: 'Quantas horas cada resumo cobre, contando para trás a partir do envio. 2 = o que aconteceu nas últimas 2 horas.',
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
@@ -577,6 +586,12 @@ export function validar(chave: string, valor: unknown): unknown {
       if (def.opcoes) {
         const invalidas = arr.filter((x) => !def.opcoes!.includes(String(x)));
         if (invalidas.length) throw new Error(`${chave}: opções inválidas ${invalidas.join(', ')}`);
+      }
+      if (def.itemHora) {
+        const ruins = arr.map(String).filter((x) => !HORA.test(x));
+        if (ruins.length) throw new Error(`${chave}: horário fora do formato HH:MM: ${ruins.join(', ')}`);
+        if (!arr.length) throw new Error(`${chave}: informe pelo menos um horário`);
+        return [...new Set(arr.map(String))].sort();
       }
       return arr.map(String);
     }
