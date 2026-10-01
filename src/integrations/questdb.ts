@@ -30,6 +30,10 @@ export interface CtoAtual {
   portas: number | null;
   ocupacao: number | null;
   em: string;
+  /** Minutos desde a última leitura desta CTO. */
+  idadeMin: number;
+  /** A coleta desta CTO parou: o sinal e a ocupação são de antes, não de agora. */
+  semLeituraRecente: boolean;
 }
 
 export interface PontoSinal {
@@ -160,21 +164,29 @@ export class QuestdbClient {
     if (this.cacheAtuais && agora - this.cacheAtuais.em < 60_000) return this.cacheAtuais.valor;
     const linhas = await this.sql(
       `SELECT cto_id, nome, pon, lat, long, sinal_medio, clientes_ativos, total_portas, ocupacao_percentual, created_at
-       FROM ${this.tabela} WHERE created_at > dateadd('d', -1, now())
+       FROM ${this.tabela} WHERE created_at > dateadd('d', -${Math.max(1, Math.trunc(config.questdb.janelaAtuaisDias))}, now())
        LATEST ON created_at PARTITION BY cto_id`,
     );
-    const valor = linhas.map((l): CtoAtual => ({
-      cto_id: Number(l.cto_id),
-      nome: String(l.nome ?? `CTO ${l.cto_id}`).trim(),
-      pon: l.pon === null || l.pon === undefined ? null : String(l.pon),
-      lat: num(l.lat),
-      long: num(l.long),
-      sinal: num(l.sinal_medio),
-      clientes: num(l.clientes_ativos),
-      portas: num(l.total_portas),
-      ocupacao: num(l.ocupacao_percentual),
-      em: String(l.created_at),
-    }));
+    const limite = config.questdb.silencioMaxMin;
+    const valor = linhas.map((l): CtoAtual => {
+      const em = String(l.created_at);
+      const idade = Math.max(0, Math.round((Date.now() - new Date(em).getTime()) / 60_000));
+      return {
+        cto_id: Number(l.cto_id),
+        nome: String(l.nome ?? `CTO ${l.cto_id}`).trim(),
+        pon: l.pon === null || l.pon === undefined ? null : String(l.pon),
+        lat: num(l.lat),
+        long: num(l.long),
+        sinal: num(l.sinal_medio),
+        clientes: num(l.clientes_ativos),
+        portas: num(l.total_portas),
+        ocupacao: num(l.ocupacao_percentual),
+        em,
+        idadeMin: idade,
+        // Mais velho que o silêncio tolerado = coleta parada PARA ESTA CTO.
+        semLeituraRecente: idade > limite,
+      };
+    });
     this.cacheAtuais = { em: agora, valor };
     return valor;
   }

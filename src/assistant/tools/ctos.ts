@@ -86,6 +86,10 @@ function resumoAtual(c: CtoAtual) {
     ocupacao_pct: c.ocupacao,
     mapa: linkMapa(c.lat, c.long),
     leitura_em: c.em,
+    leitura_ha_min: c.idadeMin,
+    // CTO que parou de ser coletada continua aparecendo, marcada: antes ela
+    // simplesmente desaparecia da lista, e a rede parecia menor do que é.
+    sem_leitura_recente: c.semLeituraRecente,
   };
 }
 
@@ -359,6 +363,8 @@ const ocupacao: Ferramenta = {
             ocupacao_pct: portas ? Math.round((ocupadas / portas) * 1000) / 10 : null,
             lotadas: todas.filter((c) => (c.ocupacao ?? 0) >= 100).length,
             acima_de_85pct: todas.filter((c) => (c.ocupacao ?? 0) >= 85).length,
+            com_leitura_recente: todas.filter((c) => !c.semLeituraRecente).length,
+            sem_leitura_recente: todas.filter((c) => c.semLeituraRecente).length,
           },
           filtro: {
             ordem: cheias ? 'mais_cheias' : 'mais_livres', min_ocupacao: min, max_ocupacao: max,
@@ -486,6 +492,7 @@ const porBairro: Ferramenta = {
             bairros: todosOsBairros.length,
             bairros_listados: lista.length,
             ctos_sem_bairro_identificado: semBairro,
+            ctos_sem_leitura_recente: todas.filter((c) => c.semLeituraRecente).length,
           },
           filtro: {
             bairro: args.bairro ?? null, cidade: args.cidade ?? null,

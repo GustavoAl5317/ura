@@ -53,6 +53,7 @@ const CTOS = [
   { cto_id: 9, nome: 'ARACA-09', pon: '1/1/3', lat: -3.76, long: -38.61, sinal: -20, clientes: 4, portas: 8, ocupacao: 50, em: '2026-10-01T12:00:00Z' },
   { cto_id: 10, nome: 'CTO - CYBER VIVO, 148', pon: '1/1/4', lat: -3.76439, long: -38.59606, sinal: -23, clientes: 1, portas: 8, ocupacao: 12.5, em: '2026-10-01T12:00:00Z' },
   { cto_id: 11, nome: 'CTO - CYBER NET, 20', pon: '1/1/5', lat: -3.77, long: -38.6, sinal: -23, clientes: 2, portas: 8, ocupacao: 25, em: '2026-10-01T12:00:00Z' },
+  { cto_id: 12, nome: 'CTO - PARADA, 1', pon: '1/1/6', lat: -3.78, long: -38.62, sinal: -25, clientes: 3, portas: 8, ocupacao: 37.5, em: '2026-09-20T12:00:00Z', idadeMin: 16000, semLeituraRecente: true },
 ];
 (questdb as any).ctosAtuais = async () => CTOS;
 (questdb as any).exigirColetaViva = async () => undefined;
@@ -190,6 +191,14 @@ async function main(): Promise<void> {
   checa('lista as vizinhas do mesmo trecho', e.dados.vizinhas_no_raio.length === 2 && e.dados.vizinhas_no_raio[0].caixa === 'CX-VIZINHA', e.dados.vizinhas_no_raio);
   checa('a CTO do ponto não entra como vizinha',
     !e.dados.vizinhas_no_raio.some((x: any) => x.caixa === 'CX-ARACA-07'));
+
+  console.log('--- CTO que parou de ser coletada ---');
+  resposta = { temCobertura: true, caixasProximas: 1, caixasCobrindo: [caixa('CX-PARADA', 3, 5, 5)] };
+  e = await conf({ cto: 'PARADA 1' });
+  checa('CTO sem leitura recente continua achavel, nao desaparece', e.ok && e.dados.cto === 'CTO - PARADA, 1', e.dados.cto);
+  checa('o lado do cadastro vem marcado como velho',
+    e.dados.cadastro.sem_leitura_recente === true && /coleta desta CTO parou/.test(e.dados.cadastro.aviso ?? ''), e.dados.cadastro);
+  checa('e diz de quando e a leitura', e.dados.cadastro.leitura_ha_min > 1000, e.dados.cadastro.leitura_ha_min);
 
   console.log('--- Nome como a pessoa fala ---');
   resposta = { temCobertura: true, caixasProximas: 1, caixasCobrindo: [caixa('CX-CYBER', 2, 7, 7)] };

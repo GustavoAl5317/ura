@@ -303,6 +303,13 @@ export const config = {
     tabelaSinais: opt('QUESTDB_TABELA_SINAIS', 'ctos'),
     /** Sem linha nova há mais que isto = coleta parada (a coleta é a cada 5 min). */
     silencioMaxMin: optInt('QUESTDB_SILENCIO_MAX_MIN', 20),
+    /**
+     * Janela, em dias, para montar "a última leitura de cada CTO". Era 1 dia, e
+     * CTO que parou de ser coletada simplesmente desaparecia de todas as
+     * ferramentas — a rede parecia menor do que é. Com janela larga ela continua
+     * aparecendo, marcada como leitura velha.
+     */
+    janelaAtuaisDias: optInt('QUESTDB_JANELA_ATUAIS_DIAS', 30),
   },
 
   netflow: {

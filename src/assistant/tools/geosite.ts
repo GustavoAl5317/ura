@@ -204,6 +204,11 @@ const conferir: Ferramenta = {
             portas_livres: livresCadastro,
             ocupacao_pct: c.ocupacao,
             leitura_em: c.em,
+            leitura_ha_min: c.idadeMin,
+            sem_leitura_recente: c.semLeituraRecente,
+            aviso: c.semLeituraRecente
+              ? `A coleta desta CTO parou há ${c.idadeMin} min: o lado do cadastro é de antes, não de agora. Diga isso ao comparar.`
+              : undefined,
           },
           planta: naPlanta ? {
             caixa: naPlanta.tipoCodigo,
