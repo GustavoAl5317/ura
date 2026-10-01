@@ -17,6 +17,13 @@ export interface CaixaViabilidade {
   portasDisponiveis: number;
   portasSplitterDisponiveis: number;
   fid?: number;
+  /** Portas do splitter, no total (ocupadas + livres). */
+  capacidadeSplitter?: number;
+  /** Clientes que a planta registra nesta caixa. */
+  clientes?: number;
+  /** Coordenada oficial da caixa, quando a planta manda a geometria. */
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Viabilidade {
@@ -41,6 +48,10 @@ interface GeositeToken {
 interface GeositeCaixa {
   tipoCodigo: string;
   distancia: number;
+  /** A API manda qtdDisponivel; versões antigas mandavam qtdTotalDisponivel. */
+  qtdDisponivel?: number;
+  qtdOcupada?: number;
+  geometryCaixaEmenda?: string;
   qtdTotalDisponivel: number;
   qtdSplitter: number;
   qtdPortasSplitter: number;
@@ -55,6 +66,61 @@ interface GeositeCaixa {
   capacidade?: number;
   qtdClientes?: number;
   distanciaRotaSugerida?: number;
+}
+
+// ─── Leitura da resposta ──────────────────────────────────────────────────────
+
+/**
+ * A API responde `{ success: "true", caixas: [...] }`. A primeira versão deste
+ * cliente esperava um array cru e descartava tudo com Array.isArray, então
+ * TODA consulta de viabilidade respondia "sem cobertura" — sem erro no log,
+ * que é o pior jeito de falhar. Aceita as duas formas de propósito: se a API
+ * voltar a mandar array, continua funcionando.
+ */
+export function extrairCaixas(data: unknown): GeositeCaixa[] {
+  if (Array.isArray(data)) return data as GeositeCaixa[];
+  const corpo = data as { caixas?: unknown; data?: unknown } | null | undefined;
+  for (const campo of [corpo?.caixas, corpo?.data]) {
+    if (Array.isArray(campo)) return campo as GeositeCaixa[];
+  }
+  return [];
+}
+
+/** "POINT (-38.59606 -3.76439)" → { lat, long }. Ordem do WKT: long, lat. */
+export function pontoWkt(wkt: string | undefined): { latitude?: number; longitude?: number } {
+  const m = /POINT\s*\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)/i.exec(wkt ?? '');
+  if (!m) return {};
+  return { longitude: Number(m[1]), latitude: Number(m[2]) };
+}
+
+const naoNegativo = (...xs: Array<number | undefined>): number => {
+  for (const x of xs) if (typeof x === 'number' && Number.isFinite(x)) return Math.max(0, x);
+  return 0;
+};
+
+/**
+ * Normaliza uma caixa da planta. Os nomes dos campos variam entre versões da
+ * API, e porta livre é a informação que decide ir ou não ir: vale tentar as
+ * formas conhecidas antes de assumir zero.
+ */
+export function paraCaixa(c: GeositeCaixa): CaixaViabilidade {
+  const splitterTotal = c.qtdPortasSplitter;
+  const splitterOcup = c.qtdPortasSplitterOcup;
+  const splitterLivre = naoNegativo(
+    c.qtdPortasSplitterDisp,
+    typeof splitterTotal === 'number' && typeof splitterOcup === 'number' ? splitterTotal - splitterOcup : undefined,
+  );
+  return {
+    // "CTO: CTO - CYBER VIVO, 148" → "CTO - CYBER VIVO, 148".
+    tipoCodigo: String(c.tipoCodigo ?? '').replace(/^\s*CTO:\s*/i, '').trim() || String(c.tipoCodigo ?? ''),
+    distanciaMetros: naoNegativo(c.distancia),
+    portasDisponiveis: naoNegativo(c.qtdTotalDisponivel, c.qtdDisponivel, splitterLivre),
+    portasSplitterDisponiveis: splitterLivre,
+    fid: c.fid,
+    capacidadeSplitter: splitterTotal,
+    clientes: c.qtdClientes,
+    ...pontoWkt(c.geometryCaixaEmenda),
+  };
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -133,7 +199,7 @@ export class GeositeClient {
   // mais distante e seleciona a primeira que tem porta disponível — se a mais
   // próxima estiver lotada, cai para a próxima mais próxima que cobre, e assim por diante.
   private processarCaixas(data: unknown): Viabilidade {
-    const caixas = Array.isArray(data) ? (data as GeositeCaixa[]) : [];
+    const caixas = extrairCaixas(data);
     if (!caixas.length) {
       logger.info('Geosite: Nenhuma CTO encontrada no raio configurado.');
       return { temCobertura: false, caixasProximas: 0 };
@@ -141,13 +207,7 @@ export class GeositeClient {
 
     const cobrindo: CaixaViabilidade[] = [...caixas]
       .sort((a, b) => a.distancia - b.distancia)
-      .map((c) => ({
-        tipoCodigo: c.tipoCodigo,
-        distanciaMetros: c.distancia,
-        portasDisponiveis: c.qtdTotalDisponivel,
-        portasSplitterDisponiveis: c.qtdPortasSplitterDisp ?? 0,
-        fid: c.fid,
-      }));
+      .map(paraCaixa);
 
     // Mais próxima que cobre E tem porta livre; se a mais próxima estiver lotada,
     // segue para a próxima mais próxima que cobre.

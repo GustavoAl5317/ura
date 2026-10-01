@@ -29,6 +29,8 @@ function caixasSaida(v: Viabilidade, limite = 8) {
     distancia_m: m(c.distanciaMetros),
     portas_livres: c.portasDisponiveis,
     portas_livres_no_splitter: c.portasSplitterDisponiveis,
+    portas_no_splitter: c.capacidadeSplitter ?? null,
+    clientes_na_planta: c.clientes ?? null,
   }));
 }
 
@@ -110,6 +112,10 @@ const viabilidade: Ferramenta = {
             distancia_m: m(v.caixaSelecionada.distanciaMetros),
             portas_livres: v.caixaSelecionada.portasDisponiveis,
             portas_livres_no_splitter: v.caixaSelecionada.portasSplitterDisponiveis,
+            portas_no_splitter: v.caixaSelecionada.capacidadeSplitter ?? null,
+            clientes_na_planta: v.caixaSelecionada.clientes ?? null,
+            mapa: v.caixaSelecionada.latitude !== undefined && v.caixaSelecionada.longitude !== undefined
+              ? linkMapa(v.caixaSelecionada.latitude, v.caixaSelecionada.longitude) : null,
           } : null,
           outras_caixas_no_raio: caixasSaida(v),
           existe_cabo_proximo: cabo,
@@ -204,12 +210,20 @@ const conferir: Ferramenta = {
             distancia_m: m(naPlanta.distanciaMetros),
             portas_livres: naPlanta.portasDisponiveis,
             portas_livres_no_splitter: naPlanta.portasSplitterDisponiveis,
+            portas_no_splitter: naPlanta.capacidadeSplitter ?? null,
+            clientes: naPlanta.clientes ?? null,
+            coordenada_oficial: naPlanta.latitude !== undefined && naPlanta.longitude !== undefined
+              ? linkMapa(naPlanta.latitude, naPlanta.longitude) : null,
           } : null,
           vizinhas_no_raio: lista.slice(1, 6).map((x) => ({
             caixa: x.tipoCodigo, distancia_m: m(x.distanciaMetros), portas_livres: x.portasDisponiveis,
           })),
           comparacao: naPlanta ? {
             diferenca_de_portas_livres: diferenca,
+            clientes_cadastro: c.clientes,
+            clientes_planta: naPlanta.clientes ?? null,
+            diferenca_de_clientes: naPlanta.clientes !== undefined && c.clientes !== null
+              ? naPlanta.clientes - c.clientes : null,
             concordam: diferenca === 0,
             leitura: diferenca === null
               ? 'Falta dado de porta em uma das fontes: não afirme que concordam.'

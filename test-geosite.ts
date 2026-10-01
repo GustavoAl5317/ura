@@ -20,7 +20,8 @@ process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'aq-geosite-')));
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 const { db, fecharDb } = require(path.join(RAIZ, 'src', 'assistant', 'store', 'db')) as typeof import('./src/assistant/store/db');
-const { geosite } = require(path.join(RAIZ, 'src', 'integrations', 'geosite')) as typeof import('./src/integrations/geosite');
+const geo = require(path.join(RAIZ, 'src', 'integrations', 'geosite')) as typeof import('./src/integrations/geosite');
+const { geosite } = geo;
 const { questdb } = require(path.join(RAIZ, 'src', 'integrations', 'questdb')) as typeof import('./src/integrations/questdb');
 const { ferramentas } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'base')) as typeof import('./src/assistant/tools/base');
 const { registrarFerramentasGeosite } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'geosite')) as typeof import('./src/assistant/tools/geosite');
@@ -63,6 +64,34 @@ async function main(): Promise<void> {
     (await ferramentas.get('viabilidade_instalacao')!.executar(args, ctx))[0] as any;
   const conf = async (args: Record<string, unknown>) =>
     (await ferramentas.get('conferir_caixa_na_planta')!.executar(args, ctx))[0] as any;
+
+  console.log('--- Resposta crua da planta ---');
+  // Resposta real da API, copiada de produção: objeto com "caixas", e
+  // qtdDisponivel no lugar de qtdTotalDisponivel.
+  const crua = {
+    success: 'true',
+    caixas: [{
+      tipoCodigo: 'CTO: CTO - CYBER VIVO, 148', fid: 1824732, distancia: 0,
+      geometryCaixaEmenda: 'POINT (-38.59606 -3.76439)',
+      qtdDisponivel: 1, qtdOcupada: 0, fidTipoCaixaEmenda: 2, capacidade: 1, qtdClientes: 1,
+      qtdSplitter: 1, qtdPortasSplitter: 8, qtdPortasSplitterOcup: 1,
+    }],
+  };
+  checa('resposta em objeto com "caixas" e lida', geo.extrairCaixas(crua).length === 1);
+  checa('array cru tambem continua valendo', geo.extrairCaixas([{ tipoCodigo: 'x' }]).length === 1);
+  checa('resposta estranha nao quebra', geo.extrairCaixas({ erro: 1 }).length === 0 && geo.extrairCaixas(null).length === 0);
+  const c0 = geo.paraCaixa(geo.extrairCaixas(crua)[0]);
+  checa('porta livre sai de qtdDisponivel', c0.portasDisponiveis === 1, c0);
+  checa('prefixo "CTO:" sai do nome', c0.tipoCodigo === 'CTO - CYBER VIVO, 148', c0.tipoCodigo);
+  checa('porta livre do splitter e calculada quando nao vem pronta', c0.portasSplitterDisponiveis === 7, c0);
+  checa('capacidade do splitter vem junto', c0.capacidadeSplitter === 8);
+  checa('clientes da planta vem junto', c0.clientes === 1);
+  checa('coordenada oficial sai do WKT, na ordem certa',
+    c0.latitude === -3.76439 && c0.longitude === -38.59606, c0);
+  checa('sem geometria, fica sem coordenada',
+    geo.paraCaixa({ tipoCodigo: 'y', distancia: 10 } as never).latitude === undefined);
+  checa('porta livre sem nenhum campo conhecido e zero, nao NaN',
+    geo.paraCaixa({ tipoCodigo: 'y', distancia: 10 } as never).portasDisponiveis === 0);
 
   console.log('\n─── Registro das ferramentas ───');
   checa('as duas ferramentas existem', !!ferramentas.get('viabilidade_instalacao') && !!ferramentas.get('conferir_caixa_na_planta'));
