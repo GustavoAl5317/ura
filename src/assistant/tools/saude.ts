@@ -96,6 +96,10 @@ const saude: Ferramenta = {
             resumo: l.resumo,
             motivo: l.motivo,
             impacto: l.impacto,
+            o_que_cada_numero_conta: {
+              clientes_em_risco: 'clientes em caixas com problema de SINAL ou ESTABILIDADE (degradação ou crítico). Caixa cheia NÃO entra aqui.',
+              clientes_com_atencao: 'clientes em caixas com ponto de atenção: na maioria, caixa cheia ou quase cheia, ou sem leitura. Não estão sem serviço.',
+            },
             desde: l.desde,
             desde_explicacao: l.desde_explicacao,
             o_que_fazer: l.o_que_fazer,
