@@ -229,6 +229,14 @@ export const DEFINICOES = {
     tipo: 'inteiro', grupo: 'monitor_ctos', padrao: () => 7, min: 1, max: 60,
     descricao: 'Dias anteriores que definem o sinal normal de cada CTO.',
   },
+  'monitor.ctos.alertar_sem_coleta': {
+    tipo: 'booleano', grupo: 'monitor_ctos', padrao: () => true,
+    descricao: 'Avisa quando UMA CTO para de ser coletada enquanto o resto segue normal. Sem isso, a caixa some das respostas em silêncio.',
+  },
+  'monitor.ctos.sem_coleta_min': {
+    tipo: 'inteiro', grupo: 'monitor_ctos', padrao: () => 60, min: 15, max: 10080,
+    descricao: 'Minutos sem leitura de uma CTO até ela ser dada como fora da coleta. A coleta é a cada 5 min; 60 evita alarme por um ciclo perdido.',
+  },
   'monitor.ctos.alertar_coleta': {
     tipo: 'booleano', grupo: 'monitor_ctos', padrao: () => true,
     descricao: 'Avisa quando o QuestDB para de receber leituras das CTOs.',

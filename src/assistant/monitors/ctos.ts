@@ -19,6 +19,16 @@ import { iniciarMonitor } from './base';
 
 const CHAVE_PARADA = 'ctos:coleta_parada';
 const PREFIXO_SINAL = 'ctos:sinal:';
+const PREFIXO_SEM_COLETA = 'ctos:sem_coleta:';
+const chaveSemColeta = (id: number) => `${PREFIXO_SEM_COLETA}${id}:`;
+
+/**
+ * A série inteira é cara (varre a tabela). Para achar CTO que sumiu há mais
+ * de 30 dias basta olhar de tempos em tempos, não a cada ciclo.
+ */
+const INTERVALO_VARREDURA_HISTORICA_MS = 6 * 3600_000;
+let ultimaVarreduraHistorica = 0;
+export function reiniciarVarreduraHistorica(): void { ultimaVarreduraHistorica = 0; }
 
 /** Acima disto, os novos do ciclo saem numa mensagem só. */
 export const MAX_ALERTAS_INDIVIDUAIS = 3;
@@ -178,7 +188,114 @@ export async function cicloCtos(): Promise<{ alertas: number; detalhe: Record<st
   }
 
   detalhe.sinal = { ctos: atuais.length, piorando, novos: novos.length, normalizados: resolvidos };
+
+  // ── 3. CTO que parou de ser coletada ──────────────────────────────────────
+  // O aviso de coleta parada só dispara quando TUDO para. Uma CTO que some
+  // sozinha passava em silêncio: a 731 ficou 73 dias fora sem ninguém saber,
+  // e cada consulta sobre ela respondia "não encontrei".
+  if (obter<boolean>('monitor.ctos.alertar_sem_coleta')) {
+    const r = await avisarSemColeta(atuais, abertos);
+    alertas += r.alertas;
+    detalhe.sem_coleta = r.detalhe;
+  }
   return { alertas, detalhe };
+}
+
+async function avisarSemColeta(
+  atuais: CtoAtual[],
+  abertos: ReturnType<typeof abertosDaOrigem>,
+): Promise<{ alertas: number; detalhe: Record<string, unknown> }> {
+  let alertas = 0;
+  const limiteMin = obter<number>('monitor.ctos.sem_coleta_min');
+
+  // Quem sumiu há mais de 30 dias não está em `atuais`: busca na série inteira,
+  // de vez em quando.
+  let universo = atuais;
+  if (Date.now() - ultimaVarreduraHistorica >= INTERVALO_VARREDURA_HISTORICA_MS) {
+    try {
+      const historico = await questdb.ctosEmQualquerEpoca();
+      const ids = new Set(atuais.map((c) => c.cto_id));
+      universo = [...atuais, ...historico.filter((c) => !ids.has(c.cto_id))];
+      ultimaVarreduraHistorica = Date.now();
+    } catch {
+      // Sem a varredura histórica, segue com a janela recente: melhor parcial que nada.
+    }
+  }
+
+  const paradas = universo.filter((c) => c.idadeMin > limiteMin);
+  const novas = paradas.filter((c) => !abertos.some((a) => a.chave.startsWith(chaveSemColeta(c.cto_id))));
+
+  // Voltou a ser lida: fecha o aviso.
+  let voltaram = 0;
+  for (const a of abertos.filter((x) => x.chave.startsWith(PREFIXO_SEM_COLETA))) {
+    const id = Number(a.chave.slice(PREFIXO_SEM_COLETA.length).split(':')[0]);
+    const c = atuais.find((x) => x.cto_id === id);
+    if (c && c.idadeMin <= limiteMin && marcarResolvido(a.chave)) {
+      voltaram++;
+      await emitir({
+        origem: 'ctos', severidade: 'info', evento: true,
+        titulo: `CTO voltou a ser coletada: ${c.nome}`,
+        texto: `✅ *${c.nome} voltou a ser coletada*\nÚltima leitura há ${c.idadeMin} min.`,
+        chave: `${a.chave}:resolvido`,
+      });
+      alertas++;
+    }
+  }
+
+  const texto = (c: CtoAtual) =>
+    `${c.nome}${c.pon ? ` (PON ${c.pon})` : ''}: sem leitura desde ${horaCurta(c.em)} (há ${duracaoHumana(c.idadeMin * 60)})` +
+    (c.clientes ? `, ${c.clientes} clientes no cadastro` : '');
+  const dados = (c: CtoAtual) => ({
+    cto_id: c.cto_id, nome: c.nome, pon: c.pon, ultima_leitura: c.em, idade_min: c.idadeMin, clientes: c.clientes,
+  });
+
+  if (novas.length > MAX_ALERTAS_INDIVIDUAIS) {
+    for (const c of novas) {
+      await emitir({
+        origem: 'ctos', severidade: 'aviso', titulo: `Sem coleta: ${c.nome}`,
+        texto: `📡 ${texto(c)}`, chave: `${chaveSemColeta(c.cto_id)}${Date.now()}`,
+        dados: dados(c), silencioso: true, motivoSemEnvio: 'agrupado na mensagem de várias CTOs sem coleta',
+      });
+    }
+    const ordenadas = [...novas].sort((a, b) => b.idadeMin - a.idadeMin);
+    const a = await emitir({
+      origem: 'ctos', severidade: 'aviso', evento: true,
+      titulo: `${novas.length} CTOs sem coleta`,
+      texto: [
+        `📡 *${novas.length} CTOs pararam de ser coletadas*`,
+        'O resto da coleta está funcionando: o problema é com estas caixas, no coletor ou na OLT.',
+        '',
+        ...ordenadas.slice(0, 10).map((c) => `• ${texto(c)}`),
+        ordenadas.length > 10 ? `… e mais ${ordenadas.length - 10}` : null,
+        '',
+        'Sem leitura, sinal e ocupação dessas caixas ficam desatualizados nas respostas.',
+      ].filter((x) => x !== null).join('\n'),
+      chave: `${PREFIXO_SEM_COLETA}grupo:${Date.now()}`,
+      dados: { ctos: novas.map(dados) },
+    });
+    if (a) alertas++;
+  } else {
+    for (const c of novas) {
+      const a = await emitir({
+        origem: 'ctos', severidade: 'aviso',
+        titulo: `Sem coleta: ${c.nome}`,
+        texto: [
+          `📡 *CTO parou de ser coletada — ${c.nome}*`,
+          texto(c),
+          'O resto da coleta está funcionando: verificar esta caixa no coletor ou na OLT.',
+          linkMapa(c.lat, c.long),
+        ].filter(Boolean).join('\n'),
+        chave: `${chaveSemColeta(c.cto_id)}${Date.now()}`,
+        dados: dados(c),
+      });
+      if (a) alertas++;
+    }
+  }
+
+  return {
+    alertas,
+    detalhe: { paradas: paradas.length, novas: novas.length, voltaram, limite_min: limiteMin },
+  };
 }
 
 export function iniciarMonitorCtos(): () => void {
