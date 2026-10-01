@@ -19,7 +19,7 @@ import { config } from '../../config';
 import { geosite, Viabilidade } from '../../integrations/geosite';
 import { questdb, linkMapa } from '../../integrations/questdb';
 import { Ferramenta, medir, ferramentas } from './base';
-import { resolverCto } from './ctos';
+import { resolverCtoAmplo } from './ctos';
 
 const m = (x: number | null | undefined) => (x === null || x === undefined ? null : Math.round(x));
 
@@ -158,7 +158,7 @@ const conferir: Ferramenta = {
       if (!termo) throw new Error('diga qual CTO conferir');
 
       const todas = await questdb.ctosAtuais();
-      const r = resolverCto(termo, todas);
+      const r = resolverCtoAmplo(termo, todas);
       if (!r.cto) {
         return {
           vazio: true,

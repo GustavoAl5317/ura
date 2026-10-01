@@ -45,6 +45,34 @@ export function resolverCto(
   return { cto: ranking[0].c, candidatas: [], por: 'semelhança' };
 }
 
+/**
+ * Resolve o nome com folga. O resolverCto exige semelhança alta na string
+ * inteira, e nome de CTO vem cheio de prefixo e pontuação ("CTO - CYBER VIVO,
+ * 148"): quem pergunta digita "cyber vivo 148" e não casava nada, nem como
+ * candidata. Aqui o termo é quebrado em palavras e todas precisam aparecer no
+ * nome da CTO — "cyber vivo 148" acha, "cyber 999" não.
+ */
+export function resolverCtoAmplo(
+  termo: string,
+  lista: CtoAtual[],
+): { cto: CtoAtual | null; candidatas: string[]; por: string | null } {
+  const direto = resolverCto(termo, lista);
+  if (direto.cto || direto.candidatas.length) return direto;
+
+  const limpar = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const palavras = limpar(termo).split(' ').filter((p) => p.length >= 2 && p !== 'cto');
+  if (!palavras.length) return direto;
+
+  const casam = lista.filter((c) => {
+    const nome = limpar(c.nome);
+    return palavras.every((p) => nome.split(' ').includes(p) || nome.includes(p));
+  });
+  if (casam.length === 1) return { cto: casam[0], candidatas: [], por: 'palavras do nome' };
+  if (casam.length > 1) return { cto: null, candidatas: casam.slice(0, 8).map((c) => c.nome), por: null };
+  return direto;
+}
+
 function resumoAtual(c: CtoAtual) {
   return {
     cto_id: c.cto_id,

@@ -51,6 +51,8 @@ const CTOS = [
   { cto_id: 7, nome: 'ARACA-07', pon: '1/1/1', lat: -3.75, long: -38.6, sinal: -22, clientes: 10, portas: 16, ocupacao: 62.5, em: '2026-10-01T12:00:00Z' },
   { cto_id: 8, nome: 'SEM-COORD', pon: '1/1/2', lat: null, long: null, sinal: -21, clientes: 2, portas: 8, ocupacao: 25, em: '2026-10-01T12:00:00Z' },
   { cto_id: 9, nome: 'ARACA-09', pon: '1/1/3', lat: -3.76, long: -38.61, sinal: -20, clientes: 4, portas: 8, ocupacao: 50, em: '2026-10-01T12:00:00Z' },
+  { cto_id: 10, nome: 'CTO - CYBER VIVO, 148', pon: '1/1/4', lat: -3.76439, long: -38.59606, sinal: -23, clientes: 1, portas: 8, ocupacao: 12.5, em: '2026-10-01T12:00:00Z' },
+  { cto_id: 11, nome: 'CTO - CYBER NET, 20', pon: '1/1/5', lat: -3.77, long: -38.6, sinal: -23, clientes: 2, portas: 8, ocupacao: 25, em: '2026-10-01T12:00:00Z' },
 ];
 (questdb as any).ctosAtuais = async () => CTOS;
 (questdb as any).exigirColetaViva = async () => undefined;
@@ -188,6 +190,20 @@ async function main(): Promise<void> {
   checa('lista as vizinhas do mesmo trecho', e.dados.vizinhas_no_raio.length === 2 && e.dados.vizinhas_no_raio[0].caixa === 'CX-VIZINHA', e.dados.vizinhas_no_raio);
   checa('a CTO do ponto não entra como vizinha',
     !e.dados.vizinhas_no_raio.some((x: any) => x.caixa === 'CX-ARACA-07'));
+
+  console.log('--- Nome como a pessoa fala ---');
+  resposta = { temCobertura: true, caixasProximas: 1, caixasCobrindo: [caixa('CX-CYBER', 2, 7, 7)] };
+  e = await conf({ cto: 'CYBER VIVO 148' });
+  checa('nome sem prefixo e sem pontuacao acha a CTO',
+    e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148', { cto: e.dados.cto, por: e.dados.casou_por });
+  e = await conf({ cto: 'cyber vivo, 148' });
+  checa('com virgula e minuscula tambem acha', e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148');
+  e = await conf({ cto: 'cyber' });
+  checa('termo ambiguo devolve as candidatas, em vez de escolher',
+    e.vazio === true && e.dados.candidatas.length === 2, e.dados.candidatas);
+  checa('e manda perguntar qual e', /pergunte qual/.test(e.dados.instrucao), e.dados.instrucao);
+  e = await conf({ cto: 'cyber 999' });
+  checa('palavra que nao existe no nome nao casa nada', e.vazio === true && e.dados.encontrada === false);
 
   fecharDb();
   console.log(`\n${passou} passaram, ${falhou} falharam\n`);
