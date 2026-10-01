@@ -275,6 +275,38 @@ export class ZabbixClient {
     return new Date(ts).toLocaleString('pt-BR', { timeZone: config.tz });
   }
 
+  /** Hosts cujo nome contém o termo. Público para quem precisa saber se o host existe antes de perguntar dele. */
+  async hostsPorNome(termo: string): Promise<Array<{ hostid: string; nome: string }>> {
+    if (!termo.trim()) return [];
+    const r = await this.call<Array<{ hostid: string; name: string }>>('host.get', {
+      output: ['hostid', 'name'],
+      search: { name: termo },
+      limit: 50,
+    });
+    return (r ?? []).map((h) => ({ hostid: h.hostid, nome: h.name }));
+  }
+
+  /**
+   * TODOS os problemas abertos destes hosts, sem filtro de nome de trigger.
+   * Os padrões da operação (CTO, OFFLINE, Interface) servem para varrer a
+   * rede; para UM equipamento eles escondem justamente o que interessa — CPU,
+   * temperatura, ventoinha, BGP.
+   */
+  async problemasDosHosts(hostids: string[], limite = 200): Promise<ZabbixProblem[]> {
+    if (!hostids.length) return [];
+    const r = await this.call<ZabbixProblem[]>('problem.get', {
+      output: ['eventid', 'name', 'severity', 'clock', 'objectid'],
+      hostids,
+      suppressed: false,
+      sortfield: 'eventid',
+      sortorder: 'DESC',
+      limit: limite,
+    });
+    const todos = r ?? [];
+    await this.anexarHosts(todos);
+    return todos.sort((a, b) => parseInt(b.clock, 10) - parseInt(a.clock, 10));
+  }
+
   /** Busca problemas ativos cujo nome combina com algum padrão configurado. */
   async problemasPorPadroes(padroes: string[], hostFiltro?: string[]): Promise<ZabbixProblem[]> {
     if (!padroes.length) return [];
@@ -301,7 +333,10 @@ export class ZabbixClient {
 
       if (hostFiltro?.length) {
         const hostids = await this.hostIdsPorNomes(hostFiltro);
-        if (hostids.length) params.hostids = hostids;
+        // Host pedido que não existe NÃO pode virar busca na rede inteira: os
+        // problemas de outros equipamentos sairiam como se fossem deste.
+        if (!hostids.length) return [];
+        params.hostids = hostids;
       }
 
       try {

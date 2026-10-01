@@ -5,6 +5,7 @@
 // ou "viva". É o que impede "o link está parado" em cima de item quebrado.
 
 import { config } from '../../config';
+import { FABRICANTES, fabricantePedido } from '../../integrations/fabricante';
 import * as zm from '../../integrations/zabbix-metricas';
 import type { ItemMetrica, Interface, Onu } from '../../integrations/zabbix-metricas';
 import { zabbix } from '../../integrations/zabbix';
@@ -57,33 +58,67 @@ const equipamentos: Ferramenta = {
   nome: 'zabbix_equipamentos',
   fonte: 'zabbix',
   descricao:
-    'Disponibilidade dos equipamentos no Zabbix (se o SNMP/agente responde), se estão em ' +
-    'manutenção e quantos problemas abertos cada um tem. Responde "esse equipamento está de pé?", ' +
-    '"alguma OLT fora?". Filtre pelo nome (ex.: "OLT", "BGP", "CORE", "OLT-3"). ' +
-    'Indisponível significa que o Zabbix NÃO CONSEGUE LER o equipamento — pode ser queda real ou ' +
-    'só a coleta; não afirme que o equipamento caiu sem outra evidência (ping, tráfego, clientes).',
+    'Equipamentos monitorados no Zabbix: fabricante, modelo, tipo (OLT, roteador, switch), se o ' +
+    'SNMP/agente responde, se estão em manutenção e quantos problemas abertos cada um tem. Responde ' +
+    '"quais equipamentos Huawei temos?", "quantas OLTs?", "algum roteador fora?", "esse equipamento está de pé?". ' +
+    'Filtre por fabricante (aceita erro de digitação: "hawuei" vira Huawei), por tipo, ou por trecho do nome. ' +
+    'O fabricante vem do inventário ou do template do Zabbix; quando só dá para deduzir pelo nome do modelo, ' +
+    'o campo "por" diz "nome" — fale "pelo modelo, é Huawei", não "é Huawei" seco. Equipamento sem fabricante ' +
+    'identificado NÃO é de nenhum fabricante específico: não some ele em conta de Huawei. ' +
+    'Indisponível significa que o Zabbix NÃO CONSEGUE LER o equipamento — pode ser queda real ou só a coleta.',
   parametros: {
     type: 'object',
     properties: {
       filtro: { type: 'string', description: 'Trecho do nome do equipamento. Vazio = todos.' },
+      fabricante: { type: 'string', description: 'Fabricante (Huawei, ZTE, Datacom, MikroTik, Cisco...). Aceita erro de digitação.' },
+      tipo: { type: 'string', enum: ['olt', 'roteador', 'switch', 'outro'], description: 'Tipo de equipamento' },
     },
     required: [],
   },
   async executar(args, ctx) {
     const filtro = args.filtro ? String(args.filtro).trim() : undefined;
+    const pedidoFab = typeof args.fabricante === 'string' && args.fabricante.trim() ? args.fabricante.trim() : null;
+    const fabricante = pedidoFab ? fabricantePedido(pedidoFab) : null;
+    const tipo = typeof args.tipo === 'string' ? args.tipo : null;
     return [
-      await medir(ctx, 'zabbix', 'zabbix.equipamentos', { filtro }, async () => {
+      await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.equipamentos', { filtro, fabricante: pedidoFab, tipo }, async () => {
         exigirZabbix();
-        const hs = await zm.statusHosts(filtro);
+        if (pedidoFab && !fabricante) {
+          return {
+            vazio: true,
+            dados: {
+              fabricante_pedido: pedidoFab,
+              fabricantes_conhecidos: FABRICANTES,
+              instrucao: 'Não reconheci esse fabricante. Mostre a lista e pergunte qual é.',
+            },
+          };
+        }
+        // Fabricante e tipo NÃO vão no filtro de nome: "Huawei" quase nunca está no nome.
+        const todos = await zm.statusHosts(filtro);
+        let hs = todos;
+        if (fabricante) hs = hs.filter((h) => h.fabricante === fabricante);
+        if (tipo) hs = hs.filter((h) => h.tipo === tipo);
         const ativos = hs.filter((h) => h.habilitado);
+
+        const porFabricante: Record<string, number> = {};
+        for (const h of todos.filter((x) => x.habilitado)) {
+          const k = h.fabricante ?? 'não identificado';
+          porFabricante[k] = (porFabricante[k] ?? 0) + 1;
+        }
+        const filtrou = !!(fabricante || tipo);
+
         return {
           dados: {
             filtro: filtro ?? null,
+            fabricante: fabricante ?? null,
+            fabricante_entendido: pedidoFab && fabricante && pedidoFab.toLowerCase() !== fabricante.toLowerCase()
+              ? `"${pedidoFab}" entendido como ${fabricante}` : undefined,
+            tipo: tipo ?? null,
             total: hs.length,
             desabilitados_no_zabbix: hs.length - ativos.length,
             disponiveis: ativos.filter((h) => h.disponibilidade === 'disponivel').length,
             indisponiveis: ativos.filter((h) => h.disponibilidade === 'indisponivel').map((h) => ({
-              nome: h.nome, erro: h.erroInterface, problemas: h.problemasAbertos,
+              nome: h.nome, fabricante: h.fabricante, erro: h.erroInterface, problemas: h.problemasAbertos,
             })),
             disponibilidade_desconhecida: ativos.filter((h) => h.disponibilidade === 'desconhecida').length,
             em_manutencao: ativos.filter((h) => h.emManutencao).map((h) => h.nome),
@@ -91,7 +126,20 @@ const equipamentos: Ferramenta = {
               .filter((h) => h.problemasAbertos > 0)
               .sort((a, b) => (b.piorSeveridade ?? 0) - (a.piorSeveridade ?? 0))
               .slice(0, 25)
-              .map((h) => ({ nome: h.nome, problemas: h.problemasAbertos, pior_severidade: h.piorSeveridade })),
+              .map((h) => ({ nome: h.nome, fabricante: h.fabricante, problemas: h.problemasAbertos, pior_severidade: h.piorSeveridade })),
+            // Com filtro de fabricante ou tipo, a lista inteira interessa: é a pergunta.
+            equipamentos: filtrou
+              ? ativos.slice(0, 80).map((h) => ({
+                nome: h.nome, fabricante: h.fabricante, por: h.fabricantePor, modelo: h.modelo, tipo: h.tipo,
+                disponibilidade: h.disponibilidade, problemas: h.problemasAbertos,
+              }))
+              : undefined,
+            por_fabricante_na_rede: porFabricante,
+            como_o_fabricante_foi_identificado: {
+              inventario: hs.filter((h) => h.fabricantePor === 'inventario').length,
+              template: hs.filter((h) => h.fabricantePor === 'template').length,
+              pelo_nome_do_modelo: hs.filter((h) => h.fabricantePor === 'nome').length,
+            },
           },
           vazio: hs.length === 0,
         };

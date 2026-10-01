@@ -15,6 +15,7 @@
 // - Tráfego por ONU só existe na OLT-3 (3.682 itens). OLT-1 e OLT-2: nenhum.
 
 import { zabbix } from './zabbix';
+import { Identificacao, OrigemFabricante, identificar } from './fabricante';
 
 export type EstadoColeta = 'viva' | 'atrasada' | 'sem_coleta';
 
@@ -118,18 +119,30 @@ export interface StatusHost {
   erroInterface: string | null;
   problemasAbertos: number;
   piorSeveridade: number | null;
+  fabricante: string | null;
+  /** De onde veio o fabricante: inventário, template, ou dedução pelo nome. */
+  fabricantePor: OrigemFabricante | null;
+  modelo: string | null;
+  tipo: Identificacao['tipo'];
 }
 
 export async function statusHosts(filtroNome?: string): Promise<StatusHost[]> {
   const params: Record<string, unknown> = {
     output: ['hostid', 'name', 'status', 'maintenance_status'],
     selectInterfaces: ['type', 'available', 'error'],
+    // Fabricante: o nome do host quase nunca diz "Huawei" (é NE8K, MA5800).
+    // Template e inventário dizem.
+    selectParentTemplates: ['name'],
+    selectInventory: ['vendor', 'model', 'os', 'hardware', 'type', 'type_full'],
   };
   if (filtroNome) params.search = { name: filtroNome };
 
   const hosts = await zabbix.api<Array<{
     hostid: string; name: string; status: string; maintenance_status: string;
     interfaces?: Array<{ type: string; available: string; error: string }>;
+    parentTemplates?: Array<{ name: string }>;
+    // Com inventário desligado o Zabbix devolve [] em vez de objeto.
+    inventory?: Record<string, string> | unknown[];
   }>>('host.get', params) ?? [];
 
   if (!hosts.length) return [];
@@ -168,7 +181,16 @@ export async function statusHosts(filtroNome?: string): Promise<StatusHost[]> {
     else if (ifs.some((i) => i.available === '1')) disponibilidade = 'disponivel';
 
     const p = porHost.get(h.hostid);
+    const id = identificar({
+      nome: h.name,
+      templates: (h.parentTemplates ?? []).map((t) => t.name),
+      inventario: Array.isArray(h.inventory) ? null : (h.inventory ?? null),
+    });
     return {
+      fabricante: id.fabricante,
+      fabricantePor: id.por,
+      modelo: id.modelo,
+      tipo: id.tipo,
       hostid: h.hostid,
       nome: h.name,
       habilitado: h.status === '0',

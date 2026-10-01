@@ -229,7 +229,9 @@ const zabbixProblemas: Ferramenta = {
   descricao:
     'Incidentes ABERTOS AGORA no Zabbix (CTO off, queda de PPPoE, POP, interface, energia). ' +
     'Não traz histórico: para "quantas vezes caiu" use zabbix_historico_quedas. ' +
-    'Sem filtro, usa os padrões de trigger configurados para a operação.',
+    'Sem filtro nem host, usa os padrões de trigger da operação (varredura da rede). Com host, traz ' +
+    'TODOS os problemas daquele equipamento (CPU, temperatura, ventoinha, BGP inclusos). Para problemas ' +
+    'de um FABRICANTE (ex.: Huawei), liste os equipamentos dele com zabbix_equipamentos e consulte cada um.',
   parametros: {
     type: 'object',
     properties: {
@@ -246,10 +248,32 @@ const zabbixProblemas: Ferramenta = {
     const host = args.host ? String(args.host) : null;
 
     return [
-      await medir(ctx, 'zabbix', 'zabbix.problemas', { filtro, host }, async () => {
+      await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.problemas', { filtro, host }, async () => {
         if (!config.zabbix.enabled) throw new Error('Zabbix desabilitado na configuração');
-        const padroes = filtro ? [filtro] : config.zabbix.searchPatterns;
-        const brutos = await zabbix.problemasPorPadroes(padroes, host ? [host] : undefined);
+        let brutos;
+        if (host) {
+          // Equipamento pedido: primeiro, ele existe? Sem isso, nome errado
+          // virava problemas de outros equipamentos.
+          const achados = await zabbix.hostsPorNome(host);
+          if (!achados.length) {
+            return {
+              vazio: true,
+              dados: {
+                host_procurado: host,
+                host_encontrado: false,
+                instrucao: 'Nenhum equipamento no Zabbix com esse nome. NÃO diga que ele está sem problema: diga que não foi encontrado e peça o nome como aparece no sistema (ou use zabbix_equipamentos para listar).',
+              },
+            };
+          }
+          // Para UM equipamento, todos os problemas: CPU, temperatura e BGP não
+          // casam com os padrões da operação e sumiriam.
+          brutos = filtro
+            ? await zabbix.problemasPorPadroes([filtro], [host])
+            : await zabbix.problemasDosHosts(achados.map((h) => h.hostid));
+        } else {
+          const padroes = filtro ? [filtro] : config.zabbix.searchPatterns;
+          brutos = await zabbix.problemasPorPadroes(padroes);
+        }
         const incidentes = brutos.map((p) => {
           const h = p.hosts?.[0];
           return {
