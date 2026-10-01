@@ -27,8 +27,10 @@ export const evoTecnicos = new EvolutionClient(
   'evolution-tecnicos',
 );
 
-/** Reaproveita a conversa se a última mensagem foi há menos que isto. */
-const JANELA_CONVERSA_MS = 60 * 60_000;
+/** Reaproveita a conversa se a última mensagem foi há menos que isto (painel: whatsapp.janela_conversa_min). */
+function janelaConversaMs(): number {
+  return obter<number>('whatsapp.janela_conversa_min') * 60_000;
+}
 
 /** IDs já processados — o Evolution reentrega em retry, e responder duas vezes é pior que não responder. */
 const jaProcessadas = new Map<string, number>();
@@ -108,7 +110,7 @@ export function fontesPublicas(): FonteId[] {
 
 function obterConversa(usuario: string, nome: string | null): string {
   const d = db();
-  const limite = new Date(Date.now() - JANELA_CONVERSA_MS).toISOString();
+  const limite = new Date(Date.now() - janelaConversaMs()).toISOString();
   const existente = d.prepare(
     `SELECT id FROM conversa WHERE usuario = ? AND canal = 'whatsapp' AND ultima_em > ?
      ORDER BY ultima_em DESC LIMIT 1`,

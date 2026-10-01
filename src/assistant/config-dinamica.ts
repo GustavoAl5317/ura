@@ -52,6 +52,22 @@ export const DEFINICOES = {
     descricao: 'Quantas vezes a IA pode voltar às fontes numa mesma pergunta antes de responder.',
   },
 
+  'ia.linguagem': {
+    tipo: 'texto', grupo: 'ia', padrao: () => 'auto', opcoes: ['auto', 'tecnica', 'simples'],
+    descricao:
+      'Como a IA escreve. "tecnica": usa CTO, PON, ONU normalmente. "simples": explica sem sigla ' +
+      '("a caixa na rua", "o aparelho do cliente"). "auto": espelha quem perguntou — quem fala técnico ' +
+      'recebe técnico, quem fala simples recebe simples.',
+  },
+  'ia.glossario_ativo': {
+    tipo: 'booleano', grupo: 'ia', padrao: () => true,
+    descricao: 'Usa o vocabulário da casa para entender gíria e jeito de falar. Só os termos que aparecem na pergunta entram, então não encarece as outras consultas.',
+  },
+  'ia.memoria_conversa': {
+    tipo: 'booleano', grupo: 'ia', padrao: () => true,
+    descricao: 'Lembra do que já foi tratado na conversa: "e agora?", "e a outra?" e "e ela?" passam a ter referência, em vez de virar pergunta solta.',
+  },
+
   // ── Áudio ───────────────────────────────────────────────────────────────
   'audio.responder_em_audio': {
     tipo: 'booleano', grupo: 'audio', padrao: () => true,
@@ -456,6 +472,10 @@ export const DEFINICOES = {
     tipo: 'lista', grupo: 'whatsapp', padrao: () => ['zabbix', 'netflow', 'questdb'],
     opcoes: FONTES_PUBLICAS,
     descricao: 'No modo "rede", fontes que um número não cadastrado pode consultar. Cadastro de cliente (SGP), URA e atendimento ficam sempre de fora.',
+  },
+  'whatsapp.janela_conversa_min': {
+    tipo: 'inteiro', grupo: 'whatsapp', padrao: () => 240, min: 5, max: 1440,
+    descricao: 'Tempo sem mensagem até o WhatsApp começar uma conversa nova. Dentro da janela, a IA continua o mesmo assunto; fora dela, ainda recebe um resumo curto do que foi tratado antes.',
   },
   'whatsapp.limite_publico_hora': {
     tipo: 'inteiro', grupo: 'whatsapp', padrao: () => 10, min: 1, max: 200,

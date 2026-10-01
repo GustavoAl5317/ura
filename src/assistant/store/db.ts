@@ -498,6 +498,21 @@ function migrar(d: Database.Database): void {
       atualizado_em   TEXT NOT NULL
     );
 
+    -- ═══ Vocabulário da casa (B10) ════════════════════════════════════════
+    -- Como as pessoas falam ("caixinha", "sem net") e o que isso significa
+    -- aqui. Em banco porque muda por região e sem deploy.
+    CREATE TABLE IF NOT EXISTS glossario (
+      id          TEXT PRIMARY KEY,
+      termo       TEXT NOT NULL,
+      sinonimos   TEXT,                    -- separados por vírgula
+      significado TEXT NOT NULL,
+      dica        TEXT,                    -- o que consultar quando o termo aparece
+      ativo       INTEGER NOT NULL DEFAULT 1,
+      usos        INTEGER NOT NULL DEFAULT 0,
+      ultimo_uso  TEXT,
+      criado_em   TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sla_regra (
       severidade     TEXT PRIMARY KEY,
       reconhecer_min INTEGER NOT NULL,

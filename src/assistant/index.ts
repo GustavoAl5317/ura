@@ -23,6 +23,7 @@ import { registrarFerramentasAtendimento } from './tools/atendimento';
 import { registrarFerramentasIncidentes } from './tools/incidentes';
 import { registrarFerramentasPlantao } from './tools/plantao';
 import { registrarFerramentasHistorico } from './tools/historico';
+import { semear as semearGlossario } from './glossario';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
 import { ferramentas } from './tools/base';
@@ -552,6 +553,10 @@ async function main(): Promise<void> {
   registrarFerramentasIncidentes();
   registrarFerramentasPlantao();
   registrarFerramentasHistorico();
+  // Vocabulário inicial: sem ele, a primeira pergunta em linguagem de leigo
+  // depende de alguém ter cadastrado termo no painel antes.
+  const novos = semearGlossario();
+  if (novos) logger.info(`Assistente: vocabulário da casa semeado com ${novos} termos`);
 
   const st = statusIndice();
   const evo = config.evolutionTecnicos;

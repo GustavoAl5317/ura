@@ -17,6 +17,8 @@ import { Envelope, FonteId, Veredito, RespostaAssistente, FONTES as FONTES_CONHE
 import { publicar } from './eventos';
 import { dispararWebhooks } from './webhooks';
 import { obter, fontesHabilitadas } from './config-dinamica';
+import { blocoParaPrompt, marcarUso } from './glossario';
+import { linhaDeContexto } from './contexto';
 
 const API = 'https://api.openai.com/v1/chat/completions';
 
@@ -339,6 +341,33 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
         'contrato válido e você responderia com confiança sobre o cliente errado. ' +
         'Busca por NOME não tem esse risco: pode seguir normalmente.',
     });
+  }
+
+  // Vocabulário da casa: só os termos que a pergunta usou.
+  const vocab = blocoParaPrompt(pedido.pergunta);
+  if (vocab) {
+    messages.push({ role: 'system', content: vocab.texto });
+    marcarUso(vocab.ids);
+  }
+
+  // Registro de linguagem: quem fala simples recebe resposta simples.
+  const registro = obter<string>('ia.linguagem');
+  const falaTecnico = /(cto|pon|olt|onu|ont|pppoe|sn|rx|tx|vlan|dbm|slot|uplink|backbone)/i.test(pedido.pergunta);
+  if (registro === 'simples' || (registro === 'auto' && !falaTecnico)) {
+    messages.push({
+      role: 'system',
+      content:
+        'Quem perguntou NÃO usou termo técnico. Responda sem sigla e sem jargão: diga "a caixa na rua" ' +
+        'em vez de CTO, "o aparelho do cliente" em vez de ONU, "o sinal da fibra" em vez de potência ' +
+        'óptica, "a rua/o trecho" em vez de PON. Se precisar citar o termo técnico, ponha entre ' +
+        'parênteses depois da explicação. Não mude os números nem o veredito: muda só a palavra.',
+    });
+  }
+
+  // Fio da conversa: resolve "e agora?", "e a outra?", "e ela?".
+  if (obter<boolean>('ia.memoria_conversa')) {
+    const fio = linhaDeContexto(pedido.conversaId, { usuario: pedido.usuario });
+    if (fio) messages.push({ role: 'system', content: fio });
   }
 
   for (const h of pedido.historico ?? []) {

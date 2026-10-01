@@ -552,6 +552,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
           <button class="subaba" data-sub="plantao">Plantão</button>
           <button class="subaba" data-sub="regras">Regras e manutenção</button>
           <button class="subaba" data-sub="prompts">Instruções da IA</button>
+          <button class="subaba" data-sub="vocabulario">Vocabulário</button>
           <button class="subaba" data-sub="monitores">Monitores e espelho</button>
           <button class="subaba" data-sub="governanca">Dados e saúde</button>
           <button class="subaba" data-sub="auditoria">Auditoria</button>
@@ -564,6 +565,7 @@ pre.json { margin: 8px 0 0; padding: 10px; background: var(--painel-2); border-r
         <div data-subpainel="plantao" hidden></div>
         <div data-subpainel="regras" hidden></div>
         <div data-subpainel="prompts" hidden></div>
+        <div data-subpainel="vocabulario" hidden></div>
         <div data-subpainel="monitores" hidden></div>
         <div data-subpainel="governanca" hidden></div>
         <div data-subpainel="auditoria" hidden></div>
@@ -2551,6 +2553,78 @@ subCarregadores.governanca = async () => {
           el('td', { style: 'font-size:12.5px', text: a.nao_pode })))))));
 
     alvo.replaceChildren(blocoSaude, blocoRet, blocoBackup, blocoAcesso);
+  } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
+};
+
+subCarregadores.vocabulario = async () => {
+  const alvo = $('[data-subpainel="vocabulario"]');
+  try {
+    const r = await api('GET', '/api/glossario');
+    const recarregar = () => subCarregadores.vocabulario();
+
+    const form = el('form', { class: 'grade', style: 'gap:10px' },
+      el('div', { class: 'grade grade-2' },
+        el('div', { class: 'campo' }, el('label', { for: 'g-termo', text: 'Como a pessoa fala' }),
+          el('input', { type: 'text', id: 'g-termo', required: true, placeholder: 'Ex.: caixinha' })),
+        el('div', { class: 'campo' }, el('label', { for: 'g-sin', text: 'Outras formas (separadas por vírgula)' }),
+          el('input', { type: 'text', id: 'g-sin', placeholder: 'caixa da rua, caixa do poste' }))),
+      el('div', { class: 'campo' }, el('label', { for: 'g-sig', text: 'O que isso quer dizer aqui' }),
+        el('input', { type: 'text', id: 'g-sig', required: true, placeholder: 'A CTO: a caixa de fibra no poste' })),
+      el('div', { class: 'campo' }, el('label', { for: 'g-dica', text: 'O que a IA deve consultar quando esse termo aparece' }),
+        el('input', { type: 'text', id: 'g-dica', placeholder: 'Use as ferramentas de CTO' })),
+      el('div', {}, el('button', { class: 'botao sec', type: 'submit', text: 'Adicionar termo' })));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api('POST', '/api/glossario', {
+          termo: $('#g-termo', form).value, sinonimos: $('#g-sin', form).value,
+          significado: $('#g-sig', form).value, dica: $('#g-dica', form).value,
+        });
+        toast('Termo adicionado.', 'ok'); recarregar();
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const teste = el('form', { class: 'linha-acoes', style: 'flex-wrap:wrap' },
+      el('input', { type: 'text', id: 'g-teste', placeholder: 'Escreva como um leigo escreveria, para ver o que a IA entende', style: 'flex:1;min-width:260px' }),
+      el('button', { class: 'botao sec mini', type: 'submit', text: 'Testar frase' }));
+    const saidaTeste = el('div', { class: 'mudo', style: 'font-size:12.5px;margin-top:8px' });
+    teste.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        const x = await api('POST', '/api/glossario/testar', { texto: $('#g-teste', teste).value });
+        saidaTeste.replaceChildren(x.achados.length
+          ? el('ul', { class: 'lacunas' }, x.achados.map((a) => el('li', {}, el('b', { text: a.termo }), `: ${a.significado}`, a.dica ? ` → ${a.dica}` : '')))
+          : el('span', { text: 'Nenhum termo do vocabulário aparece nessa frase. A IA vai depender só do texto e do histórico.' }));
+      } catch (e) { toast(e.message, 'erro'); }
+    });
+
+    const tabela = el('div', { class: 'bloco' },
+      el('h2', { class: 'secao', text: 'Vocabulário da casa' }),
+      el('p', { class: 'mudo', style: 'font-size:12.5px;margin:0 0 10px', text: 'Serve para a IA entender quem não é técnico. Só os termos que aparecem na pergunta entram no pedido, então a lista pode crescer sem encarecer as outras consultas.' }),
+      r.termos.length ? el('div', { class: 'tabela-rolagem' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['Termo', 'Outras formas', 'Significado', 'O que consultar', 'Usos', 'Situação', ''].map((t) => el('th', { text: t })))),
+        el('tbody', {}, r.termos.map((t) => el('tr', {},
+          el('td', {}, el('b', { text: t.termo })),
+          el('td', { style: 'font-size:12.5px', text: t.sinonimos.join(', ') || '—' }),
+          el('td', { style: 'font-size:12.5px', text: t.significado }),
+          el('td', { style: 'font-size:12.5px', text: t.dica || '—' }),
+          el('td', { class: 'dado', text: String(t.usos) }),
+          el('td', {}, el('span', { style: `color:var(${t.ativo ? '--confirmado' : '--inconclusivo'})`, text: t.ativo ? 'Ativo' : 'Desligado' })),
+          el('td', {}, el('div', { class: 'linha-acoes' },
+            el('button', { class: 'botao sec mini', type: 'button', text: t.ativo ? 'Desligar' : 'Ligar', onclick: async () => {
+              try { await api('PUT', `/api/glossario/${t.id}`, { ativo: !t.ativo }); toast('Pronto.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } }),
+            el('button', { class: 'botao perigo mini', type: 'button', text: 'Remover', onclick: async () => {
+              if (!confirm(`Remover "${t.termo}" do vocabulário?`)) return;
+              try { await api('DELETE', `/api/glossario/${t.id}`); toast('Removido.', 'ok'); recarregar(); }
+              catch (e) { toast(e.message, 'erro'); }
+            } })))))))) : el('p', { class: 'vazio-msg', text: 'Vocabulário vazio.' }),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' }, form),
+      el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid var(--linha)' },
+        el('h2', { class: 'secao', text: 'Testar entendimento' }), teste, saidaTeste));
+
+    alvo.replaceChildren(tabela);
   } catch (e) { if (e.status !== 401) alvo.replaceChildren(el('div', { class: 'aviso erro', text: e.message })); }
 };
 

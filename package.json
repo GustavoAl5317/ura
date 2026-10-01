@@ -37,7 +37,8 @@
     "test:regras": "ts-node --transpile-only test-regras.ts",
     "test:canais": "ts-node --transpile-only test-canais.ts",
     "test:historico": "ts-node --transpile-only test-historico.ts",
-    "test:governanca": "ts-node --transpile-only test-governanca.ts"
+    "test:governanca": "ts-node --transpile-only test-governanca.ts",
+    "test:conversa": "ts-node --transpile-only test-conversa.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

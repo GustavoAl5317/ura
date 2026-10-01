@@ -72,18 +72,14 @@ export const rotasChatAudio: Rota = async (req, res, url, p) => {
   }
 
   const usuario = ator(req);
-  const r = await responder({
-    pergunta, usuario, canal: 'chat', historico: historico.slice(-12), origemAudio: true,
-  });
-
   const conversaIdParam = url.searchParams.get('conversaId');
   const d = db();
   const agora = new Date().toISOString();
 
-  // Criar ou reutilizar conversa
+  // A conversa é resolvida ANTES de responder: sem isso a pergunta por voz
+  // nasce sem fio, e "e agora?" falado não tem a que se referir.
   let conversaId = conversaIdParam ?? undefined;
   if (conversaId) {
-    // Verifica se a conversa existe
     const existe = d.prepare(`SELECT id FROM conversa WHERE id = ?`).get(conversaId);
     if (!existe) conversaId = undefined;
   }
@@ -93,6 +89,10 @@ export const rotasChatAudio: Rota = async (req, res, url, p) => {
       `INSERT INTO conversa (id, canal, usuario, nome, criada_em, ultima_em) VALUES (?,?,?,?,?,?)`,
     ).run(conversaId, 'chat', usuario, null, agora, agora);
   }
+
+  const r = await responder({
+    pergunta, usuario, canal: 'chat', conversaId, historico: historico.slice(-12), origemAudio: true,
+  });
 
   // Persistir mensagens no banco
   d.prepare(

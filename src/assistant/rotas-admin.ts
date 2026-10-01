@@ -39,6 +39,10 @@ import {
 import {
   conferirBackup, fazerBackup, limparAntigos, listarBackups, politicaRetencao, regrasDeAcesso, saude,
 } from './governanca';
+import {
+  atualizar as atualizarTermo, criar as criarTermo, listar as listarGlossario,
+  remover as removerTermo, termosEncontrados,
+} from './glossario';
 
 /** Sessão para o painel: sem o token, que é credencial viva. */
 function sessaoSaida(s: SessaoPainel) {
@@ -769,6 +773,46 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
     } catch (e) {
       throw new ErroHttp(/não encontrada/.test((e as Error).message) ? 404 : 400, (e as Error).message);
     }
+    return true;
+  }
+
+  // ── Vocabulário da casa ───────────────────────────────────────────────────
+  if (req.method === 'GET' && p === '/api/glossario') {
+    json(res, 200, { termos: listarGlossario() });
+    return true;
+  }
+
+  if (req.method === 'POST' && p === '/api/glossario') {
+    const b = await lerJson<Record<string, unknown>>(req);
+    try {
+      json(res, 201, { ok: true, termo: criarTermo(b, ator(req)) });
+    } catch (e) {
+      throw new ErroHttp(/já está/.test((e as Error).message) ? 409 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  const mTermo = p.match(/^\/api\/glossario\/([0-9a-f-]{36})$/);
+  if (mTermo && (req.method === 'PUT' || req.method === 'DELETE')) {
+    try {
+      if (req.method === 'DELETE') {
+        removerTermo(mTermo[1], ator(req));
+        json(res, 200, { ok: true });
+      } else {
+        const b = await lerJson<Record<string, unknown>>(req);
+        json(res, 200, { ok: true, termo: atualizarTermo(mTermo[1], b, ator(req)) });
+      }
+    } catch (e) {
+      throw new ErroHttp(/não encontrado/.test((e as Error).message) ? 404 : 400, (e as Error).message);
+    }
+    return true;
+  }
+
+  // Teste seco: que termos esta frase ativa, sem gastar chamada de modelo.
+  if (req.method === 'POST' && p === '/api/glossario/testar') {
+    const b = await lerJson<{ texto?: string }>(req);
+    const achados = termosEncontrados(String(b.texto ?? ''));
+    json(res, 200, { achados: achados.map((t) => ({ termo: t.termo, significado: t.significado, dica: t.dica })) });
     return true;
   }
 
