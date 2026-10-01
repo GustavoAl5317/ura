@@ -56,6 +56,10 @@ const CTOS = [
   { cto_id: 12, nome: 'CTO - PARADA, 1', pon: '1/1/6', lat: -3.78, long: -38.62, sinal: -25, clientes: 3, portas: 8, ocupacao: 37.5, em: '2026-09-20T12:00:00Z', idadeMin: 16000, semLeituraRecente: true },
 ];
 (questdb as any).ctosAtuais = async () => CTOS;
+// Série inteira: inclui a CTO que saiu da coleta há meses, como a 731 em produção.
+const FORA_DA_COLETA = { cto_id: 731, nome: 'CTO - CYBER VIVO, 148', pon: '9/9/9', lat: -3.76439, long: -38.59606, sinal: -21, clientes: 1, portas: 8, ocupacao: 12.5, em: '2026-07-20T18:47:22.000Z', idadeMin: 105000, semLeituraRecente: true };
+let consultasHistorico = 0;
+(questdb as any).ctosEmQualquerEpoca = async () => { consultasHistorico++; return [...CTOS.filter((c) => c.cto_id !== 10), FORA_DA_COLETA]; };
 (questdb as any).exigirColetaViva = async () => undefined;
 
 const ctx = { proximoId: (() => { let n = 0; return () => `evd_${++n}`; })(), usuario: 'teste', fontesPermitidas: null };
@@ -197,8 +201,25 @@ async function main(): Promise<void> {
   e = await conf({ cto: 'PARADA 1' });
   checa('CTO sem leitura recente continua achavel, nao desaparece', e.ok && e.dados.cto === 'CTO - PARADA, 1', e.dados.cto);
   checa('o lado do cadastro vem marcado como velho',
-    e.dados.cadastro.sem_leitura_recente === true && /coleta desta CTO parou/.test(e.dados.cadastro.aviso ?? ''), e.dados.cadastro);
+    e.dados.cadastro.sem_leitura_recente === true && /coleta/.test(e.dados.cadastro.aviso ?? ''), e.dados.cadastro);
   checa('e diz de quando e a leitura', e.dados.cadastro.leitura_ha_min > 1000, e.dados.cadastro.leitura_ha_min);
+
+  console.log('--- CTO que saiu da coleta ha meses ---');
+  // A lista recente nao tem a 731; so a serie inteira tem.
+  (questdb as any).ctosAtuais = async () => CTOS.filter((c) => c.cto_id !== 10);
+  resposta = { temCobertura: true, caixasProximas: 1, caixasCobrindo: [caixa('CTO - CYBER VIVO, 148', 0, 7, 7)] };
+  const antes = consultasHistorico;
+  e = await conf({ cto: 'cyber vivo 148' });
+  checa('fora da janela recente, procura na serie inteira', consultasHistorico === antes + 1);
+  checa('e acha a CTO em vez de dizer que nao existe', e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148', e.dados);
+  checa('diz desde quando ela esta fora da coleta', e.dados.cadastro.fora_da_coleta_desde === '2026-07-20', e.dados.cadastro);
+  checa('e da as duas explicacoes, sem escolher uma',
+    /retirada do coletor/.test(e.dados.cadastro.aviso) && /perdeu a caixa/.test(e.dados.cadastro.aviso), e.dados.cadastro.aviso);
+  checa('a planta ainda confirma a caixa no lugar', e.dados.planta && e.dados.planta.distancia_m === 0);
+  const antes2 = consultasHistorico;
+  e = await conf({ cto: 'ARACA-07' });
+  checa('CTO da janela recente nao paga a consulta da serie inteira', consultasHistorico === antes2);
+  (questdb as any).ctosAtuais = async () => CTOS;
 
   console.log('--- Nome como a pessoa fala ---');
   resposta = { temCobertura: true, caixasProximas: 1, caixasCobrindo: [caixa('CX-CYBER', 2, 7, 7)] };

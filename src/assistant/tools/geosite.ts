@@ -158,7 +158,13 @@ const conferir: Ferramenta = {
       if (!termo) throw new Error('diga qual CTO conferir');
 
       const todas = await questdb.ctosAtuais();
-      const r = resolverCtoAmplo(termo, todas);
+      let r = resolverCtoAmplo(termo, todas);
+      // Fora da janela recente não quer dizer que a caixa não existe: pode ter
+      // saído da coleta. Procura na série inteira antes de dizer "não achei".
+      if (!r.cto && !r.candidatas.length) {
+        const historico = await questdb.ctosEmQualquerEpoca();
+        r = resolverCtoAmplo(termo, historico);
+      }
       if (!r.cto) {
         return {
           vazio: true,
@@ -207,8 +213,13 @@ const conferir: Ferramenta = {
             leitura_ha_min: c.idadeMin,
             sem_leitura_recente: c.semLeituraRecente,
             aviso: c.semLeituraRecente
-              ? `A coleta desta CTO parou há ${c.idadeMin} min: o lado do cadastro é de antes, não de agora. Diga isso ao comparar.`
+              ? (c.idadeMin > 1440
+                ? `Esta CTO saiu da coleta: última leitura em ${c.em.slice(0, 10)}, há ${Math.round(c.idadeMin / 1440)} dias. ` +
+                  'O lado do cadastro é dessa época. Se a planta ainda mostra a caixa no lugar, isso é achado: ' +
+                  'ou a caixa foi retirada do coletor sem baixa na planta, ou o coletor perdeu a caixa. Diga as duas possibilidades.'
+                : `A coleta desta CTO parou há ${c.idadeMin} min: o lado do cadastro é de antes, não de agora. Diga isso ao comparar.`)
               : undefined,
+            fora_da_coleta_desde: c.idadeMin > 1440 ? c.em.slice(0, 10) : null,
           },
           planta: naPlanta ? {
             caixa: naPlanta.tipoCodigo,
