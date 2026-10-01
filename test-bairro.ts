@@ -211,6 +211,41 @@ async function main(): Promise<void> {
   e = await daCto({ cto: 'CTO 4 RUA 731, 310' });
   checa('nome exato continua indo direto', e.ok && e.dados.casou_por === 'nome exato' && e.dados.total === 1, e.dados);
 
+  console.log('--- Bairro como a pessoa fala ---');
+  checa('"bom sucesso" acha BONSUCESSO (espaco e m/n)',
+    geo.resolverBairro('bom sucesso', ['BONSUCESSO', 'BOM JARDIM', 'Henrique Jorge']).bairro === 'BONSUCESSO',
+    geo.resolverBairro('bom sucesso', ['BONSUCESSO', 'BOM JARDIM', 'Henrique Jorge']));
+  checa('nome igual sem acento e exato', geo.resolverBairro('henrique jorge', ['Henrique Jorge']).como === 'exato');
+  checa('pedaco unico casa por conter', geo.resolverBairro('parangab', ['Parangaba', 'Henrique Jorge']).bairro === 'Parangaba');
+  checa('dois parecidos: devolve candidatos, nao escolhe',
+    geo.resolverBairro('conjunto ceara', ['CONJUNTO CEARÁ I', 'CONJUNTO CEARÁ II']).bairro === null
+    && geo.resolverBairro('conjunto ceara', ['CONJUNTO CEARÁ I', 'CONJUNTO CEARÁ II']).candidatos.length === 2);
+  checa('nada parecido: nada', geo.resolverBairro('copacabana', ['Parangaba', 'Henrique Jorge']).bairro === null);
+
+  cliente(30, 'Joana', 'BONSUCESSO', 'Fortaleza', 1, 'HJ-01');
+  cliente(31, 'Kleber', 'BONSUCESSO', 'Fortaleza', 1, 'HJ-01');
+  const doBairro = async (args: Record<string, unknown>) =>
+    (await ferramentas.get('clientes_do_bairro')!.executar(args, ctx))[0] as any;
+  e = await doBairro({ bairro: 'bom sucesso' });
+  checa('clientes do bairro pelo nome falado', e.ok && e.dados.bairro === 'BONSUCESSO' && e.dados.total === 2, e.dados);
+  checa('diz como interpretou o nome', /entendido como BONSUCESSO/.test(e.dados.interpretado ?? ''));
+  checa('agrupa por caixa', e.dados.por_caixa[0].caixa === 'HJ-01' && e.dados.por_caixa[0].clientes === 2, e.dados.por_caixa);
+  checa('e marcada como dado pessoal', ferramentas.get('clientes_do_bairro')!.dadoPessoal === true);
+  (questdb as any).recente = async () => CTOS.map((c) => ({ cto_id: c.cto_id, media: c.sinal, amostras: 6 }));
+  (questdb as any).referencia = async () => CTOS.map((c) => ({ cto_id: c.cto_id, media: c.sinal, desvio: 0.3, min: -30, max: -10, amostras: 200 }));
+  e = await porBairro({ bairro: 'parangaba' });
+  checa('um bairro so: o nivel de saude vai calculado junto',
+    !!e.dados.leitura_para_gestao && !!e.dados.leitura_para_gestao.nivel && /não declare outro/.test(e.dados.leitura_para_gestao.regra), e.dados.leitura_para_gestao);
+  e = await porBairro({});
+  checa('lista de bairros nao calcula nivel um por um', e.dados.leitura_para_gestao === undefined);
+
+  e = await doBairro({ bairro: 'copacabana' });
+  checa('bairro inexistente nao inventa', e.vazio === true && /Não invente/.test(e.dados.instrucao));
+
+  e = await daCto({ cto: 'Bonsucesso' });
+  checa('"clientes da caixa Bonsucesso" avisa que e bairro, nao caixa',
+    e.vazio === true && e.dados.e_bairro === 'BONSUCESSO' && /clientes_do_bairro/.test(e.dados.instrucao), e.dados);
+
   const doTecnico = async (args: Record<string, unknown>) =>
     (await ferramentas.get('os_do_tecnico')!.executar(args, ctx))[0] as any;
 

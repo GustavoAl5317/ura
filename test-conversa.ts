@@ -209,6 +209,13 @@ async function main(): Promise<void> {
   checa('mexer no vocabulário fica na auditoria',
     !!db().prepare(`SELECT 1 FROM auditoria WHERE acao = 'glossario.criar'`).get());
 
+  console.log('--- Selo repetido ---');
+  const { tirarSeloRepetido } = require(path.join(RAIZ, 'src', 'assistant', 'agent')) as typeof import('./src/assistant/agent');
+  checa('tira o selo repetido no comeco', tirarSeloRepetido('🔴 INCONCLUSIVO\n\nNao ha registro.') === 'Nao ha registro.');
+  checa('tira tambem sem emoji e em negrito', tirarSeloRepetido('**CONFIRMADO**\nTudo certo.') === 'Tudo certo.');
+  checa('nao mexe em frase que cita a palavra', tirarSeloRepetido('O resultado foi inconclusivo porque faltou dado.') === 'O resultado foi inconclusivo porque faltou dado.');
+  checa('nao mexe no selo no meio do texto', /INCONCLUSIVO/.test(tirarSeloRepetido('Linha 1\n🔴 INCONCLUSIVO')));
+
   servidor.close();
   fecharDb();
   console.log(`\n${passou} passaram, ${falhou} falharam\n`);

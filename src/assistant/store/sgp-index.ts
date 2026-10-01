@@ -717,6 +717,19 @@ export function servicosPorCto(cto: string, limite = 200): ResultadoBusca[] {
     .all(cto, limite) as LinhaBusca[]).map((l) => mapear(l, 'cto'));
 }
 
+/** Bairros que existem no cadastro, para interpretar o nome falado. */
+export function bairrosDoCadastro(): string[] {
+  return (db().prepare(
+    `SELECT DISTINCT bairro FROM sgp_cliente WHERE bairro IS NOT NULL AND TRIM(bairro) <> '' ORDER BY bairro`,
+  ).all() as Array<{ bairro: string }>).map((l) => l.bairro.trim());
+}
+
+/** Clientes de um bairro (nome exato do cadastro, sem diferenciar maiúscula). */
+export function clientesDoBairro(bairro: string, limite = 300): ResultadoBusca[] {
+  return (db().prepare(`${SELECT_BASE} WHERE TRIM(c.bairro) = ? COLLATE NOCASE LIMIT ?`)
+    .all(bairro.trim(), limite) as LinhaBusca[]).map((l) => mapear(l, 'texto'));
+}
+
 const semAcento = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const palavrasDe = (x: string) => semAcento(x).replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
 

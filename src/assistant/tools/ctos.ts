@@ -11,7 +11,8 @@ import {
 import { ZabbixClient } from '../../integrations/zabbix';
 import { obter } from '../config-dinamica';
 import { Ferramenta, CtxFerramenta, medir, ferramentas } from './base';
-import { BairroDaCto, filtrarPorLugar, resumoPorBairro } from '../geografia';
+import { BairroDaCto, filtrarPorLugar, resolverBairro, resumoPorBairro } from '../geografia';
+import { lerSaude } from '../saude-rede';
 import { config } from '../../config';
 
 const r2 = (x: number | null) => (x === null ? null : Math.round(x * 100) / 100);
@@ -442,9 +443,17 @@ const porBairro: Ferramenta = {
       const semBairro = Math.max(0, todas.length - todosOsBairros.reduce((a, b) => a + b.ctos, 0));
 
       let lista = todosOsBairros;
+      let interpretado: { pedido: string; entendido: string; como: string } | null = null;
       if (typeof args.bairro === 'string' && args.bairro.trim()) {
-        const alvo = normalizar(args.bairro);
-        lista = lista.filter((b) => normalizar(b.bairro).includes(alvo) || alvo.includes(normalizar(b.bairro)));
+        // "bom sucesso" → "BONSUCESSO": o nome falado contra os que existem.
+        const r = resolverBairro(args.bairro, todosOsBairros.map((b) => b.bairro));
+        if (r.bairro) {
+          lista = lista.filter((b) => b.bairro === r.bairro);
+          if (r.como !== 'exato') interpretado = { pedido: args.bairro, entendido: r.bairro, como: r.como ?? '' };
+        } else {
+          const alvo = normalizar(args.bairro);
+          lista = lista.filter((b) => normalizar(b.bairro).includes(alvo) || alvo.includes(normalizar(b.bairro)));
+        }
       }
       if (typeof args.cidade === 'string' && args.cidade.trim()) {
         const alvo = normalizar(args.cidade);
@@ -484,9 +493,27 @@ const porBairro: Ferramenta = {
         };
       }
 
+      // Um bairro só: o nível de saúde vai CALCULADO junto, para o modelo não
+      // declarar "saudável" de cabeça a partir de ocupação e sinal médio.
+      let leitura: Record<string, unknown> | undefined;
+      if (lista.length === 1 && (args.bairro || args.cidade)) {
+        try {
+          const l = (await lerSaude({ bairro: lista[0].bairro })).leitura;
+          leitura = {
+            nivel: l.rotulo, resumo: l.resumo, motivo: l.motivo,
+            clientes_em_risco: l.impacto.clientes_em_risco, o_que_fazer: l.o_que_fazer,
+            regra: 'Este é o nível calculado. Use ele na leitura para gestão; não declare outro.',
+          };
+        } catch {
+          leitura = { nivel: null, regra: 'Nível de saúde não calculado agora: NÃO declare saudável nem degradado.' };
+        }
+      }
+
       return {
         vazio: lista.length === 0,
         dados: {
+          bairro_interpretado: interpretado ?? undefined,
+          leitura_para_gestao: leitura,
           rede: {
             ctos: todas.length,
             bairros: todosOsBairros.length,

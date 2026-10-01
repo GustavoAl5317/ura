@@ -207,7 +207,19 @@ function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERS
     return { veredito: 'PROVAVEL', corpo: texto.trim() };
   }
   const bruto = m[1].toUpperCase().replace('PROVÁVEL', 'PROVAVEL') as Veredito | 'CONVERSA';
-  return { veredito: bruto, corpo: texto.slice(m[0].length).trim() };
+  return { veredito: bruto, corpo: tirarSeloRepetido(texto.slice(m[0].length)) };
+}
+
+/**
+ * O modelo às vezes repete o veredito como primeira linha do corpo ("🔴
+ * INCONCLUSIVO"), e o canal já mostra o selo: sai duplicado. Tira só linha
+ * que é exatamente o selo, no começo — nunca uma frase que cite a palavra.
+ */
+export function tirarSeloRepetido(corpo: string): string {
+  const selo = /^\s*(?:[🔴🟡🟢⚪✅⚠️]\s*)*\**\s*(?:VEREDITO:\s*)?(?:CONFIRMADO|PROV[AÁ]VEL|INCONCLUSIVO|CONVERSA)\s*\**\s*$/iu;
+  const linhas = corpo.split('\n');
+  while (linhas.length && (selo.test(linhas[0]) || !linhas[0].trim())) linhas.shift();
+  return linhas.join('\n').trim();
 }
 
 async function chamarModelo(

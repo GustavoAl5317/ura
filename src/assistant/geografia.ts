@@ -69,6 +69,56 @@ function bairrosDoCadastro(): Map<string, { bairro: string; cidade: string | nul
   return mapa;
 }
 
+/** Distância de edição entre duas palavras. Pequena, para nome de bairro. */
+function edicao(a: string, b: string): number {
+  if (a === b) return 0;
+  const linha = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = linha[0];
+    linha[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const guardado = linha[j];
+      linha[j] = Math.min(linha[j] + 1, linha[j - 1] + 1, anterior + (a[i - 1] === b[j - 1] ? 0 : 1));
+      anterior = guardado;
+    }
+  }
+  return linha[b.length];
+}
+
+const compacto = (s: string) => norm(s).replace(/[^a-z0-9]/g, '');
+
+/**
+ * Qual bairro a pessoa quis dizer. "bom sucesso" é "BONSUCESSO" no cadastro:
+ * difere em espaço e numa letra, e nenhuma comparação por trecho acha. Ordem:
+ * igual (ignorando espaço e acento), contém, e por último parecido (até 2
+ * letras de diferença) — este só quando sobra UM candidato, senão pergunta.
+ */
+export function resolverBairro(termo: string, conhecidos: readonly string[]): {
+  bairro: string | null; candidatos: string[]; como: 'exato' | 'contem' | 'aproximado' | null;
+} {
+  const t = compacto(termo);
+  if (!t) return { bairro: null, candidatos: [], como: null };
+  const unicos = [...new Set(conhecidos.filter(Boolean))];
+  const igual = unicos.filter((b) => compacto(b) === t);
+  if (igual.length) return { bairro: igual[0], candidatos: [], como: 'exato' };
+
+  const contem = unicos.filter((b) => compacto(b).includes(t) || (t.length >= 5 && t.includes(compacto(b))));
+  if (contem.length === 1) return { bairro: contem[0], candidatos: [], como: 'contem' };
+  if (contem.length > 1) return { bairro: null, candidatos: contem.slice(0, 8), como: null };
+
+  if (t.length >= 5) {
+    const perto = unicos
+      .map((b) => ({ b, d: edicao(compacto(b), t) }))
+      .filter((x) => x.d <= 2)
+      .sort((a, b) => a.d - b.d);
+    if (perto.length === 1 || (perto.length > 1 && perto[0].d < perto[1].d)) {
+      return { bairro: perto[0].b, candidatos: [], como: 'aproximado' };
+    }
+    if (perto.length > 1) return { bairro: null, candidatos: perto.slice(0, 8).map((x) => x.b), como: null };
+  }
+  return { bairro: null, candidatos: [], como: null };
+}
+
 /** Distância em metros entre dois pontos. Haversine, raio médio da Terra. */
 export function distanciaM(aLat: number, aLong: number, bLat: number, bLong: number): number {
   const R = 6_371_000;
@@ -145,7 +195,14 @@ export function filtrarPorLugar(
   for (const b of bairrosDasCtos(universo, f.raioM)) lugares.set(b.cto_id, b);
   if (!f.bairro && !f.cidade) return { ctos, lugares, exatos: 0, provaveis: 0 };
 
-  const alvoBairro = f.bairro ? norm(f.bairro) : null;
+  // Interpreta o nome falado ("bom sucesso") contra os bairros que existem.
+  let bairroPedido = f.bairro;
+  if (f.bairro) {
+    const conhecidos = [...lugares.values()].map((l) => l.bairro).filter((b): b is string => !!b);
+    const r = resolverBairro(f.bairro, conhecidos);
+    if (r.bairro) bairroPedido = r.bairro;
+  }
+  const alvoBairro = bairroPedido ? norm(bairroPedido) : null;
   const alvoCidade = f.cidade ? norm(f.cidade) : null;
   let exatos = 0;
   let provaveis = 0;

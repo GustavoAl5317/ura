@@ -9,7 +9,8 @@ import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { zabbix, ZabbixClient } from '../../integrations/zabbix';
 import { onuPorTermo } from '../../integrations/zabbix-metricas';
 import { db } from '../store/db';
-import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho } from '../store/sgp-index';
+import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho, bairrosDoCadastro, clientesDoBairro } from '../store/sgp-index';
+import { resolverBairro } from '../geografia';
 import { Ferramenta, medir, ferramentas } from './base';
 import { Envelope } from '../types';
 
@@ -459,11 +460,85 @@ const clientesDaCto: Ferramenta = {
                 instrucao: 'Mais de uma caixa casa com esse nome. Mostre as opções e pergunte qual é; não escolha.',
               },
             };
+          } else {
+            // "Quais os clientes nela?" depois de falar de um bairro: o nome é de
+            // bairro, não de caixa. Diz isso em vez de "não encontrei".
+            const b = resolverBairro(cto, bairrosDoCadastro());
+            if (b.bairro) {
+              return {
+                vazio: true,
+                dados: {
+                  cto_procurada: cto,
+                  e_bairro: b.bairro,
+                  instrucao: `"${cto}" é o bairro ${b.bairro}, não uma caixa. Chame clientes_do_bairro com esse bairro.`,
+                },
+              };
+            }
           }
         }
         return {
           dados: { cto: nome, cto_procurada: cto, casou_por: casouPor, total: lista.length, clientes: lista, origem: idadeEspelho() },
           vazio: lista.length === 0,
+        };
+      }),
+    ];
+  },
+};
+
+const clientesBairro: Ferramenta = {
+  nome: 'clientes_do_bairro',
+  fonte: 'sgp',
+  dadoPessoal: true,
+  descricao:
+    'Clientes de um bairro, agrupados pela caixa (CTO) que atende cada um, com situação do contrato, ' +
+    'conexão e sinal do último sync. Responde "quais os clientes do Bonsucesso?", "quem mora no bairro X?", ' +
+    '"quais clientes estão naquele bairro?". Aceita o nome como a pessoa falou ("bom sucesso" acha ' +
+    '"BONSUCESSO"). O bairro é o do cadastro do cliente.',
+  parametros: {
+    type: 'object',
+    properties: {
+      bairro: { type: 'string', description: 'Bairro, como a pessoa falou' },
+      limite: { type: 'number', description: 'Quantos clientes listar (padrão 50, máx 300)' },
+    },
+    required: ['bairro'],
+  },
+  async executar(args, ctx) {
+    const pedido = String(args.bairro ?? '').trim();
+    const limite = Math.min(300, Math.max(1, Number(args.limite) || 50));
+    return [
+      await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.clientes_do_bairro', { bairro: pedido }, async () => {
+        if (!pedido) throw new Error('diga qual bairro');
+        const r = resolverBairro(pedido, bairrosDoCadastro());
+        if (!r.bairro) {
+          return {
+            vazio: true,
+            dados: {
+              bairro_procurado: pedido,
+              candidatos: r.candidatos,
+              instrucao: r.candidatos.length
+                ? 'Mais de um bairro parecido. Mostre as opções e pergunte qual é.'
+                : 'Esse bairro não aparece no cadastro de clientes. Não invente: peça o nome como está no sistema.',
+            },
+          };
+        }
+        const todos = clientesDoBairro(r.bairro, 1000);
+        const porCto = new Map<string, number>();
+        for (const c of todos) {
+          const k = c.ctoNome ?? '(sem caixa no cadastro)';
+          porCto.set(k, (porCto.get(k) ?? 0) + 1);
+        }
+        return {
+          vazio: todos.length === 0,
+          dados: {
+            bairro: r.bairro,
+            bairro_procurado: pedido,
+            interpretado: r.como !== 'exato' ? `"${pedido}" entendido como ${r.bairro}` : undefined,
+            total: todos.length,
+            por_caixa: [...porCto.entries()].sort((a, b) => b[1] - a[1]).map(([caixa, n]) => ({ caixa, clientes: n })),
+            clientes: todos.slice(0, limite),
+            listados: Math.min(limite, todos.length),
+            origem: idadeEspelho(),
+          },
         };
       }),
     ];
@@ -737,5 +812,6 @@ export function registrarFerramentas(): void {
     osDoCliente,
     osAbertasRede,
     osDoTecnico,
+    clientesBairro,
   );
 }
