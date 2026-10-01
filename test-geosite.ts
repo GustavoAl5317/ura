@@ -56,6 +56,11 @@ const CTOS = [
   { cto_id: 12, nome: 'CTO - PARADA, 1', pon: '1/1/6', lat: -3.78, long: -38.62, sinal: -25, clientes: 3, portas: 8, ocupacao: 37.5, em: '2026-09-20T12:00:00Z', idadeMin: 16000, semLeituraRecente: true },
 ];
 (questdb as any).ctosAtuais = async () => CTOS;
+// Na série inteira, fora da janela: CTO que parou de ser coletada há meses.
+let HISTORICO: any[] = [...CTOS,
+  { cto_id: 13, nome: 'CTO - JARDIM ANTIGO, 5', pon: '1/1/7', lat: -3.79, long: -38.63, sinal: -24, clientes: 4, portas: 8, ocupacao: 50, em: '2026-07-10T12:00:00Z', idadeMin: 120000, semLeituraRecente: true },
+];
+(questdb as any).ctosHistorico = async () => HISTORICO;
 (questdb as any).exigirColetaViva = async () => undefined;
 
 const ctx = { proximoId: (() => { let n = 0; return () => `evd_${++n}`; })(), usuario: 'teste', fontesPermitidas: null };
@@ -213,6 +218,34 @@ async function main(): Promise<void> {
   checa('e manda perguntar qual e', /pergunte qual/.test(e.dados.instrucao), e.dados.instrucao);
   e = await conf({ cto: 'cyber 999' });
   checa('palavra que nao existe no nome nao casa nada', e.vazio === true && e.dados.encontrada === false);
+
+  console.log('--- Nome com erro, parecido ou fora da janela ---');
+  e = await conf({ cto: 'ciber vivo 148' });
+  checa('erro de digitação numa palavra ainda acha a CTO',
+    e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148' && /digitação/.test(e.dados.casou_por), { cto: e.dados.cto, por: e.dados.casou_por });
+  e = await conf({ cto: 'cybervivo 148' });
+  checa('palavras coladas também acham', e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148', e.dados.cto);
+  e = await conf({ cto: 'caixa cyber vivo 148' });
+  checa('"caixa" no termo não atrapalha', e.ok && e.dados.cto === 'CTO - CYBER VIVO, 148', e.dados.cto);
+  e = await conf({ cto: 'cyber vivo 184' });
+  checa('número diferente não casa: é outra caixa', e.vazio === true && e.dados.encontrada === false);
+  checa('mas devolve a parecida para perguntar, em vez de zero opções',
+    e.dados.parecidas.includes('CTO - CYBER VIVO, 148'), e.dados.parecidas);
+  checa('e a instrução manda perguntar, não escolher', /pergunte se é/.test(e.dados.instrucao), e.dados.instrucao);
+  e = await conf({ cto: 'cyber 999' });
+  checa('"cyber 999" oferece as CYBER como parecidas', e.dados.parecidas.length === 2, e.dados.parecidas);
+  e = await conf({ cto: 'jardim antigo 5' });
+  checa('CTO fora da janela é achada no histórico da série',
+    e.ok && e.dados.cto === 'CTO - JARDIM ANTIGO, 5' && /histórico/.test(e.dados.casou_por), { cto: e.dados.cto, por: e.dados.casou_por });
+  checa('e vem marcada como leitura velha', e.dados.cadastro.sem_leitura_recente === true);
+  e = await conf({ cto: 'zebra azul 77' });
+  checa('nome que não existe em lugar nenhum: sem parecidas', e.vazio === true && e.dados.parecidas.length === 0);
+  checa('e a instrução sugere o endereço da caixa', /endereço/.test(e.dados.instrucao), e.dados.instrucao);
+  HISTORICO = [];
+  (questdb as any).ctosHistorico = async () => { throw new Error('QuestDB: HTTP 500'); };
+  e = await conf({ cto: 'zebra azul 77' });
+  checa('histórico fora do ar não vira "não existe no histórico"',
+    e.dados.historico_indisponivel === 'QuestDB: HTTP 500' && !/nem no histórico/.test(e.dados.instrucao), e.dados);
 
   fecharDb();
   console.log(`\n${passou} passaram, ${falhou} falharam\n`);

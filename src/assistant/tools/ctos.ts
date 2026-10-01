@@ -45,32 +45,94 @@ export function resolverCto(
   return { cto: ranking[0].c, candidatas: [], por: 'semelhança' };
 }
 
+/** Palavras que aparecem em quase todo nome de CTO e não identificam nenhuma. */
+const PALAVRAS_VAZIAS = new Set([
+  'cto', 'ctos', 'caixa', 'cx', 'da', 'de', 'do', 'das', 'dos', 'na', 'no', 'rua', 'av', 'avenida', 'travessa', 'tv',
+]);
+
+const limparNome = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Palavras do termo que identificam a CTO, já normalizadas. */
+export function palavrasDoTermo(termo: string): string[] {
+  return limparNome(termo).split(' ').filter((p) => p.length >= 2 && !PALAVRAS_VAZIAS.has(p));
+}
+
+/** Distância de edição, limitada: só interessa saber se é 0, 1 ou "mais". */
+function distancia(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  let ant = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const atual = [i];
+    for (let j = 1; j <= b.length; j++) {
+      atual[j] = Math.min(ant[j] + 1, atual[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    ant = atual;
+  }
+  return ant[b.length];
+}
+
+/**
+ * Uma palavra do termo aparece no nome? Número tem que bater exato ("148" não
+ * é "184": é outra caixa), sem zero à esquerda. Palavra aceita estar colada
+ * ("cybervivo") e um erro de digitação/transcrição ("ciber", "viva").
+ */
+function casaPalavra(p: string, tokens: string[], junto: string, tolerante: boolean): boolean {
+  if (/^\d+$/.test(p)) {
+    const n = p.replace(/^0+(?=\d)/, '');
+    return tokens.some((t) => /^\d+$/.test(t) && t.replace(/^0+(?=\d)/, '') === n);
+  }
+  if (tokens.includes(p)) return true;
+  if (p.length >= 3 && junto.includes(p)) return true;
+  return tolerante && p.length >= 4 && tokens.some((t) => t.length >= 4 && distancia(p, t) <= 1);
+}
+
 /**
  * Resolve o nome com folga. O resolverCto exige semelhança alta na string
  * inteira, e nome de CTO vem cheio de prefixo e pontuação ("CTO - CYBER VIVO,
  * 148"): quem pergunta digita "cyber vivo 148" e não casava nada, nem como
  * candidata. Aqui o termo é quebrado em palavras e todas precisam aparecer no
  * nome da CTO — "cyber vivo 148" acha, "cyber 999" não.
+ *
+ * Quando nenhuma casa com TODAS as palavras, `parecidas` traz as que casam com
+ * a maior parte (pelo menos uma palavra que não é número). Não é resposta: é
+ * para a IA mostrar e perguntar, em vez de dizer "não existe" e parar ali.
  */
 export function resolverCtoAmplo(
   termo: string,
   lista: CtoAtual[],
-): { cto: CtoAtual | null; candidatas: string[]; por: string | null } {
+): { cto: CtoAtual | null; candidatas: string[]; parecidas: string[]; por: string | null } {
   const direto = resolverCto(termo, lista);
-  if (direto.cto || direto.candidatas.length) return direto;
+  if (direto.cto || direto.candidatas.length) return { ...direto, parecidas: [] };
 
-  const limpar = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const palavras = limpar(termo).split(' ').filter((p) => p.length >= 2 && p !== 'cto');
-  if (!palavras.length) return direto;
+  const palavras = palavrasDoTermo(termo);
+  if (!palavras.length) return { ...direto, parecidas: [] };
 
-  const casam = lista.filter((c) => {
-    const nome = limpar(c.nome);
-    return palavras.every((p) => nome.split(' ').includes(p) || nome.includes(p));
+  const pontuar = (tolerante: boolean) => lista.map((c) => {
+    const tokens = limparNome(c.nome).split(' ');
+    const junto = tokens.join('');
+    return { c, casadas: palavras.filter((p) => casaPalavra(p, tokens, junto, tolerante)) };
   });
-  if (casam.length === 1) return { cto: casam[0], candidatas: [], por: 'palavras do nome' };
-  if (casam.length > 1) return { cto: null, candidatas: casam.slice(0, 8).map((c) => c.nome), por: null };
-  return direto;
+
+  // Exato primeiro: um erro de digitação não pode empatar com a caixa que bate.
+  const exatas = pontuar(false);
+  const tolerantes = pontuar(true);
+  const passadas = [[exatas, 'palavras do nome'], [tolerantes, 'palavras do nome, com erro de digitação']] as const;
+  for (const [pontuadas, por] of passadas) {
+    const casam = pontuadas.filter((x) => x.casadas.length === palavras.length).map((x) => x.c);
+    if (casam.length === 1) return { cto: casam[0], candidatas: [], parecidas: [], por };
+    if (casam.length > 1) {
+      return { cto: null, candidatas: casam.slice(0, 8).map((c) => c.nome), parecidas: [], por: null };
+    }
+  }
+
+  const minimo = Math.ceil(palavras.length / 2);
+  const parecidas = tolerantes
+    .filter((x) => x.casadas.length >= minimo && x.casadas.some((p) => !/^\d+$/.test(p)))
+    .sort((a, b) => b.casadas.length - a.casadas.length)
+    .slice(0, 8)
+    .map((x) => x.c.nome);
+  return { ...direto, parecidas };
 }
 
 function resumoAtual(c: CtoAtual) {
@@ -174,13 +236,18 @@ const sinalCto: Ferramenta = {
     const horas = Math.min(2160, Math.max(1, Number(args.horas) || 24));
     return [await medir<Record<string, unknown>>(ctx, 'questdb', 'questdb.cto_sinal', { cto: termo, horas }, async () => {
       await questdb.exigirColetaViva();
-      const res = resolverCto(termo, await questdb.ctosAtuais());
+      const res = resolverCtoAmplo(termo, await questdb.ctosAtuais());
       if (!res.cto) {
         return {
           vazio: true,
           dados: res.candidatas.length
             ? { termo, ambiguo: true, candidatas: res.candidatas, instrucao: 'Pergunte qual destas é a CTO.' }
-            : { termo, resolvida: null, instrucao: 'Nenhuma CTO com nome parecido na série. Peça o nome como está no SGP.' },
+            : res.parecidas.length
+              ? {
+                termo, resolvida: null, parecidas: res.parecidas,
+                instrucao: 'Nenhuma CTO tem todas as palavras desse nome; estas têm parte dele. Pergunte se é uma delas.',
+              }
+              : { termo, resolvida: null, instrucao: 'Nenhuma CTO com nome parecido na série. Peça o nome como está no SGP.' },
         };
       }
       return { dados: { termo, resolvida_por: res.por, ...(await sinalDaCto(res.cto, horas)) } };

@@ -158,7 +158,24 @@ const conferir: Ferramenta = {
       if (!termo) throw new Error('diga qual CTO conferir');
 
       const todas = await questdb.ctosAtuais();
-      const r = resolverCtoAmplo(termo, todas);
+      let r = resolverCtoAmplo(termo, todas);
+      let doHistorico = false;
+      let historicoFalhou: string | null = null;
+      if (!r.cto && !r.candidatas.length) {
+        // A CTO pode ter parado de ser coletada antes da janela e continuar na
+        // rua. A série inteira é cara de ler, por isso só aqui, no "não achei".
+        const historico = await questdb.ctosHistorico().catch((err: Error) => {
+          historicoFalhou = err.message;
+          return [] as typeof todas;
+        });
+        const r2 = resolverCtoAmplo(termo, historico);
+        if (r2.cto || r2.candidatas.length) {
+          r = r2;
+          doHistorico = true;
+        } else if (!r.parecidas.length) {
+          r = { ...r, parecidas: r2.parecidas };
+        }
+      }
       if (!r.cto) {
         return {
           vazio: true,
@@ -166,9 +183,17 @@ const conferir: Ferramenta = {
             cto_procurada: termo,
             encontrada: false,
             candidatas: r.candidatas,
+            parecidas: r.parecidas,
+            ctos_na_serie: todas.length,
+            historico_indisponivel: historicoFalhou ?? undefined,
             instrucao: r.candidatas.length
               ? 'Mais de uma CTO com nome parecido. Mostre as opções e pergunte qual é.'
-              : 'Esse nome não casa com nenhuma CTO da série. Não invente: peça o nome como está no sistema.',
+              : r.parecidas.length
+                ? 'Nenhuma CTO tem todas as palavras desse nome, mas estas têm parte dele. Mostre e pergunte se é ' +
+                  'uma delas. Não escolha por conta própria.'
+                : `Esse nome não casa com nenhuma CTO da série${historicoFalhou ? '' : ', nem no histórico'}. Não invente. Peça o nome como está ` +
+                  'no sistema, ou o endereço da caixa: com o endereço, viabilidade_instalacao mostra as caixas da ' +
+                  'planta por perto, com o nome de cada uma.',
           },
         };
       }
@@ -195,7 +220,7 @@ const conferir: Ferramenta = {
       return {
         dados: {
           cto: c.nome,
-          casou_por: r.por,
+          casou_por: doHistorico ? `${r.por} (histórico da série)` : r.por,
           pon: c.pon,
           mapa: linkMapa(c.lat, c.long),
           cadastro: {
