@@ -24,6 +24,7 @@ import { diaLocal, horaLocal, rotuloData, instanteSgp } from './datas';
 import { netflow, formatarMbps, mbpsMedio, estimar } from '../integrations/netflow';
 import { lerSessoesOnline, casaMotivo } from './tools/relatorios';
 import { questdb, avaliarSinal, SINAL_RUIM_DBM } from '../integrations/questdb';
+import { lerSaude, lerSaudePorBairro } from './saude-rede';
 
 export const SECOES = ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'] as const;
 export type Secao = (typeof SECOES)[number];
@@ -32,6 +33,14 @@ export type Secao = (typeof SECOES)[number];
 const ATRASO_MAX_MIN = 180;
 
 type Indisponivel = { disponivel: false; motivo: string };
+
+/** Leitura para gestão: o veredito antes dos números, para quem lê só o topo. */
+export interface ResumoSaude {
+  disponivel: true;
+  rede: { rotulo: string; motivo: string; clientes_em_risco: number; caixas: number };
+  piores_bairros: Array<{ bairro: string; rotulo: string; clientes_em_risco: number; motivo: string }>;
+  o_que_fazer: string[];
+}
 
 export interface ResumoRede {
   disponivel: true;
@@ -118,6 +127,7 @@ export interface Resumo {
   inicio: string;
   fim: string;
   secoes: Partial<{
+    saude: ResumoSaude | Indisponivel;
     rede: ResumoRede | Indisponivel;
     ctos: ResumoCtos | Indisponivel;
     trafego: ResumoTrafego | Indisponivel;
@@ -338,6 +348,29 @@ const NOME_ASN_CURTO: Record<number, string> = {
   20940: 'Akamai', 16509: 'Amazon', 13335: 'Cloudflare', 138699: 'TikTok', 396986: 'ByteDance',
 };
 
+/**
+ * Veredito da rede e dos bairros que mais preocupam. Falha da série das CTOs
+ * vira "indisponível" na seção, nunca derruba o resumo.
+ */
+export async function coletarSaude(): Promise<ResumoSaude | Indisponivel> {
+  if (!config.questdb.enabled) return { disponivel: false, motivo: 'série das CTOs desligada' };
+  try {
+    const [rede, bairros] = await Promise.all([lerSaude({}), lerSaudePorBairro()]);
+    const l = rede.leitura;
+    return {
+      disponivel: true,
+      rede: { rotulo: l.rotulo, motivo: l.motivo, clientes_em_risco: l.impacto.clientes_em_risco, caixas: l.impacto.caixas },
+      piores_bairros: bairros
+        .filter((b) => b.nivel === 'critico' || b.nivel === 'degradacao' || b.nivel === 'atencao')
+        .slice(0, 4)
+        .map((b) => ({ bairro: b.alvo, rotulo: b.rotulo, clientes_em_risco: b.impacto.clientes_em_risco, motivo: b.motivo })),
+      o_que_fazer: l.o_que_fazer,
+    };
+  } catch (err) {
+    return { disponivel: false, motivo: `não foi possível ler a série das CTOs (${erroTexto(err)})` };
+  }
+}
+
 export async function coletarCtos(inicio: Date, fim: Date): Promise<ResumoCtos | Indisponivel> {
   if (!questdb.disponivel) return { disponivel: false, motivo: 'QuestDB não configurado' };
   try {
@@ -487,7 +520,22 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
   const fim = new Date(r.fim);
   const partes: string[] = [`📋 *Resumo das últimas 24 horas*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
 
-  const { rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
+  const { saude, rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
+
+  // Primeiro o veredito: quem só lê o topo da mensagem já sabe como está.
+  if (saude) {
+    const l = ['', '*Como está a rede*'];
+    if (!saude.disponivel) l.push(naoDisponivel(saude));
+    else {
+      l.push(`• ${saude.rede.rotulo}: ${saude.rede.motivo}`);
+      if (saude.rede.clientes_em_risco) l.push(`• ${plural(saude.rede.clientes_em_risco, 'cliente', 'clientes')} em caixas com problema`);
+      if (saude.piores_bairros.length) {
+        l.push(`• Onde olhar: ${saude.piores_bairros.map((b) => `${b.bairro} (${b.rotulo.toLowerCase()}${b.clientes_em_risco ? `, ${b.clientes_em_risco} em risco` : ''})`).join(' · ')}`);
+      }
+      for (const f of saude.o_que_fazer.slice(0, 3)) l.push(`• ${f[0].toUpperCase()}${f.slice(1)}`);
+    }
+    partes.push(...l);
+  }
 
   if (rede) {
     const l = ['', '*Rede (Zabbix)*'];
@@ -640,6 +688,7 @@ export async function montarResumo(fim = new Date(), secoes: readonly string[] =
     try { return f(); } catch (err) { return { disponivel: false, motivo: `erro ao ler o registro local (${erroTexto(err)})` }; }
   };
 
+  if (quer.has('saude')) base.secoes.saude = await coletarSaude();
   if (quer.has('rede')) base.secoes.rede = seguro(() => coletarRede(inicio, fim));
   if (quer.has('ctos')) base.secoes.ctos = await coletarCtos(inicio, fim);
   if (quer.has('trafego')) base.secoes.trafego = await coletarTrafego(inicio, fim);

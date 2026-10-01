@@ -24,6 +24,7 @@ import { registrarFerramentasIncidentes } from './tools/incidentes';
 import { registrarFerramentasPlantao } from './tools/plantao';
 import { registrarFerramentasHistorico } from './tools/historico';
 import { registrarFerramentasGeosite } from './tools/geosite';
+import { registrarFerramentasSaude } from './tools/saude';
 import { semear as semearGlossario } from './glossario';
 import { obter } from './config-dinamica';
 import { registrarFerramentasRelatorios } from './tools/relatorios';
@@ -555,6 +556,7 @@ async function main(): Promise<void> {
   registrarFerramentasPlantao();
   registrarFerramentasHistorico();
   registrarFerramentasGeosite();
+  registrarFerramentasSaude();
   // Vocabulário inicial: sem ele, a primeira pergunta em linguagem de leigo
   // depende de alguém ter cadastrado termo no painel antes.
   const novos = semearGlossario();

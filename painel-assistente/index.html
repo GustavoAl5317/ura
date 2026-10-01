@@ -615,7 +615,7 @@ function quando(iso) {
 }
 const duracao = (s) => s === null || s === undefined ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, '0')}s`;
 
-const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB', incidentes: 'Incidentes', geosite: 'Planta da rede (GeoSite)',
+const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB', incidentes: 'Incidentes', geosite: 'Planta da rede (GeoSite)', saude: 'Como está a rede (gestão)',
   // Seções do resumo diário: a lista de opções reaproveita este rótulo.
   rede: 'Rede (Zabbix)', os: 'Ordens de serviço', atendimento: 'Atendimento WhatsApp', assistente: 'Uso do assistente' };
 const ROTULO_VEREDITO = { CONFIRMADO: 'Confirmado', PROVAVEL: 'Provável', INCONCLUSIVO: 'Inconclusivo', CONVERSA: 'Conversa' };
@@ -1660,7 +1660,7 @@ carregadores.admin = () => {
 
 const GRUPOS = {
   ia: 'Inteligência', audio: 'Áudio', limites: 'Limites de uso', alertas: 'Entrega de alertas',
-  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', retencao: 'Retenção de dados (LGPD)', saude: 'Saúde da plataforma e backup', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
+  monitor_zabbix: 'Monitor de incidentes', monitor_ura: 'Monitor da URA', monitor_sla: 'Monitor de atendimento', monitor_netflow: 'Monitor de tráfego (NetFlow)', monitor_ctos: 'Monitor de sinal das CTOs', incidentes: 'Incidentes', plantao: 'Plantão', roteamento: 'Roteamento e escalonamento', regras: 'Regras e freio de enxurrada', canais: 'Avisos no painel (push e voz)', retencao: 'Retenção de dados (LGPD)', saude: 'Saúde da plataforma e backup', leitura: 'Leitura para gestão', resumo: 'Resumo diário', relatorios: 'Relatórios do SGP', whatsapp: 'WhatsApp: quem pode perguntar', fontes: 'Fontes de dados',
 };
 
 subCarregadores.config = async () => {

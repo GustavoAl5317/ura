@@ -17,7 +17,7 @@ interface Definicao {
   tipo: Tipo;
   padrao: () => unknown;
   descricao: string;
-  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'canais' | 'retencao' | 'saude' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
+  grupo: 'ia' | 'audio' | 'limites' | 'alertas' | 'monitor_zabbix' | 'monitor_ura' | 'monitor_sla' | 'monitor_netflow' | 'monitor_ctos' | 'incidentes' | 'plantao' | 'roteamento' | 'regras' | 'canais' | 'retencao' | 'saude' | 'leitura' | 'resumo' | 'relatorios' | 'fontes' | 'whatsapp';
   min?: number;
   max?: number;
   opcoes?: readonly string[];
@@ -428,6 +428,27 @@ export const DEFINICOES = {
     descricao: 'Quantas cópias manter. Disco cheio já parou coleta aqui antes.',
   },
 
+  // ── Leitura gerencial da rede ───────────────────────────────────────────
+  'leitura.modo': {
+    tipo: 'texto', grupo: 'leitura', padrao: () => 'auto', opcoes: ['auto', 'sempre', 'nunca'],
+    descricao:
+      'Quando a IA acrescenta a leitura para gestão (saudável, ponto de atenção, em degradação, crítico, com motivo, ' +
+      'impacto e o que fazer) depois dos números técnicos. "auto": quando a pergunta é sobre como está a rede ou quando ' +
+      'quem pergunta não é técnico. "sempre": em toda resposta sobre rede. "nunca": só números.',
+  },
+  'leitura.degradacao_pct': {
+    tipo: 'inteiro', grupo: 'leitura', padrao: () => 10, min: 1, max: 100,
+    descricao: 'Percentual de caixas de um lugar com problema a partir do qual o LUGAR está em degradação. Abaixo disso, é ponto de atenção.',
+  },
+  'leitura.ocupacao_atencao_pct': {
+    tipo: 'inteiro', grupo: 'leitura', padrao: () => 90, min: 50, max: 100,
+    descricao: 'Ocupação da caixa a partir da qual ela vira ponto de atenção (pouco espaço para cliente novo).',
+  },
+  'leitura.quedas_recorrentes': {
+    tipo: 'inteiro', grupo: 'leitura', padrao: () => 3, min: 2, max: 30,
+    descricao: 'Quantas quedas em 30 dias fazem uma caixa ser tratada como problema que volta (degradação).',
+  },
+
   // ── Resumo diário ───────────────────────────────────────────────────────
   'resumo.ativo': {
     tipo: 'booleano', grupo: 'resumo', padrao: () => true,
@@ -439,9 +460,9 @@ export const DEFINICOES = {
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
-    padrao: () => ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
-    opcoes: ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
-    descricao: 'O que entra no resumo.',
+    padrao: () => ['saude', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    opcoes: ['saude', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    descricao: 'O que entra no resumo. "saude" abre a mensagem com o veredito da rede e os bairros que mais preocupam.',
   },
 
   // ── Relatórios do SGP ───────────────────────────────────────────────────

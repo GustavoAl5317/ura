@@ -364,6 +364,22 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     });
   }
 
+  // Leitura para gestão: depois dos números, o que eles querem dizer.
+  const modoLeitura = obter<string>('leitura.modo');
+  const perguntaDeEstado = /como (est[aá]|t[aá]|anda|vai|ficou)|sa[uú]de|situa[cç][aã]o|algum problema|tudo (bem|certo|ok)|t[aá] (bom|ruim|bem)|degrad|pontos? de aten[cç][aã]o|est[aá]vel|preocupa/i
+    .test(pedido.pergunta);
+  if (modoLeitura === 'sempre' || (modoLeitura === 'auto' && (perguntaDeEstado || !falaTecnico))) {
+    messages.push({
+      role: 'system',
+      content:
+        'Quem lê pode ser gestor. Depois dos números técnicos, acrescente um parágrafo curto "Leitura para gestão": ' +
+        'o nível (saudável, ponto de atenção, em degradação, crítico ou sem base para avaliar), o motivo, o impacto ' +
+        'em clientes, desde quando e o que fazer. Para pergunta sobre COMO ESTÁ um lugar, chame saude_da_rede: o ' +
+        'nível vem dela, calculado, e você não muda. Se não chamou saude_da_rede, NÃO declare nível nenhum — ' +
+        'descreva o que os números mostram, sem rótulo de saúde. "Sem base" nunca vira "saudável".',
+    });
+  }
+
   // Fio da conversa: resolve "e agora?", "e a outra?", "e ela?".
   if (obter<boolean>('ia.memoria_conversa')) {
     const fio = linhaDeContexto(pedido.conversaId, { usuario: pedido.usuario });
