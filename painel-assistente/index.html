@@ -615,7 +615,7 @@ function quando(iso) {
 }
 const duracao = (s) => s === null || s === undefined ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${String(s % 60).padStart(2, '0')}s`;
 
-const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB', incidentes: 'Incidentes',
+const ROTULO_FONTE = { sgp: 'SGP', zabbix: 'Zabbix', ura: 'URA', whatsapp: 'WhatsApp', netflow: 'NetFlow', questdb: 'QuestDB', incidentes: 'Incidentes', geosite: 'Planta da rede (GeoSite)',
   // Seções do resumo diário: a lista de opções reaproveita este rótulo.
   rede: 'Rede (Zabbix)', os: 'Ordens de serviço', atendimento: 'Atendimento WhatsApp', assistente: 'Uso do assistente' };
 const ROTULO_VEREDITO = { CONFIRMADO: 'Confirmado', PROVAVEL: 'Provável', INCONCLUSIVO: 'Inconclusivo', CONVERSA: 'Conversa' };
