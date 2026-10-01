@@ -282,7 +282,27 @@ const ocupacao: Ferramenta = {
       let lugares = new Map<number, BairroDaCto>();
       let exatos = 0;
       let provaveis = 0;
+      let noLugar: number | null = null;
       if (bairro || cidade) {
+        // Primeiro: o lugar existe na nossa rede? Sem isso, "nenhuma CTO lotada
+        // no bairro X" sai igual para bairro tranquilo e para bairro que nem
+        // temos — e as duas coisas pedem respostas opostas.
+        const doLugar = filtrarPorLugar(todas, { bairro, cidade }, todas);
+        noLugar = doLugar.ctos.length;
+        if (!noLugar) {
+          const conhecidos = resumoPorBairro(todas).map((b) => b.bairro);
+          return {
+            vazio: true,
+            dados: {
+              filtro: { bairro: bairro ?? null, cidade: cidade ?? null },
+              lugar_encontrado: false,
+              bairros_conhecidos: conhecidos.slice(0, 40),
+              instrucao:
+                'Não temos CTO identificada nesse lugar. NÃO responda que está tudo certo nem que não há ' +
+                'CTO lotada lá: mostre os bairros parecidos da lista e pergunte qual é.',
+            },
+          };
+        }
         const r = filtrarPorLugar(filtradas, { bairro, cidade }, todas);
         filtradas = r.ctos;
         lugares = r.lugares;
@@ -298,7 +318,10 @@ const ocupacao: Ferramenta = {
       const portas = soma(todas, (c) => c.portas);
       const ocupadas = soma(todas, (c) => c.clientes);
       return {
-        vazio: filtradas.length === 0,
+        // Zero com o lugar conhecido é RESPOSTA ("não há nenhuma"), não falta de
+        // dado: marcar vazio aqui rebaixaria o veredito para INCONCLUSIVO e a
+        // operação leria "não sei" onde a varredura foi completa.
+        vazio: filtradas.length === 0 && noLugar === null,
         dados: {
           rede: {
             ctos: todas.length,
@@ -315,6 +338,11 @@ const ocupacao: Ferramenta = {
           },
           encontradas: filtradas.length,
           lugar: (bairro || cidade) ? {
+            lugar_encontrado: true,
+            ctos_nesse_lugar: noLugar,
+            nenhuma_com_esse_filtro: filtradas.length === 0
+              ? 'O lugar existe e foi varrido por inteiro: nenhuma CTO atende esse filtro. Isso é resposta, não falta de dado.'
+              : undefined,
             bairro_confirmado_pelo_cadastro: exatos,
             bairro_so_provavel_por_proximidade: provaveis,
             nota: provaveis
@@ -344,6 +372,9 @@ const porBairro: Ferramenta = {
     'A rede vista por bairro: quantas CTOs, quantas estão vazias, quantas lotadas, portas livres, ' +
     'clientes e sinal médio de cada bairro. Responde "em quais bairros temos rede?", "onde tem porta ' +
     'livre?", "quantas CTOs vazias por bairro?", "qual bairro está mais cheio?". ' +
+    'A lista sai ORDENADA pelo que foi pedido em "ordem" (padrão: quantidade de CTOs). Para "onde tem mais ' +
+    'porta livre" use ordem=mais_livres — não reordene de cabeça nem chame de "mais" uma lista ordenada por ' +
+    'outro critério. ' +
     'O bairro vem do cadastro dos clientes ligados em cada CTO. CTO sem nenhum cliente não tem bairro no ' +
     'cadastro: ela entra pelo bairro da CTO mais próxima, e o campo por_proximidade conta quantas foram ' +
     'assim — com ele alto, diga que o corte é aproximado. Não é mapa oficial de bairro, é o que o ' +
@@ -353,6 +384,10 @@ const porBairro: Ferramenta = {
     properties: {
       bairro: { type: 'string', description: 'Só esse bairro (trecho do nome serve)' },
       cidade: { type: 'string', description: 'Só essa cidade' },
+      ordem: {
+        type: 'string', enum: ['mais_ctos', 'mais_livres', 'mais_cheios', 'mais_vazias', 'mais_clientes'],
+        description: 'Como ordenar. Padrão mais_ctos. Para "onde tem mais porta livre", use mais_livres.',
+      },
       so_com_vaga: { type: 'boolean', description: 'Só bairros que têm porta livre' },
       limite: { type: 'number', description: 'Quantos bairros listar (padrão 20, máx 100)' },
     },
@@ -376,6 +411,18 @@ const porBairro: Ferramenta = {
       }
       if (args.so_com_vaga === true) lista = lista.filter((b) => b.portas_livres > 0);
 
+      // A ordem é explícita: sem isso o modelo chama a lista de "os com mais
+      // porta livre" sem ela estar ordenada por porta livre.
+      const ordem = typeof args.ordem === 'string' ? args.ordem : 'mais_ctos';
+      const porOrdem: Record<string, (a: typeof lista[number], b: typeof lista[number]) => number> = {
+        mais_ctos: (a, b) => b.ctos - a.ctos,
+        mais_livres: (a, b) => b.portas_livres - a.portas_livres,
+        mais_cheios: (a, b) => (b.ocupacao_pct ?? -1) - (a.ocupacao_pct ?? -1),
+        mais_vazias: (a, b) => b.ctos_vazias - a.ctos_vazias,
+        mais_clientes: (a, b) => b.clientes - a.clientes,
+      };
+      lista = [...lista].sort(porOrdem[ordem] ?? porOrdem.mais_ctos);
+
       const semBairro = todas.length - lista.reduce((a, b) => a + b.ctos, 0);
       return {
         vazio: lista.length === 0,
@@ -385,7 +432,10 @@ const porBairro: Ferramenta = {
             bairros: lista.length,
             ctos_sem_bairro_identificado: Math.max(0, semBairro),
           },
-          filtro: { bairro: args.bairro ?? null, cidade: args.cidade ?? null, so_com_vaga: args.so_com_vaga === true },
+          filtro: {
+            bairro: args.bairro ?? null, cidade: args.cidade ?? null,
+            so_com_vaga: args.so_com_vaga === true, ordem,
+          },
           bairros: lista.slice(0, limite),
           nota: 'por_proximidade = CTOs cujo bairro foi deduzido da vizinha mais próxima, por estarem vazias. ' +
             NOTA_SINAL,

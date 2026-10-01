@@ -139,7 +139,15 @@ async function main(): Promise<void> {
   checa('"CTOs vazias no bairro X" responde com a vazia',
     e.dados.encontradas === 1 && e.dados.ctos[0].nome === 'HJ-03-NOVA', e.dados.ctos);
   e = await ocupacao({ bairro: 'Bairro Que Não Existe' });
-  checa('bairro inexistente devolve vazio, sem inventar', e.dados.encontradas === 0 && e.vazio === true);
+  checa('bairro que não é nosso devolve vazio e os bairros conhecidos',
+    e.vazio === true && e.dados.lugar_encontrado === false && e.dados.bairros_conhecidos.includes('Henrique Jorge'), e.dados);
+  checa('e manda perguntar, em vez de dizer que está tudo certo',
+    /pergunte qual/.test(e.dados.instrucao) && /tudo certo/.test(e.dados.instrucao));
+  e = await ocupacao({ bairro: 'Parangaba', max_ocupacao: 0 });
+  checa('bairro conhecido sem CTO vazia responde "nenhuma", e NAO vira falta de dado',
+    e.ok && e.vazio === false && e.dados.encontradas === 0
+    && /resposta/.test(e.dados.lugar.nenhuma_com_esse_filtro ?? ''), e.dados.lugar);
+  checa('e diz quantas CTOs existem naquele lugar', e.dados.lugar.ctos_nesse_lugar === 1, e.dados.lugar)
 
   console.log('\n─── Ferramenta: rede por bairro ───');
   const porBairro = async (args: Record<string, unknown>) =>
@@ -151,6 +159,16 @@ async function main(): Promise<void> {
   checa('filtra bairro com porta livre', e.dados.bairros.every((b: any) => b.portas_livres > 0));
   e = await porBairro({ bairro: 'parangaba' });
   checa('filtra um bairro só', e.dados.bairros.length === 1 && e.dados.bairros[0].bairro === 'Parangaba');
+  e = await porBairro({ ordem: 'mais_livres' });
+  checa('ordem mais_livres sai de fato ordenada por porta livre',
+    e.dados.bairros[0].portas_livres >= e.dados.bairros[1].portas_livres, e.dados.bairros.map((b: any) => b.portas_livres));
+  checa('a ordem pedida aparece no filtro, para a resposta nao mentir o critério',
+    e.dados.filtro.ordem === 'mais_livres');
+  e = await porBairro({ ordem: 'mais_vazias' });
+  checa('ordem mais_vazias prioriza quem tem CTO vazia',
+    e.dados.bairros[0].ctos_vazias >= e.dados.bairros[1].ctos_vazias, e.dados.bairros.map((b: any) => b.ctos_vazias));
+  e = await porBairro({ ordem: 'inventada' });
+  checa('ordem desconhecida cai no padrao, sem quebrar', e.ok && e.dados.bairros.length === 2);
 
   console.log('\n─── Ferramenta: O.S. do técnico ───');
   const ORDENS = [
