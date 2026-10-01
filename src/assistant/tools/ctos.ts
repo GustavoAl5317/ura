@@ -11,6 +11,7 @@ import {
 import { ZabbixClient } from '../../integrations/zabbix';
 import { obter } from '../config-dinamica';
 import { Ferramenta, CtxFerramenta, medir, ferramentas } from './base';
+import { BairroDaCto, filtrarPorLugar, resumoPorBairro } from '../geografia';
 import { config } from '../../config';
 
 const r2 = (x: number | null) => (x === null ? null : Math.round(x * 100) / 100);
@@ -242,7 +243,10 @@ const ocupacao: Ferramenta = {
   descricao:
     'Ocupação das CTOs agora: lotadas, quase cheias ou com mais portas livres, com totais da rede e link ' +
     'do mapa. Use para "quais CTOs estão lotadas?", "tem porta livre na CTO X?", "quantas portas livres ' +
-    'temos?", "CTOs com vaga na PON 5". Ocupação vem do cadastro (clientes ativos / portas).',
+    'temos?", "CTOs com vaga na PON 5", "CTOs vazias no bairro X" (bairro + max_ocupacao 0). ' +
+    'Ocupação vem do cadastro (clientes ativos / portas). O bairro é deduzido de quem está ligado na CTO; ' +
+    'CTO vazia não tem cliente para perguntar, então o bairro dela sai como provável, pela CTO mais ' +
+    'próxima, com a distância — nesse caso diga que é aproximado.',
   parametros: {
     type: 'object',
     properties: {
@@ -251,6 +255,8 @@ const ocupacao: Ferramenta = {
       max_ocupacao: { type: 'number', description: 'Só CTOs com ocupação ≤ este % (padrão 100)' },
       pon: { type: 'string', description: 'Filtra por PON' },
       busca: { type: 'string', description: 'Trecho do nome da CTO ou rua' },
+      bairro: { type: 'string', description: 'Só CTOs desse bairro (vem do cadastro dos clientes ligados nela)' },
+      cidade: { type: 'string', description: 'Só CTOs dessa cidade' },
       limite: { type: 'number', description: 'Quantas listar (padrão 20, máx 100)' },
     },
     required: [],
@@ -265,10 +271,24 @@ const ocupacao: Ferramenta = {
       const pon = typeof args.pon === 'string' && args.pon.trim() ? args.pon.trim() : null;
       const busca = typeof args.busca === 'string' && args.busca.trim() ? norm(args.busca.trim()) : null;
       const limite = Math.min(100, Math.max(1, Number(args.limite) || 20));
-      const filtradas = todas.filter((c) =>
+      const bairro = typeof args.bairro === 'string' && args.bairro.trim() ? args.bairro.trim() : undefined;
+      const cidade = typeof args.cidade === 'string' && args.cidade.trim() ? args.cidade.trim() : undefined;
+      let filtradas = todas.filter((c) =>
         (c.ocupacao ?? 0) >= min && (c.ocupacao ?? 0) <= max &&
         (!pon || c.pon === pon) &&
         (!busca || norm(c.nome).includes(busca)));
+
+      // Bairro vem do cadastro dos clientes; CTO vazia herda o palpite da vizinha.
+      let lugares = new Map<number, BairroDaCto>();
+      let exatos = 0;
+      let provaveis = 0;
+      if (bairro || cidade) {
+        const r = filtrarPorLugar(filtradas, { bairro, cidade }, todas);
+        filtradas = r.ctos;
+        lugares = r.lugares;
+        exatos = r.exatos;
+        provaveis = r.provaveis;
+      }
       const cheias = args.ordem !== 'mais_livres';
       filtradas.sort((a, b) => cheias
         ? (b.ocupacao ?? 0) - (a.ocupacao ?? 0)
@@ -289,9 +309,86 @@ const ocupacao: Ferramenta = {
             lotadas: todas.filter((c) => (c.ocupacao ?? 0) >= 100).length,
             acima_de_85pct: todas.filter((c) => (c.ocupacao ?? 0) >= 85).length,
           },
-          filtro: { ordem: cheias ? 'mais_cheias' : 'mais_livres', min_ocupacao: min, max_ocupacao: max, pon, busca: args.busca ?? null },
+          filtro: {
+            ordem: cheias ? 'mais_cheias' : 'mais_livres', min_ocupacao: min, max_ocupacao: max,
+            pon, busca: args.busca ?? null, bairro: bairro ?? null, cidade: cidade ?? null,
+          },
           encontradas: filtradas.length,
-          ctos: filtradas.slice(0, limite).map(resumoAtual),
+          lugar: (bairro || cidade) ? {
+            bairro_confirmado_pelo_cadastro: exatos,
+            bairro_so_provavel_por_proximidade: provaveis,
+            nota: provaveis
+              ? 'CTO vazia não tem cliente para dizer o bairro: o bairro dela foi deduzido da CTO mais próxima. Diga que é aproximado.'
+              : 'Todos os bairros vieram do cadastro dos clientes ligados.',
+          } : undefined,
+          ctos: filtradas.slice(0, limite).map((c) => {
+            const l = lugares.get(c.cto_id);
+            return {
+              ...resumoAtual(c),
+              bairro: l?.bairro ?? null,
+              bairro_qualidade: l?.qualidade ?? null,
+              bairro_base: l?.base ?? null,
+              bairro_distancia_m: l?.distancia_m ?? null,
+            };
+          }),
+        },
+      };
+    })];
+  },
+};
+
+const porBairro: Ferramenta = {
+  nome: 'ctos_por_bairro',
+  fonte: 'questdb',
+  descricao:
+    'A rede vista por bairro: quantas CTOs, quantas estão vazias, quantas lotadas, portas livres, ' +
+    'clientes e sinal médio de cada bairro. Responde "em quais bairros temos rede?", "onde tem porta ' +
+    'livre?", "quantas CTOs vazias por bairro?", "qual bairro está mais cheio?". ' +
+    'O bairro vem do cadastro dos clientes ligados em cada CTO. CTO sem nenhum cliente não tem bairro no ' +
+    'cadastro: ela entra pelo bairro da CTO mais próxima, e o campo por_proximidade conta quantas foram ' +
+    'assim — com ele alto, diga que o corte é aproximado. Não é mapa oficial de bairro, é o que o ' +
+    'cadastro mostra.',
+  parametros: {
+    type: 'object',
+    properties: {
+      bairro: { type: 'string', description: 'Só esse bairro (trecho do nome serve)' },
+      cidade: { type: 'string', description: 'Só essa cidade' },
+      so_com_vaga: { type: 'boolean', description: 'Só bairros que têm porta livre' },
+      limite: { type: 'number', description: 'Quantos bairros listar (padrão 20, máx 100)' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    return [await medir<Record<string, unknown>>(ctx, 'questdb', 'questdb.ctos_por_bairro', args, async () => {
+      await questdb.exigirColetaViva();
+      const todas = await questdb.ctosAtuais();
+      const limite = Math.min(100, Math.max(1, Number(args.limite) || 20));
+      const normalizar = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+      let lista = resumoPorBairro(todas);
+      if (typeof args.bairro === 'string' && args.bairro.trim()) {
+        const alvo = normalizar(args.bairro);
+        lista = lista.filter((b) => normalizar(b.bairro).includes(alvo) || alvo.includes(normalizar(b.bairro)));
+      }
+      if (typeof args.cidade === 'string' && args.cidade.trim()) {
+        const alvo = normalizar(args.cidade);
+        lista = lista.filter((b) => !!b.cidade && (normalizar(b.cidade).includes(alvo) || alvo.includes(normalizar(b.cidade))));
+      }
+      if (args.so_com_vaga === true) lista = lista.filter((b) => b.portas_livres > 0);
+
+      const semBairro = todas.length - lista.reduce((a, b) => a + b.ctos, 0);
+      return {
+        vazio: lista.length === 0,
+        dados: {
+          rede: {
+            ctos: todas.length,
+            bairros: lista.length,
+            ctos_sem_bairro_identificado: Math.max(0, semBairro),
+          },
+          filtro: { bairro: args.bairro ?? null, cidade: args.cidade ?? null, so_com_vaga: args.so_com_vaga === true },
+          bairros: lista.slice(0, limite),
+          nota: 'por_proximidade = CTOs cujo bairro foi deduzido da vizinha mais próxima, por estarem vazias. ' +
+            NOTA_SINAL,
         },
       };
     })];
@@ -300,5 +397,5 @@ const ocupacao: Ferramenta = {
 
 export function registrarFerramentasCtos(): void {
   if (!config.questdb.enabled) return;
-  ferramentas.registrar(sinalCto, sinalPiorando, ocupacao);
+  ferramentas.registrar(sinalCto, sinalPiorando, ocupacao, porBairro);
 }

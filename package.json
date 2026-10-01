@@ -38,7 +38,8 @@
     "test:canais": "ts-node --transpile-only test-canais.ts",
     "test:historico": "ts-node --transpile-only test-historico.ts",
     "test:governanca": "ts-node --transpile-only test-governanca.ts",
-    "test:conversa": "ts-node --transpile-only test-conversa.ts"
+    "test:conversa": "ts-node --transpile-only test-conversa.ts",
+    "test:bairro": "ts-node --transpile-only test-bairro.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

@@ -516,6 +516,114 @@ const osDoCliente: Ferramenta = {
   },
 };
 
+/**
+ * Em que O.S. um técnico está. Pergunta de supervisor, feita com o nome como
+ * ele é falado ("o Igor"), não como está cadastrado.
+ */
+const osDoTecnico: Ferramenta = {
+  nome: 'os_do_tecnico',
+  fonte: 'sgp',
+  dadoPessoal: true,
+  descricao:
+    'O.S. de um técnico: o que está na mão dele agora, o que está agendado e o que ele fechou na janela. ' +
+    'Procura o nome tanto no responsável quanto nos auxiliares, e aceita só o primeiro nome ("Igor"). ' +
+    'Responde "em qual O.S. o Igor está?", "o que o Pedro tem para hoje?", "quantas O.S. a equipe do ' +
+    'João fechou essa semana?". ' +
+    'Quando o nome não casa, devolve os nomes que existem na janela em vez de dizer que não achou — ' +
+    'nesse caso, pergunte qual é. Não sabe onde a pessoa está fisicamente: sabe de que O.S. ela é dona.',
+  parametros: {
+    type: 'object',
+    properties: {
+      tecnico: { type: 'string', description: 'Nome ou parte do nome do técnico' },
+      dias: { type: 'number', description: 'Janela em dias a partir de hoje (padrão 30, máx 365)' },
+      incluir_fechadas: { type: 'boolean', description: 'Traz também as já encerradas da janela (padrão: só abertas)' },
+      limite: { type: 'number', description: 'Quantas O.S. listar (padrão 20, máx 100)' },
+    },
+    required: ['tecnico'],
+  },
+  async executar(args, ctx) {
+    const nome = String(args.tecnico ?? '').trim();
+    const dias = Math.min(365, Math.max(1, Number(args.dias) || 30));
+    const limite = Math.min(100, Math.max(1, Number(args.limite) || 20));
+    const todas = args.incluir_fechadas === true;
+
+    return [await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.os_do_tecnico', { tecnico: nome, dias, incluir_fechadas: todas }, async () => {
+      if (nome.length < 2) throw new Error('diga o nome do técnico (pelo menos 2 letras)');
+      const norm = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+      const alvo = norm(nome);
+
+      const hoje = new Date();
+      const inicio = new Date(hoje.getTime() - dias * 86_400_000);
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const r = await sgp.ordensServicoPorCadastro(iso(inicio), iso(hoje));
+
+      const equipeDe = (o: SgpOrdemServico): string[] =>
+        [o.responsavel ?? '', ...(o.tecnicos_auxiliares ?? [])].filter(Boolean);
+      const ehDele = (o: SgpOrdemServico) => equipeDe(o).some((n) => norm(n).includes(alvo) || alvo.includes(norm(n)));
+
+      const dele = r.ordens.filter(ehDele);
+      if (!dele.length) {
+        // Nome errado é o caso comum: devolve quem existe, para a IA perguntar.
+        const nomes = [...new Set(r.ordens.flatMap(equipeDe).map((n) => n.trim()))].filter(Boolean).sort();
+        return {
+          vazio: true,
+          dados: {
+            tecnico_procurado: nome,
+            encontrado: false,
+            janela_dias: dias,
+            os_examinadas: r.ordens.length,
+            nomes_na_janela: nomes.slice(0, 30),
+            instrucao: 'Esse nome não aparece em nenhuma O.S. da janela. Mostre os nomes parecidos e pergunte qual é; não afirme que ele não tem O.S.',
+          },
+        };
+      }
+
+      const abertas = dele.filter(osEstaAberta);
+      const lista = (todas ? dele : abertas)
+        .sort((a, b) => String(b.data_agendamento ?? b.data_cadastro).localeCompare(String(a.data_agendamento ?? a.data_cadastro)));
+      const hojeIso = iso(hoje);
+      const paraHoje = abertas.filter((o) => String(o.data_agendamento ?? '').slice(0, 10) === hojeIso);
+
+      return {
+        vazio: lista.length === 0,
+        dados: {
+          tecnico_procurado: nome,
+          encontrado: true,
+          nomes_que_casaram: [...new Set(dele.flatMap(equipeDe).filter((n) => norm(n).includes(alvo) || alvo.includes(norm(n))))],
+          janela_dias: dias,
+          janela_completa: r.janelaCompleta,
+          os_examinadas: r.ordens.length,
+          abertas: abertas.length,
+          fechadas_na_janela: dele.length - abertas.length,
+          agendadas_para_hoje: paraHoje.map((o) => ({
+            os: o.id, cliente: o.cliente, contrato: o.contrato, motivo: o.motivo,
+            hora: o.hora_agendamento ?? null, status: o.status,
+          })),
+          os: lista.slice(0, limite).map((o) => ({
+            os: o.id,
+            cliente: o.cliente,
+            contrato: o.contrato,
+            status: o.status,
+            aberta: osEstaAberta(o),
+            motivo: o.motivo,
+            tipo: o.tipo,
+            pop: o.pop,
+            responsavel: o.responsavel,
+            auxiliares: o.tecnicos_auxiliares ?? [],
+            aberta_em: o.data_cadastro,
+            agendada_para: o.data_agendamento || null,
+            hora_agendada: o.hora_agendamento || null,
+            finalizada_em: o.data_finalizacao || null,
+          })),
+          nota: r.janelaCompleta
+            ? 'Janela varrida por inteiro.'
+            : 'A janela foi cortada por limite de páginas: a contagem é parcial, diga isso.',
+        },
+      };
+    })];
+  },
+};
+
 const osAbertasRede: Ferramenta = {
   nome: 'os_abertas_na_rede',
   fonte: 'sgp',
@@ -606,5 +714,6 @@ export function registrarFerramentas(): void {
     manutencoes,
     osDoCliente,
     osAbertasRede,
+    osDoTecnico,
   );
 }
