@@ -46,7 +46,8 @@
     "test:fabricante": "ts-node --transpile-only test-fabricante.ts",
     "test:leigo": "ts-node --transpile-only test-leigo.ts",
     "test:agente-laco": "ts-node --transpile-only test-agente-laco.ts",
-    "test:problemas": "ts-node --transpile-only test-problemas.ts"
+    "test:problemas": "ts-node --transpile-only test-problemas.ts",
+    "test:resumo-audio": "ts-node --transpile-only test-resumo-audio.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

@@ -77,6 +77,11 @@ export async function emitir(p: {
    * em "alertas sem resolução", afogando os problemas de verdade.
    */
   evento?: boolean;
+  /**
+   * Áudio (ogg/opus) mandado logo depois do texto, para cada destino. Hoje só
+   * o resumo usa: o texto completo vai, e o áudio curto conta o principal.
+   */
+  audio?: Buffer | null;
 }): Promise<Alerta | null> {
   const alerta: Alerta = {
     id: randomUUID(),
@@ -165,7 +170,7 @@ export async function emitir(p: {
     return alerta;
   }
 
-  await despachar(alerta, decisao?.prioritario === true);
+  await despachar(alerta, decisao?.prioritario === true, p.audio ?? null);
   return alerta;
 }
 
@@ -196,7 +201,7 @@ export function porId(id: string): Alerta | null {
   return l ? paraAlerta(l) : null;
 }
 
-async function despachar(a: Alerta, prioritario = false): Promise<void> {
+async function despachar(a: Alerta, prioritario = false, audio: Buffer | null = null): Promise<void> {
   const motivoNaoEnvio = (m: string) => {
     db().prepare(`UPDATE alerta SET envio_erro = ? WHERE id = ?`).run(m, a.id);
     a.envio_erro = m;
@@ -225,6 +230,11 @@ async function despachar(a: Alerta, prioritario = false): Promise<void> {
     registrarEnvio(a.id, alvo.rotulo, r.ok, r.ok ? null : 'falha no WhatsApp (ver log do Evolution)',
       { mensagemId: r.id, motivo: alvo.origem });
     if (!r.ok) falhas.push(alvo.rotulo);
+    // Áudio só para quem recebeu o texto; falha no áudio não é falha do alerta.
+    if (r.ok && audio) {
+      const foi = await evoTecnicos.enviarAudio(alvo.jid, audio);
+      if (!foi) logger.warn('Alerta: áudio não foi entregue', { para: alvo.rotulo, chave: a.chave });
+    }
   }
   if (falhas.length === alvos.length) {
     contingencia(a, 'o WhatsApp recusou todos os envios');

@@ -13,6 +13,7 @@
 // monitor estava ligado e de fato não registrou nada.
 
 import { config } from '../config';
+import { logger } from '../logger';
 import { db, registrarAuditoria } from './store/db';
 import { obter } from './config-dinamica';
 import { emitir, jaExiste, duracaoHumana, Alerta } from './alertas';
@@ -25,6 +26,8 @@ import { netflow, formatarMbps, mbpsMedio, estimar } from '../integrations/netfl
 import { lerSessoesOnline, casaMotivo } from './tools/relatorios';
 import { questdb, avaliarSinal, SINAL_RUIM_DBM } from '../integrations/questdb';
 import { lerSaude, lerSaudePorBairro } from './saude-rede';
+import { redigir } from './agent';
+import { sintetizar } from './voice';
 
 export const SECOES = ['rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'] as const;
 export type Secao = (typeof SECOES)[number];
@@ -714,8 +717,50 @@ export async function montarResumo(
   return { ...base, texto: formatarResumo(base) };
 }
 
+/** Teto do texto falado: cerca de 40 segundos de áudio. */
+export const MAX_FALA_RESUMO = 700;
+
+/** Instrução da versão falada. Exportada para o teste conferir as regras. */
+export function instrucaoResumoFalado(hora: string): string {
+  return [
+    `Agora são ${hora}. Transforme o resumo abaixo num áudio de WhatsApp de 30 a 40 segundos, para quem não é técnico.`,
+    'Comece com a saudação da hora (bom dia até 11h59, boa tarde até 17h59, boa noite depois) e "resumo das últimas horas".',
+    'Diga primeiro como está a rede, em uma frase. Depois só os 2 ou 3 pontos que pedem atenção, com o lugar.',
+    'Use SÓ fatos e números que estão no resumo. Não invente, não arredonde para mais nem para menos.',
+    'Sem sigla (diga "caixa na rua", não CTO), sem nome de porta, sem lista, sem emoji, sem asterisco.',
+    `No máximo ${MAX_FALA_RESUMO} caracteres. Termine com "O detalhe está no texto."`,
+  ].join(' ');
+}
+
+/**
+ * Versão falada do resumo. Não lê o texto: o resumo tem várias seções e
+ * passaria do limite do áudio, cortado no meio. Null se o modelo falhar.
+ */
+export async function resumoFalado(texto: string, fim: Date): Promise<string | null> {
+  const falado = await redigir(instrucaoResumoFalado(horaLocal(fim)), texto);
+  if (!falado) return null;
+  let limpo = falado.replace(/[*_#•]/g, '').replace(/\s+\n/g, '\n').trim();
+  if (limpo.length > MAX_FALA_RESUMO + 200) {
+    const corte = limpo.lastIndexOf('.', MAX_FALA_RESUMO);
+    limpo = limpo.slice(0, corte > 0 ? corte + 1 : MAX_FALA_RESUMO);
+  }
+  if (!/detalhe est[aá] no texto/i.test(limpo)) limpo = `${limpo} O detalhe está no texto.`;
+  return limpo;
+}
+
 export async function enviarResumo(p: { chave: string; fim?: Date }): Promise<Alerta | null> {
   const r = await montarResumo(p.fim);
+  // Áudio curto para todos que recebem. Falhou o modelo ou a voz: vai só o texto.
+  let audio: Buffer | null = null;
+  if (obter<boolean>('resumo.enviar_audio')) {
+    try {
+      const falado = await resumoFalado(r.texto, new Date(r.fim));
+      audio = falado ? await sintetizar(falado, 'opus') : null;
+      if (!audio) logger.warn('Resumo: sem áudio, segue só o texto');
+    } catch (err) {
+      logger.warn('Resumo: áudio falhou, segue só o texto', { err: erroTexto(err) });
+    }
+  }
   return emitir({
     origem: 'sistema',
     severidade: 'info',
@@ -724,6 +769,7 @@ export async function enviarResumo(p: { chave: string; fim?: Date }): Promise<Al
     chave: p.chave,
     dados: { inicio: r.inicio, fim: r.fim, secoes: r.secoes },
     evento: true,
+    audio,
   });
 }
 

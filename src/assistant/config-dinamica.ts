@@ -488,6 +488,12 @@ export const DEFINICOES = {
     tipo: 'inteiro', grupo: 'resumo', padrao: () => 2, min: 1, max: 24,
     descricao: 'Quantas horas cada resumo cobre, contando para trás a partir do envio. 2 = o que aconteceu nas últimas 2 horas.',
   },
+  'resumo.enviar_audio': {
+    tipo: 'booleano', grupo: 'resumo', padrao: () => true,
+    descricao:
+      'Cada resumo vai também em áudio curto (30 a 40 segundos), com o principal em linguagem simples. ' +
+      'O texto completo continua indo. Se o áudio falhar, vai só o texto.',
+  },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
     padrao: () => ['saude', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],

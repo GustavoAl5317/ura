@@ -302,6 +302,21 @@ async function encurtar(texto: string, limite: number): Promise<{ texto: string 
   return { texto: valido ? novo : null, entrada: r.entrada ?? 0, saida: r.saida ?? 0 };
 }
 
+/**
+ * Pede ao modelo um texto a partir de outro, sem ferramenta nenhuma: reescrita,
+ * versão falada. Devolve null se o modelo falhar ou responder vazio.
+ */
+export async function redigir(sistema: string, texto: string): Promise<string | null> {
+  try {
+    const r = await chamarModelo([{ role: 'system', content: sistema }, { role: 'user', content: texto }], []);
+    const saida = (r.msg.content ?? '').trim();
+    return saida || null;
+  } catch (err) {
+    logger.warn('Assistente: redação falhou', { err: (err as Error).message });
+    return null;
+  }
+}
+
 /** 'auto' deixa o modelo escolher; nome obriga uma ferramenta; 'none' obriga a responder. */
 type EscolhaFerramenta = 'auto' | 'none' | { type: 'function'; function: { name: string } };
 
