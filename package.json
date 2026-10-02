@@ -44,7 +44,8 @@
     "test:saude": "ts-node --transpile-only test-saude.ts",
     "test:sem-coleta": "ts-node --transpile-only test-sem-coleta.ts",
     "test:fabricante": "ts-node --transpile-only test-fabricante.ts",
-    "test:leigo": "ts-node --transpile-only test-leigo.ts"
+    "test:leigo": "ts-node --transpile-only test-leigo.ts",
+    "test:agente-laco": "ts-node --transpile-only test-agente-laco.ts"
   },
   "dependencies": {
     "axios": "^1.7.0",

@@ -11,7 +11,7 @@ import { onuPorTermo, statusHosts } from '../../integrations/zabbix-metricas';
 import { fabricantePedido } from '../../integrations/fabricante';
 import { db } from '../store/db';
 import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho, bairrosDoCadastro, clientesDoBairro } from '../store/sgp-index';
-import { resolverBairro, bairroPedido, bairroDosContratos, bairroEntre } from '../geografia';
+import { resolverBairro, bairroPedido, bairroDosContratos, bairroEntre, enderecoDaCto, enderecoEmTexto } from '../geografia';
 import { Ferramenta, medir, ferramentas } from './base';
 import { Envelope } from '../types';
 
@@ -476,8 +476,24 @@ const ctosSinalRuim: Ferramenta = {
            LIMIT 50`,
         ).all(limiteDbm, minClientes) as Array<Record<string, unknown>>;
 
+        // Endereço junto: a pergunta seguinte do leigo é "onde ficam essas
+        // caixas?", e sem isto o modelo respondeu com ruas inventadas.
+        const comEndereco = linhas.map((l) => {
+          let endereco: string | null = null;
+          try {
+            endereco = enderecoEmTexto(enderecoDaCto({ cto_id: -1, nome: String(l.cto_nome) }));
+          } catch {
+            endereco = null;
+          }
+          return { ...l, endereco_provavel: endereco };
+        });
         return {
-          dados: { limite_dbm: limiteDbm, ctos: linhas, origem: idadeEspelho() },
+          dados: {
+            limite_dbm: limiteDbm,
+            ctos: comEndereco,
+            como_ler: 'endereco_provavel é a rua onde mora a maioria dos clientes da caixa. Endereço que não está aqui não existe: não invente.',
+            origem: idadeEspelho(),
+          },
           vazio: linhas.length === 0,
         };
       }),
@@ -953,7 +969,11 @@ const osAbertasRede: Ferramenta = {
                 bairro_pedido: pedidoBairro,
                 bairro_encontrado: false,
                 parecidos: bairro.candidatos,
-                instrucao: 'Nenhum cliente nosso nesse bairro no cadastro. Mostre os parecidos e pergunte qual é; não diga que não há O.S.',
+                bairros_com_cliente: bairrosDoCadastro(),
+                instrucao:
+                  'Nenhum cliente nosso nesse bairro no cadastro. Diga isso com clareza ("não temos cliente cadastrado ' +
+                  'no Jardim Guanabara") e mostre os parecidos, ou os bairros onde temos cliente se não houver parecido. ' +
+                  'Não diga que não há O.S.: não há cliente para ter O.S.',
               },
             };
           }

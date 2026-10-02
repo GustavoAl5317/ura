@@ -94,7 +94,15 @@ const equipamentos: Ferramenta = {
           };
         }
         // Fabricante e tipo NÃO vão no filtro de nome: "Huawei" quase nunca está no nome.
-        const todos = await zm.statusHosts(filtro);
+        let todos = await zm.statusHosts(filtro);
+        // "o switch Huawei 6720": o modelo está no inventário ou no template,
+        // não no nome do host. Sem achar pelo nome, procura pelo modelo.
+        let achadoPeloModelo = false;
+        if (filtro && !todos.length) {
+          const alvo = filtro.toLowerCase().replace(/\s+/g, '');
+          todos = (await zm.statusHosts()).filter((h) => (h.modelo ?? '').toLowerCase().replace(/\s+/g, '').includes(alvo));
+          achadoPeloModelo = todos.length > 0;
+        }
         let hs = todos;
         if (fabricante) hs = hs.filter((h) => h.fabricante === fabricante);
         if (tipo) hs = hs.filter((h) => h.tipo === tipo);
@@ -110,6 +118,7 @@ const equipamentos: Ferramenta = {
         return {
           dados: {
             filtro: filtro ?? null,
+            achado_pelo_modelo: achadoPeloModelo ? `"${filtro}" não está no nome; achado pelo modelo do equipamento` : undefined,
             fabricante: fabricante ?? null,
             fabricante_entendido: pedidoFab && fabricante && pedidoFab.toLowerCase() !== fabricante.toLowerCase()
               ? `"${pedidoFab}" entendido como ${fabricante}` : undefined,

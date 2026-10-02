@@ -1,0 +1,135 @@
+// Travas do laço do agente, com o modelo simulado:
+//   - a mesma consulta com os mesmos argumentos não roda duas vezes;
+//   - a mesma ferramenta não roda mais que MAX_MESMA_FERRAMENTA vezes;
+//   - resposta com dado e sem consulta nenhuma ganha uma chance de consultar;
+//   - assunto inequívoco (link, cancelamento) leva a ferramenta por escrito.
+//
+//   npm run test:agente-laco
+
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+for (const k of ['OPENAI_API_KEY', 'SGP_BASE_URL', 'SGP_TOKEN']) {
+  process.env[k] ||= 'teste-laco-sem-uso';
+}
+process.env.TZ ||= 'America/Fortaleza';
+const RAIZ = __dirname;
+process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'aq-laco-')));
+
+/* eslint-disable @typescript-eslint/no-var-requires */
+const axios = require('axios');
+const { db, fecharDb } = require(path.join(RAIZ, 'src', 'assistant', 'store', 'db')) as typeof import('./src/assistant/store/db');
+const agente = require(path.join(RAIZ, 'src', 'assistant', 'agent')) as typeof import('./src/assistant/agent');
+const { ferramentas } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'base')) as typeof import('./src/assistant/tools/base');
+const { rotasDaPergunta } = require(path.join(RAIZ, 'src', 'assistant', 'rota')) as typeof import('./src/assistant/rota');
+/* eslint-enable @typescript-eslint/no-var-requires */
+
+let passou = 0;
+let falhou = 0;
+function checa(rotulo: string, ok: boolean, detalhe: unknown = ''): void {
+  console.log(`  ${ok ? '✓' : '✗'} ${rotulo}${ok || detalhe === '' ? '' : `\n      ${typeof detalhe === 'string' ? detalhe : JSON.stringify(detalhe).slice(0, 400)}`}`);
+  ok ? passou++ : falhou++;
+}
+
+// Ferramenta de mentira: conta quantas vezes rodou de verdade.
+let execucoes = 0;
+ferramentas.registrar({
+  nome: 'falsa', fonte: 'sgp', descricao: 'teste', parametros: { type: 'object', properties: {} },
+  async executar(args) {
+    execucoes++;
+    return [{
+      id: `evd_${execucoes}`, fonte: 'sgp', consulta: 'falsa', args, consultadoEm: new Date().toISOString(),
+      duracaoMs: 1, ok: true, vazio: false, dados: { rua: 'RUA ALFA' },
+    }];
+  },
+});
+
+// O "modelo": cada chamada devolve a próxima resposta do roteiro.
+let roteiro: Array<Record<string, unknown>> = [];
+let pedidos: Array<{ messages: Array<{ role: string; content: string | null }> }> = [];
+axios.post = async (_url: string, corpo: { messages: Array<{ role: string; content: string | null }> }) => {
+  pedidos.push({ messages: JSON.parse(JSON.stringify(corpo.messages)) });
+  const msg = roteiro.shift() ?? { role: 'assistant', content: 'VEREDITO: INCONCLUSIVO\nfim do roteiro' };
+  return { data: { choices: [{ message: msg }], usage: { prompt_tokens: 1, completion_tokens: 1 } } };
+};
+const chamada = (id: string, args: Record<string, unknown>) => ({
+  role: 'assistant', content: null,
+  tool_calls: [{ id, type: 'function', function: { name: 'falsa', arguments: JSON.stringify(args) } }],
+});
+const texto = (t: string) => ({ role: 'assistant', content: t });
+
+async function main(): Promise<void> {
+  db();
+
+  console.log('\n─── Assinatura da chamada ───');
+  checa('mesma consulta em outra ordem e caixa é a mesma',
+    agente.assinaturaDaChamada('x', { b: 'Bolsa Fesso', a: 1 }) === agente.assinaturaDaChamada('x', { a: 1, b: ' bolsa fesso' }));
+  checa('argumento diferente é outra consulta',
+    agente.assinaturaDaChamada('x', { b: 'A' }) !== agente.assinaturaDaChamada('x', { b: 'B' }));
+
+  console.log('\n─── Consulta repetida ───');
+  execucoes = 0; pedidos = [];
+  roteiro = [
+    chamada('c1', { termo: 'Bolsa Fesso' }),
+    chamada('c2', { termo: 'Bolsa Fesso' }),
+    chamada('c3', { termo: 'bolsa fesso' }),
+    texto('VEREDITO: INCONCLUSIVO\nNão achei.'),
+  ];
+  let r = await agente.responder({ pergunta: 'quem é o cliente Bolsa Fesso?', usuario: 'teste-laco', canal: 'chat' });
+  checa('a mesma consulta roda uma vez só', execucoes === 1, execucoes);
+  const avisos = pedidos.flatMap((p) => p.messages).filter((m) => m.role === 'tool' && /nao_executada/.test(m.content ?? ''));
+  checa('o modelo é avisado de que repetiu', avisos.length >= 2 && /já foi feita/.test(avisos[0].content ?? ''), avisos.length);
+  checa('a resposta sai mesmo assim', /Não achei/.test(r.texto), r.texto);
+
+  console.log('\n─── Mesma ferramenta demais ───');
+  execucoes = 0; pedidos = [];
+  roteiro = [1, 2, 3, 4, 5, 6].map((n) => chamada(`d${n}`, { termo: `cliente ${n}` }));
+  roteiro.push(texto('VEREDITO: PROVAVEL\nVi vários.'));
+  r = await agente.responder({ pergunta: 'revise os clientes um a seis', usuario: 'teste-laco', canal: 'chat' });
+  checa(`no máximo ${agente.MAX_MESMA_FERRAMENTA} execuções da mesma ferramenta`, execucoes === agente.MAX_MESMA_FERRAMENTA, execucoes);
+
+  console.log('\n─── Resposta sem consulta ───');
+  execucoes = 0; pedidos = [];
+  roteiro = [
+    texto('VEREDITO: CONFIRMADO\nAs caixas ficam na Rua João XXIII, 45 e na Rua 731, 10.'),
+    chamada('e1', {}),
+    texto('VEREDITO: CONFIRMADO\nA caixa fica na RUA ALFA (evd_1).'),
+  ];
+  r = await agente.responder({ pergunta: 'quais os endereços dessas caixas?', usuario: 'teste-laco', canal: 'chat' });
+  checa('resposta inventada não sai: o modelo é mandado consultar', execucoes === 1, execucoes);
+  checa('o pedido diz que endereço sem ferramenta é invenção',
+    pedidos[1]?.messages.some((m) => m.role === 'system' && /sem consultar nenhuma ferramenta/.test(m.content ?? '')));
+  checa('a resposta final é a que veio da consulta', /RUA ALFA/.test(r.texto) && !/731/.test(r.texto), r.texto);
+
+  execucoes = 0; pedidos = [];
+  roteiro = [texto('VEREDITO: CONVERSA\nPonto de atenção é uma caixa que merece olhar antes de virar problema.')];
+  r = await agente.responder({ pergunta: 'o que é ponto de atenção? me explica', usuario: 'teste-laco', canal: 'chat' });
+  checa('explicação (conversa) não é forçada a consultar', pedidos.length === 1 && r.veredito === 'CONVERSA', { n: pedidos.length, v: r.veredito });
+
+  console.log('\n─── Rota por assunto ───');
+  const assuntos = (p: string) => rotasDaPergunta(p).map((x) => x.assunto);
+  checa('"rede da RNP" vai para o link', assuntos('Como encontra-se a rede da RNP?').includes('link RNP'));
+  checa('"rede da Etis" (áudio) vai para o link Etice', assuntos('Como é que está a rede da ETIS?').includes('link Etice'), assuntos('Como é que está a rede da ETIS?'));
+  checa('"Anetice" vai para o link Etice', assuntos('A rede da Anetice').includes('link Etice'));
+  checa('"AT&T" vai para o link', assuntos('Poderia me informar sobre a rede da AT&T?').includes('link AT&T'));
+  checa('caixa de emenda perto da Angola NÃO vira link', !assuntos('Onde fica a caixa de emenda da Angola Cables?').some((a) => a.startsWith('link')));
+  checa('cancelamento vai para o relatório', assuntos('no bairro Bolsa Fesso, quantos cancelamentos tiveram hoje?').includes('cancelamentos'));
+  checa('pergunta comum não ganha rota', assuntos('como está o sinal da caixa 731?').length === 0);
+  checa('"retirnp" não casa RNP', !assuntos('retirnp').length);
+
+  execucoes = 0; pedidos = [];
+  roteiro = [texto('VEREDITO: CONVERSA\nok')];
+  await agente.responder({ pergunta: 'Como encontra-se a rede da RNP?', usuario: 'teste-laco', canal: 'chat' });
+  checa('a instrução do link chega ao modelo',
+    pedidos[0].messages.some((m) => m.role === 'system' && /zabbix_link com link="RNP"/.test(m.content ?? '')));
+
+  fecharDb();
+  console.log(`\n${passou} ok, ${falhou} falha(s)`);
+  process.exit(falhou ? 1 : 0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -128,7 +128,10 @@ export function chaveFalada(s: string): string {
     .map((p) => ABREVIACOES[p] ?? p)
     .map((p) => ORDINAIS[p] ?? romano(p) ?? p)
     .filter((p) => !DE_FALA.has(p));
-  return palavras.join('')
+  // Número vai para o fim: "segunda etapa do Conjunto Ceará" e "CONJUNTO
+  // CEARA II" dizem o número em lugares diferentes da frase.
+  const ordenadas = [...palavras.filter((p) => !/^\d+$/.test(p)), ...palavras.filter((p) => /^\d+$/.test(p))];
+  return ordenadas.join('')
     .replace(/ph/g, 'f').replace(/ch/g, 'x').replace(/lh/g, 'l').replace(/nh/g, 'n')
     .replace(/qu/g, 'k').replace(/gu(?=[ei])/g, 'g').replace(/c(?=[ei])/g, 's').replace(/c/g, 'k')
     .replace(/[zç]/g, 's').replace(/y/g, 'i').replace(/w/g, 'v').replace(/h/g, '')

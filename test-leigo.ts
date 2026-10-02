@@ -113,7 +113,12 @@ async function main(): Promise<void> {
     geo.resolverBairro('bom sucesso', ['BONSUCESSO', 'BOM SUCESSO', 'PARANGABA']).variantes.length === 2);
   checa('candidatos ambíguos juntam as grafias', geo.resolverBairro('praia do futuro', ['PRAIA DO FUTURO I', 'PRAIA DO FUTURO II', 'PRAIA DO FUTURO 2']).candidatos.length === 2,
     geo.resolverBairro('praia do futuro', ['PRAIA DO FUTURO I', 'PRAIA DO FUTURO II', 'PRAIA DO FUTURO 2']).candidatos);
-  checa('chave do som junta ss, ç e c',geo.chaveFalada('Bonsucesso') === geo.chaveFalada('bom sucesso'));
+  checa('"segunda etapa do Conjunto Ceará" (número antes) é CONJUNTO CEARA II',
+    geo.resolverBairro('segunda etapa do Conjunto Ceará', ['CONJUNTO CEARA', 'CONJUNTO CEARA I', 'CONJUNTO CEARA II']).bairro === 'CONJUNTO CEARA II',
+    geo.resolverBairro('segunda etapa do Conjunto Ceará', ['CONJUNTO CEARA', 'CONJUNTO CEARA I', 'CONJUNTO CEARA II']));
+  checa('"Conjunto Ceará" sem etapa continua sendo o sem número',
+    geo.resolverBairro('Conjunto Ceará', ['CONJUNTO CEARA', 'CONJUNTO CEARA I', 'CONJUNTO CEARA II']).bairro === 'CONJUNTO CEARA');
+  checa('chave do som junta ss, ç e c', geo.chaveFalada('Bonsucesso') === geo.chaveFalada('bom sucesso'));
   checa('número romano e algarismo dão a mesma chave', geo.chaveFalada('JOAO XXIII') === geo.chaveFalada('joão 23'));
 
   console.log('\n─── Rua ───');
@@ -279,6 +284,27 @@ async function main(): Promise<void> {
   db().prepare(`DELETE FROM glossario WHERE id = ?`).run(rnp.id);
   checa('deploy novo traz de volta termo que faltava', glo.semear() === 1 && glo.listar().some((t) => t.termo === 'RNP'));
   checa('mas não ressuscita termo que a casa apagou', !glo.listar().some((t) => t.termo === 'Etice'));
+  const angola = glo.listar().find((t) => t.termo === 'Angola Cables')!;
+  db().prepare(`UPDATE glossario SET sinonimos = 'angola' WHERE id = ?`).run(angola.id);
+  checa('termo da semente que ninguém editou recebe os sinônimos novos',
+    glo.semear() === 1 && glo.porId(angola.id)!.sinonimos.includes('hotel cable'), glo.porId(angola.id)!.sinonimos);
+  checa('semear de novo não muda nada', glo.semear() === 0);
+  const casa = glo.listar().find((t) => t.termo === 'casos')!;
+  glo.atualizar(casa.id, { sinonimos: 'caso, pepino' }, 'teste');
+  checa('termo editado pela casa fica como a casa deixou',
+    glo.semear() === 0 && glo.porId(casa.id)!.sinonimos.join() === 'caso,pepino', glo.porId(casa.id)!.sinonimos);
+  checa('"rede da Etis" acha a Etice pelo vocabulário', (() => {
+    db().prepare(`DELETE FROM auditoria WHERE acao = 'glossario.remover'`).run();
+    glo.semear();
+    return termos('Como é que está a rede da Etis?').includes('Etice');
+  })());
+
+  console.log('\n─── Caixas de sinal ruim com endereço ───');
+  db().prepare(`UPDATE sgp_servico SET rx = -29 WHERE servico_id IN (4, 5)`).run();
+  const ruins = (await ferramentas.get('ctos_sinal_ruim')!.executar({ limite_dbm: -25 }, ctx))[0] as any;
+  const bsc3 = ruins.dados?.ctos?.find((c: any) => c.cto_nome === 'BSC-03');
+  checa('a caixa de sinal ruim sai com o endereço provável', /RUA ALFA/.test(bsc3?.endereco_provavel ?? ''), ruins.dados ?? ruins.erro);
+  checa('e com o aviso de não inventar endereço', /não invente/.test(ruins.dados.como_ler));
 
   console.log('\n─── Nomes do link ───');
   checa('"rede da RNP" procura também GigaFOR', nomesDoLink('rede da RNP').includes('gigafor'), nomesDoLink('rede da RNP'));

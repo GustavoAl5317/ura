@@ -232,14 +232,19 @@ export const SEMENTE: SementeTermo[] = [
     dica: 'Use zabbix_link com "rnp"; se não achar, tente "gigafor". Se nada no Zabbix tiver esse nome, diga isso e pergunte o nome da interface ou do circuito. Não troque por análise de bairro.',
   },
   {
-    termo: 'Etice', sinonimos: 'rede da etice, anetice, a etice, cinturao digital, cinturão digital',
-    significado: 'Rede de terceiro (ETICE, Cinturão Digital do Ceará) com que a casa tem link ou circuito. Não é rede de caixas de bairro. Transcrição de áudio costuma escrever "Anetice" ou "a Etice".',
+    termo: 'Etice', sinonimos: 'rede da etice, anetice, a etice, etis, ethis, etices, cinturao digital, cinturão digital',
+    significado: 'Rede de terceiro (ETICE, Cinturão Digital do Ceará) com que a casa tem link ou circuito. Não é rede de caixas de bairro. Transcrição de áudio costuma escrever "Anetice", "a Etice" ou "Etis".',
     dica: 'Use zabbix_link com "etice"; se não achar, tente "cinturao". Se nada no Zabbix tiver esse nome, diga isso e pergunte o nome da interface ou do circuito.',
   },
   {
     termo: 'Angola Cables', sinonimos: 'angola cable, angola, hotel cable, cable hotel, hotel cables, cables',
     significado: 'Data center da Angola Cables na Praia do Futuro (Fortaleza), ponto de chegada de cabos submarinos onde a casa interliga circuito.',
     dica: 'Link: zabbix_link com "angola". Caixa de emenda perto dali: caixas_de_emenda com endereco "Angola Cables, Praia do Futuro, Fortaleza".',
+  },
+  {
+    termo: 'AT&T', sinonimos: 'att, at e t, a t e t, rede da at&t',
+    significado: 'Operadora AT&T: link ou circuito de terceiro, não rede de bairro.',
+    dica: 'Use zabbix_link com "AT&T". Se não achar, mostre as portas com descrição que ela devolve e pergunte qual é.',
   },
   {
     termo: 'rede do bairro', sinonimos: 'rede do, rede da, projeto, projetos, a rede ali, rede la',
@@ -249,7 +254,7 @@ export const SEMENTE: SementeTermo[] = [
   {
     termo: 'luz da caixa', sinonimos: 'luz alta, luz baixa, luz forte, luz fraca, luz ruim, a luz, sinal alto, sinal baixo, potencia',
     significado: 'Sinal da fibra (potência óptica em dBm). Leigo diz "luz alta" tanto para sinal ruim quanto para sinal forte demais. "Faltou luz" é outra coisa: energia.',
-    dica: 'Use ctos_sinal_ruim ou cto_sinal. Se não der para saber o sentido, responda as caixas com sinal ruim (mais negativo que o corte) e diga o critério em palavras.',
+    dica: 'Se citar um lugar (bairro, etapa, conjunto), chame saude_da_rede com o bairro como foi dito. Sem lugar, ctos_sinal_ruim; para uma caixa pelo nome, cto_sinal. Se não der para saber o sentido de "alta", responda as caixas com sinal ruim (mais negativo que o corte) e diga o critério em palavras.',
   },
   {
     termo: 'casos', sinonimos: 'caso, ocorrencia, ocorrência, ocorrencias, ocorrências, reclamacao, reclamação, reclamacoes, reclamações, problemas no bairro',
@@ -269,26 +274,43 @@ export const SEMENTE: SementeTermo[] = [
 ];
 
 /**
- * Semeia o vocabulário. Na primeira vez, tudo. Depois, só os termos novos da
- * semente que ainda não existem e que ninguém removeu no painel: um termo
- * apagado pela casa foi decisão dela, e não volta sozinho a cada deploy.
+ * Semeia o vocabulário. Na primeira vez, tudo. Depois:
+ *   - termo novo da semente entra, a não ser que a casa o tenha apagado: um
+ *     termo apagado no painel foi decisão dela, e não volta a cada deploy;
+ *   - termo da semente que ninguém editou no painel recebe a versão nova
+ *     (sinônimo que apareceu na operação, dica melhor). Termo editado pela
+ *     casa fica como a casa deixou.
+ * Devolve quantos termos entraram ou mudaram.
  */
 export function semear(): number {
-  const st = db().prepare(
+  const inserir = db().prepare(
     `INSERT INTO glossario (id, termo, sinonimos, significado, dica, ativo, usos, criado_em)
      VALUES (?,?,?,?,?,1,0,?)`,
   );
-  const existentes = new Set(listar().map((t) => normalizar(t.termo)));
-  const removidos = new Set((db().prepare(
-    `SELECT alvo FROM auditoria WHERE acao = 'glossario.remover' AND alvo IS NOT NULL`,
-  ).all() as Array<{ alvo: string }>).map((l) => normalizar(l.alvo)));
+  const atualizar = db().prepare(`UPDATE glossario SET sinonimos = ?, significado = ?, dica = ? WHERE id = ?`);
+  const porTermo = new Map(listar().map((t) => [normalizar(t.termo), t]));
+  const tocadosPelaCasa = (acao: string) => new Set((db().prepare(
+    `SELECT alvo FROM auditoria WHERE acao = ? AND alvo IS NOT NULL`,
+  ).all(acao) as Array<{ alvo: string }>).map((l) => normalizar(l.alvo)));
+  const removidos = tocadosPelaCasa('glossario.remover');
+  const editados = tocadosPelaCasa('glossario.editar');
   const agora = new Date().toISOString();
   let n = 0;
   for (const t of SEMENTE) {
     const k = normalizar(t.termo);
-    if (existentes.has(k) || removidos.has(k)) continue;
-    st.run(randomUUID(), t.termo, t.sinonimos, t.significado, t.dica, agora);
-    n++;
+    const atual = porTermo.get(k);
+    if (!atual) {
+      if (removidos.has(k)) continue;
+      inserir.run(randomUUID(), t.termo, t.sinonimos, t.significado, t.dica, agora);
+      n++;
+      continue;
+    }
+    if (editados.has(k)) continue;
+    const sinSemente = t.sinonimos.split(',').map((x) => x.trim()).filter(Boolean).join(', ');
+    if (atual.sinonimos.join(', ') !== sinSemente || atual.significado !== t.significado || (atual.dica ?? '') !== t.dica) {
+      atualizar.run(t.sinonimos, t.significado, t.dica, atual.id);
+      n++;
+    }
   }
   return n;
 }

@@ -19,11 +19,26 @@ import { dispararWebhooks } from './webhooks';
 import { obter, fontesHabilitadas } from './config-dinamica';
 import { blocoParaPrompt, marcarUso } from './glossario';
 import { linhaDeContexto } from './contexto';
+import { rotasDaPergunta } from './rota';
 
 const API = 'https://api.openai.com/v1/chat/completions';
 
 /** Teto de bytes de UM resultado de ferramenta enviado ao modelo. */
 const MAX_CHARS_RESULTADO = 12_000;
+/** Mais que isso da mesma ferramenta numa pergunta é laço, não investigação. */
+export const MAX_MESMA_FERRAMENTA = 4;
+
+/** Ferramenta + argumentos em ordem fixa: a mesma consulta dá a mesma assinatura. */
+export function assinaturaDaChamada(nome: string, args: Record<string, unknown>): string {
+  const ordenar = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(ordenar);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, ordenar((v as Record<string, unknown>)[k])]));
+    }
+    return typeof v === 'string' ? v.trim().toLowerCase() : v;
+  };
+  return `${nome}:${JSON.stringify(ordenar(args))}`;
+}
 
 interface MsgOpenAi {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -371,6 +386,11 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     marcarUso(vocab.ids);
   }
 
+  // Assunto inequívoco: a ferramenta certa vai por escrito.
+  for (const r of rotasDaPergunta(pedido.pergunta)) {
+    messages.push({ role: 'system', content: r.instrucao });
+  }
+
   // Registro de linguagem: quem fala simples recebe resposta simples.
   const registro = obter<string>('ia.linguagem');
   // "Como assim dBm?" cita sigla e é pergunta de leigo: quem pede explicação
@@ -445,6 +465,12 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   let erroFatal: string | null = null;
 
   const maxRodadas = obter<number>('ia.max_rodadas');
+  // Consulta repetida: mesma ferramenta, mesmos argumentos. O modelo pequeno
+  // entra em laço ("Bolsa Fesso" virou seis revisões do mesmo cliente
+  // inexistente) e queima o limite sem resposta nenhuma.
+  const jaFeitas = new Set<string>();
+  const vezesPorFerramenta = new Map<string, number>();
+  let insistiuEmConsultar = false;
   for (let rodada = 0; rodada < maxRodadas; rodada++) {
     let resposta;
     try {
@@ -503,6 +529,28 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
           } catch {
             args = {};
           }
+          const assinatura = assinaturaDaChamada(f.nome, args);
+          const vezes = (vezesPorFerramenta.get(f.nome) ?? 0) + 1;
+          vezesPorFerramenta.set(f.nome, vezes);
+          const repetida = jaFeitas.has(assinatura);
+          if (repetida || vezes > MAX_MESMA_FERRAMENTA) {
+            // Não executa e não vira evidência: só devolve ao modelo o porquê.
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: JSON.stringify({
+                nao_executada: true,
+                motivo: repetida
+                  ? 'Esta consulta, com estes mesmos argumentos, já foi feita nesta pergunta. O resultado está acima.'
+                  : `${f.nome} já foi chamada ${MAX_MESMA_FERRAMENTA} vezes nesta pergunta.`,
+                instrucao:
+                  'Não repita. Releia a pergunta: se esta ferramenta não responde, use OUTRA. Se nenhuma responde, ' +
+                  'responda com o que já tem e diga o que faltou.',
+              }),
+            });
+            continue;
+          }
+          jaFeitas.add(assinatura);
           novos = await f.executar(args, ctx);
         }
 
@@ -517,6 +565,25 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     }
 
     textoFinal = msg.content ?? '';
+
+    // Resposta com dado e sem consulta nenhuma. Foi assim que "quais os
+    // endereços dessas caixas?" saiu com cinco ruas inventadas: o modelo
+    // "lembrou" da resposta anterior. Uma chance de consultar de verdade.
+    if (!insistiuEmConsultar && !evidencias.length && rodada + 1 < maxRodadas &&
+        extrairVereditoProposto(textoFinal).veredito !== 'CONVERSA') {
+      insistiuEmConsultar = true;
+      messages.push({ role: 'assistant', content: textoFinal });
+      messages.push({
+        role: 'system',
+        content:
+          'Você respondeu sem consultar nenhuma ferramenta. Resposta anterior da conversa não vale como prova ' +
+          'agora, e endereço, número ou nome que não veio de ferramenta NESTA pergunta é invenção. Chame a ' +
+          'ferramenta que responde e escreva a resposta de novo. Se for só conversa, sem dado, responda com ' +
+          'VEREDITO: CONVERSA.',
+      });
+      textoFinal = '';
+      continue;
+    }
     break;
   }
 
