@@ -9,7 +9,7 @@ import { config } from '../../config';
 import { logger } from '../../logger';
 import { EvolutionClient, MensagemRecebida, soNumero } from '../../integrations/evolution';
 import { db } from '../store/db';
-import { responder, paraWhatsApp } from '../agent';
+import { responder, paraWhatsApp, semSelo } from '../agent';
 import { transcrever, sintetizar, falaDaResposta } from '../voice';
 import { obter, FONTES_PUBLICAS } from '../config-dinamica';
 import {
@@ -275,7 +275,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
         : undefined,
     });
     textoResposta = paraWhatsApp(r);
-    fala = falaDaResposta(r);
+    fala = falaDaResposta(r, { semSelo: semSelo(r.simples) });
     logger.info('Assistente: respondeu', {
       autor: soNumero(msg.autorJid).slice(0, 8) + '…',
       acesso,

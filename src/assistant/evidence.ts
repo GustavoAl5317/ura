@@ -166,9 +166,28 @@ export function formatarResposta(params: {
    * tamanho da mensagem e não dizia nada a quem lê. Vira uma linha.
    */
   simples?: boolean;
+  /**
+   * Sem selo de certeza na mensagem: nada de "Confirmado/Provável/
+   * Inconclusivo", "não confirmada" nem "falta para confirmar". O texto já diz,
+   * em palavras, o que não deu para ver. O veredito segue na auditoria.
+   */
+  semSelo?: boolean;
 }): string {
   // Conversa não tem o que atestar: selo e rodapé ali seriam ruído.
   if (params.veredito === 'CONVERSA') return params.texto.trim();
+  if (params.semSelo) {
+    const partes = [params.texto.trim()];
+    if (params.hipotese && params.veredito !== 'CONFIRMADO') partes.push(`🧩 Pode ser: ${params.hipotese}`);
+    if (params.fontesIndisponiveis.length) {
+      partes.push(`⚠️ Não consegui consultar: ${params.fontesIndisponiveis.map((f) => NOME_FONTE[f] ?? f).join(', ')}`);
+    }
+    const usadas = params.evidencias.filter(sustenta);
+    if (params.incluirRastro !== false && usadas.length) {
+      const fontes = [...new Set(usadas.map((e) => NOME_FONTE[e.fonte] ?? e.fonte))].join(', ');
+      partes.push(`_Consultei: ${fontes} · ${horaCurta(usadas[usadas.length - 1].consultadoEm)}_`);
+    }
+    return partes.join('\n\n');
+  }
   const linhas: string[] = [];
   linhas.push(`${EMOJI[params.veredito]} *${ROTULO[params.veredito]}*`);
   linhas.push('');

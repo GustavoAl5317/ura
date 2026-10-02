@@ -64,8 +64,18 @@ export async function transcrever(audio: Buffer, nomeArquivo = 'audio.ogg'): Pro
  * muda a conduta de quem ouve: se não está confirmado, a hipótese e a fonte
  * que caiu. O detalhe segue na mensagem de texto que vai junto.
  */
-export function falaDaResposta(r: Pick<RespostaAssistente, 'veredito' | 'texto' | 'hipotese' | 'fontesIndisponiveis'>): string {
+export function falaDaResposta(
+  r: Pick<RespostaAssistente, 'veredito' | 'texto' | 'hipotese' | 'fontesIndisponiveis'>,
+  opts: { semSelo?: boolean } = {},
+): string {
   if (r.veredito === 'CONVERSA') return r.texto;
+  // Sem selo: o texto já diz o que não deu para ver; nada de "não está confirmado".
+  if (opts.semSelo) {
+    const partes = [r.texto];
+    if (r.hipotese && r.veredito !== 'CONFIRMADO') partes.push(`Pode ser: ${r.hipotese}`);
+    if (r.fontesIndisponiveis.length) partes.push(`Não consegui consultar ${r.fontesIndisponiveis.join(' e ')}.`);
+    return partes.join('\n');
+  }
   const partes: string[] = [];
   if (r.veredito === 'PROVAVEL') partes.push('Ainda não está confirmado.');
   if (r.veredito === 'INCONCLUSIVO') partes.push('Não consegui confirmar.');

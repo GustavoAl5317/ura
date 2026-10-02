@@ -61,6 +61,13 @@ export const DEFINICOES = {
       '("a caixa na rua", "o aparelho do cliente"). "auto": espelha quem perguntou — quem fala técnico ' +
       'recebe técnico, quem fala simples recebe simples.',
   },
+  'ia.mostrar_veredito': {
+    tipo: 'texto', grupo: 'ia', padrao: () => 'nunca', opcoes: ['nunca', 'so_tecnico', 'sempre'],
+    descricao:
+      'Se a mensagem no WhatsApp mostra o selo (Confirmado, Provável, Inconclusivo) e o "falta para confirmar". ' +
+      '"nunca": a resposta sai só com o texto, e o que faltou vem dito em palavras ("não consegui ver a caixa X"). ' +
+      '"so_tecnico": mostra só para quem fala técnico. O veredito continua gravado no histórico do painel.',
+  },
   'ia.resposta_max_caracteres': {
     tipo: 'inteiro', grupo: 'ia', padrao: () => 600, min: 0, max: 4000,
     descricao:

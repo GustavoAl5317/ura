@@ -290,6 +290,7 @@ async function encurtar(texto: string, limite: number): Promise<{ texto: string 
         `Reescreva a resposta abaixo para um leigo, em até ${limite} caracteres. Primeira frase: a resposta direta. ` +
         'Depois, só o que muda a decisão de quem perguntou. Mantenha todos os números que ficarem e as citações ' +
         '(evd_N). Não acrescente nada. Sem título, sem "Leitura para gestão", sem nome de porta ou interface. ' +
+        'Não use "confirmado", "não confirmado", "inconclusivo", "provável" nem "hipótese". ' +
         'Devolva só o texto, sem linha de VEREDITO.',
     },
     { role: 'user', content: texto },
@@ -485,6 +486,17 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   const limiteCaracteres = simples ? obter<number>('ia.resposta_max_caracteres') : 0;
   if (simples) {
     messages.push({ role: 'system', content: instrucaoLinguagemSimples(limiteCaracteres) });
+  }
+  if (pedido.canal === 'whatsapp' && semSelo(simples)) {
+    messages.push({
+      role: 'system',
+      content:
+        'Esta resposta sai SEM selo de certeza. No texto, não use as palavras "confirmado", "não confirmado", ' +
+        '"inconclusivo", "provável", "hipótese" nem "veredito". Diga o que você viu, com segurança. Se faltou ' +
+        'alguma coisa, diga em palavras simples o que não deu para ver ("não consegui ver o sinal da caixa X agora"). ' +
+        'Nunca afirme como certo o que as ferramentas não mostraram. A linha VEREDITO do começo continua obrigatória: ' +
+        'ela não aparece para quem lê.',
+    });
   }
 
   // Leitura para gestão: depois dos números, o que eles querem dizer.
@@ -826,9 +838,20 @@ function persistir(pedido: PedidoAssistente, r: RespostaAssistente): void {
   }
 }
 
+/**
+ * O selo de certeza sai na mensagem? A casa pediu que não ("nunca que ela diga
+ * que não está confirmado"): o veredito fica no histórico do painel, e a
+ * mensagem diz o que faltou em palavras.
+ */
+export function semSelo(simples: boolean | undefined): boolean {
+  const modo = obter<string>('ia.mostrar_veredito');
+  return modo === 'nunca' || (modo === 'so_tecnico' && !!simples);
+}
+
 /** Resposta pronta para o WhatsApp: veredito, corpo e rastro. */
 export function paraWhatsApp(r: RespostaAssistente): string {
   return formatarResposta({
+    semSelo: semSelo(r.simples),
     veredito: r.veredito,
     ajuste: r.vereditoAjustado,
     texto: r.texto,

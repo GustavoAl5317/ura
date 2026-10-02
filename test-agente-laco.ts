@@ -187,6 +187,19 @@ async function main(): Promise<void> {
   const leigo = formatarResposta({ veredito: 'PROVAVEL', texto: 'Está funcionando.', evidencias: ev, fontesIndisponiveis: [], lacunas: ['a', 'b', 'c'], simples: true, ajuste: 'nota técnica' });
   checa('rodapé de leigo: uma linha de fonte, sem "evd_1 · sgp ·"', /Consultei: cadastro \(SGP\)/.test(leigo) && !/evd_1 ·/.test(leigo), leigo);
   checa('rodapé de leigo: só a primeira lacuna, sem nota técnica', /Falta para confirmar: a/.test(leigo) && !/• b/.test(leigo) && !/nota técnica/.test(leigo), leigo);
+  for (const v of ['PROVAVEL', 'INCONCLUSIVO'] as const) {
+    const msg = formatarResposta({ veredito: v, texto: 'Não consegui ver o sinal da caixa 5 agora.', evidencias: ev, fontesIndisponiveis: ['zabbix'], lacunas: ['falta X'], hipotese: 'rompimento', semSelo: true, ajuste: 'rebaixado' });
+    checa(`sem selo (${v}): nada de selo, "confirm", "hipótese" nem lacuna técnica`,
+      !/confirm|inconclusiv|prov[aá]vel|hip[oó]tese|falta X|rebaixado/i.test(msg) && msg.startsWith('Não consegui ver'), msg);
+    checa(`sem selo (${v}): mantém causa possível, fonte fora e fonte usada`,
+      /Pode ser: rompimento/.test(msg) && /Não consegui consultar: monitoramento/.test(msg) && /Consultei: cadastro/.test(msg), msg);
+  }
+  checa('o padrão é nunca mostrar o selo', agente.semSelo(false) && agente.semSelo(true));
+  pedidos = [];
+  roteiro = [texto('VEREDITO: CONVERSA\nok')];
+  await agente.responder({ pergunta: 'como está a rede?', usuario: 'teste-laco', canal: 'whatsapp' });
+  checa('no WhatsApp o modelo é avisado para não falar em confirmado',
+    pedidos[0].messages.some((m) => m.role === 'system' && /SEM selo de certeza/.test(m.content ?? '')));
   const tecnico = formatarResposta({ veredito: 'PROVAVEL', texto: 'ok', evidencias: ev, fontesIndisponiveis: [], lacunas: ['a', 'b'] });
   checa('rodapé técnico continua completo', /evd_1 · sgp · sgp.cadastro_espelho/.test(tecnico) && /• b/.test(tecnico), tecnico);
 

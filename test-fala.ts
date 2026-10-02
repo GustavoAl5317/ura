@@ -124,6 +124,9 @@ checa('provável: avisa antes', falaDaResposta({ ...base, veredito: 'PROVAVEL' }
 checa('hipótese é dita como hipótese', /Minha hipótese, sem confirmação: rompimento/.test(falaDaResposta({ ...base, veredito: 'PROVAVEL', hipotese: 'rompimento' })));
 checa('fonte fora é dita', /não consegui consultar zabbix/.test(falaDaResposta({ ...base, veredito: 'PROVAVEL', fontesIndisponiveis: ['zabbix'] })));
 checa('conversa: só o texto', falaDaResposta({ ...base, veredito: 'CONVERSA', texto: 'Bom dia!' }) === 'Bom dia!');
+const semSeloFala = falaDaResposta({ ...base, veredito: 'PROVAVEL', hipotese: 'rompimento', fontesIndisponiveis: ['zabbix'] }, { semSelo: true });
+checa('sem selo: não diz "não está confirmado" nem "hipótese"', !/confirm|hip[oó]tese/i.test(semSeloFala), semSeloFala);
+checa('sem selo: diz a causa possível e a fonte que faltou', /Pode ser: rompimento/.test(semSeloFala) && /Não consegui consultar zabbix/.test(semSeloFala), semSeloFala);
 
 console.log('\n─── Conversa: quando o código aceita ───');
 const ev = [{ id: 'evd_1', fonte: 'questdb', consulta: 'x', args: {}, consultadoEm: '', duracaoMs: 0, ok: true, vazio: true }] as any;
