@@ -313,7 +313,10 @@ export function ruaCasa(pedida: string, doCadastro: string): boolean {
   if (!p.length) return false;
   const c = palavrasDaRua(doCadastro);
   const somC = c.map(chaveFalada);
-  return p.every((x) => c.includes(x) || c.some((w) => x.length >= 4 && w.startsWith(x)) || somC.includes(chaveFalada(x)));
+  // Palavra igual, começo de palavra, mesmo som, ou uma letra trocada em
+  // palavra longa ("Bias Mendes" contra "BIAS MENDEZ").
+  return p.every((x) => c.includes(x) || c.some((w) => x.length >= 4 && w.startsWith(x)) ||
+    somC.includes(chaveFalada(x)) || (x.length >= 5 && c.some((w) => w.length >= 5 && edicao(w, x) <= 1)));
 }
 
 /**

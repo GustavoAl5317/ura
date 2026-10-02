@@ -11,6 +11,8 @@
 export interface Rota {
   assunto: string;
   instrucao: string;
+  /** Ferramenta que a primeira rodada do modelo é OBRIGADA a chamar. */
+  ferramenta: string;
 }
 
 /** Links de terceiros como se fala, e o nome que vai para zabbix_link. */
@@ -31,6 +33,7 @@ export function rotasDaPergunta(pergunta: string): Rota[] {
   if (link && !/caixa[s]? de emenda|\bceo\b|\bclo\b/i.test(p)) {
     rotas.push({
       assunto: `link ${link.nome}`,
+      ferramenta: 'zabbix_link',
       instrucao:
         `A pergunta é sobre o LINK ${link.nome} (rede de operadora ou circuito), não sobre bairro nem caixa. ` +
         `Chame zabbix_link com link="${link.nome}". Ela diz em que equipamento e porta ele está e se está no ar. ` +
@@ -41,6 +44,7 @@ export function rotasDaPergunta(pergunta: string): Rota[] {
   if (/cancel|desist|pedi(u|ram) (pra|para) sair/i.test(p)) {
     rotas.push({
       assunto: 'cancelamentos',
+      ferramenta: 'relatorio_cancelamentos',
       instrucao:
         'A pergunta é sobre CANCELAMENTOS (contagem). Chame relatorio_cancelamentos; com bairro se citar lugar ' +
         '(passe o nome como foi dito) e so_hoje=true se disser "hoje". NÃO procure cliente com esse nome: ' +
@@ -49,4 +53,19 @@ export function rotasDaPergunta(pergunta: string): Rota[] {
   }
 
   return rotas;
+}
+
+const ETAPA = /\b((?:primeir|segund|terceir|quart|quint|sext|setim|oitav)[ao]|\d+\s*[ºªa°]?)\s+etapa\b|\betapa\s+(\d+|[ivx]+)\b/i;
+
+/**
+ * O modelo encurta o bairro: "segunda etapa do Conjunto Ceará" chegou à
+ * ferramenta como "Conjunto Ceará", e a resposta saiu sobre as quatro etapas
+ * juntas. Se a pergunta diz a etapa e o bairro passado não tem número nenhum,
+ * a etapa volta para o bairro.
+ */
+export function completarBairro(bairro: string, pergunta: string): string {
+  const m = ETAPA.exec(pergunta.normalize('NFD').replace(/[̀-ͯ]/g, ''));
+  if (!m) return bairro;
+  if (/\d|\b[ivx]+\b|etapa/i.test(bairro.normalize('NFD').replace(/[̀-ͯ]/g, ''))) return bairro;
+  return `${bairro} ${m[0]}`;
 }

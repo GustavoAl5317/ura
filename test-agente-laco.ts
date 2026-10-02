@@ -47,9 +47,9 @@ ferramentas.registrar({
 
 // O "modelo": cada chamada devolve a próxima resposta do roteiro.
 let roteiro: Array<Record<string, unknown>> = [];
-let pedidos: Array<{ messages: Array<{ role: string; content: string | null }> }> = [];
-axios.post = async (_url: string, corpo: { messages: Array<{ role: string; content: string | null }> }) => {
-  pedidos.push({ messages: JSON.parse(JSON.stringify(corpo.messages)) });
+let pedidos: Array<{ messages: Array<{ role: string; content: string | null }>; tool_choice?: unknown }> = [];
+axios.post = async (_url: string, corpo: { messages: Array<{ role: string; content: string | null }>; tool_choice?: unknown }) => {
+  pedidos.push({ messages: JSON.parse(JSON.stringify(corpo.messages)), tool_choice: corpo.tool_choice });
   const msg = roteiro.shift() ?? { role: 'assistant', content: 'VEREDITO: INCONCLUSIVO\nfim do roteiro' };
   return { data: { choices: [{ message: msg }], usage: { prompt_tokens: 1, completion_tokens: 1 } } };
 };
@@ -123,6 +123,43 @@ async function main(): Promise<void> {
   await agente.responder({ pergunta: 'Como encontra-se a rede da RNP?', usuario: 'teste-laco', canal: 'chat' });
   checa('a instrução do link chega ao modelo',
     pedidos[0].messages.some((m) => m.role === 'system' && /zabbix_link com link="RNP"/.test(m.content ?? '')));
+
+  console.log('\n─── Ferramenta obrigatória e última rodada ───');
+  let argsCancel: Record<string, unknown> | null = null;
+  ferramentas.registrar({
+    nome: 'relatorio_cancelamentos', fonte: 'sgp', descricao: 'teste', parametros: { type: 'object', properties: {} },
+    async executar(args) {
+      argsCancel = args;
+      return [{ id: 'evd_c', fonte: 'sgp', consulta: 'relatorio_cancelamentos', args, consultadoEm: new Date().toISOString(), duracaoMs: 1, ok: true, vazio: false, dados: { total: 0 } }];
+    },
+  });
+  pedidos = [];
+  roteiro = [
+    { role: 'assistant', content: null, tool_calls: [{ id: 'k1', type: 'function', function: { name: 'relatorio_cancelamentos', arguments: JSON.stringify({ bairro: 'Bolsa Fesso', so_hoje: true }) } }] },
+    texto('VEREDITO: CONFIRMADO\nNenhum cancelamento hoje no Bom Sucesso (evd_c).'),
+  ];
+  r = await agente.responder({ pergunta: 'no bairro Bolsa Fesso, quantos cancelamentos tiveram hoje?', usuario: 'teste-laco', canal: 'chat' });
+  checa('cancelamento: a 1ª rodada é obrigada a chamar o relatório',
+    JSON.stringify(pedidos[0].tool_choice) === JSON.stringify({ type: 'function', function: { name: 'relatorio_cancelamentos' } }), pedidos[0].tool_choice);
+  checa('a 2ª rodada volta a ser livre', pedidos[1]?.tool_choice === 'auto', pedidos[1]?.tool_choice);
+
+  pedidos = [];
+  roteiro = Array.from({ length: 30 }, (_, n) => chamada(`z${n}`, { termo: `x${n}` }));
+  r = await agente.responder({ pergunta: 'procure em todo lugar', usuario: 'teste-laco', canal: 'chat' });
+  checa('a última rodada é obrigada a responder (sem ferramenta)', pedidos[pedidos.length - 1].tool_choice === 'none', pedidos.map((x) => x.tool_choice));
+
+  console.log('\n─── Etapa do bairro ───');
+  argsCancel = null;
+  roteiro = [
+    { role: 'assistant', content: null, tool_calls: [{ id: 'k2', type: 'function', function: { name: 'relatorio_cancelamentos', arguments: JSON.stringify({ bairro: 'Conjunto Ceará' }) } }] },
+    texto('VEREDITO: CONFIRMADO\nok (evd_c)'),
+  ];
+  await agente.responder({ pergunta: 'quantos cancelamentos na segunda etapa do Conjunto Ceará?', usuario: 'teste-laco', canal: 'chat' });
+  checa('o bairro chega à ferramenta com a etapa que a pessoa disse', /segunda etapa/i.test(String((argsCancel as any)?.bairro)), argsCancel);
+
+  console.log('\n─── Veredito inválido ───');
+  const v = agente.extrairVereditoProposto('VEREDITO: CRÍTICO\nEntendi BONSUCESSO.');
+  checa('"VEREDITO: CRÍTICO" não é declaração e sai do texto', v.veredito === 'PROVAVEL' && !/CR[IÍ]TICO/.test(v.corpo) && /BONSUCESSO/.test(v.corpo), v);
 
   fecharDb();
   console.log(`\n${passou} ok, ${falhou} falha(s)`);

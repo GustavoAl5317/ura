@@ -964,7 +964,9 @@ const osAbertasRede: Ferramenta = {
           bairro = bairroPedido(pedidoBairro);
           if (!bairro.bairro) {
             return {
-              vazio: true,
+              // Sem nada parecido no cadastro inteiro, "não temos cliente lá" é
+              // resposta. Com parecido, pode ser nome mal ouvido: aí pergunta.
+              vazio: bairro.candidatos.length > 0,
               dados: {
                 bairro_pedido: pedidoBairro,
                 bairro_encontrado: false,

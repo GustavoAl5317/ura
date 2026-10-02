@@ -204,7 +204,7 @@ async function main(): Promise<void> {
   a = await osAbertas({ bairro: 'Parangaba' });
   checa('bairro sem O.S. aberta é "nenhuma", não "não sei"', a.ok && !a.vazio && a.dados.total_abertas === 0 && !!a.dados.nenhuma_no_bairro, a);
   a = await osAbertas({ bairro: 'Copacabana' });
-  checa('bairro que não temos pede qual é', a.vazio && a.dados.bairro_encontrado === false, a.dados);
+  checa('bairro sem nada parecido é resposta: não temos cliente lá', !a.vazio && a.dados.bairro_encontrado === false && a.dados.bairros_com_cliente.length > 0, a.dados);
 
   console.log('\n─── Cancelamentos por bairro, hoje ───');
   const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Fortaleza' });
@@ -258,7 +258,7 @@ async function main(): Promise<void> {
   checa('"a OLT da Huawei" pelo nome do cadastro', ba.dados.bairros.length === 2 && ba.dados.filtro.olts_consideradas[0] === 'OLT-1 HUAWEI', ba.dados);
   ba = await atendidos({ olt: 'OLT 7' });
   checa('OLT que não existe mostra as que existem', ba.vazio && ba.dados.olts_no_cadastro.length === 2, ba.dados);
-  checa('"AT&T" procura at&t e att', ['at&t', 'att'].every((n) => nomesDoLink('rede da AT&T').includes(n)), nomesDoLink('rede da AT&T'));
+  checa('"AT&T" procura at&t e at-t', ['at&t', 'at-t'].every((n) => nomesDoLink('rede da AT&T').includes(n)), nomesDoLink('rede da AT&T'));
 
   console.log('\n─── Vocabulário ───');
   checa('semente nova entra num banco vazio', glo.semear() === glo.SEMENTE.length);
@@ -313,6 +313,25 @@ async function main(): Promise<void> {
   checa('nome desconhecido procura só ele', nomesDoLink('seaborn').length === 1);
   checa('"rnp" não casa dentro de outra palavra', nomesDoLink('turnpike').length === 1, nomesDoLink('turnpike'));
 
+  console.log('\n─── Situação do link ───');
+  const { situacaoGeral } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'metricas')) as typeof import('./src/assistant/tools/metricas');
+  checa('porta sem coleta não esconde porta no ar', situacaoGeral(['desconhecida', 'desconhecida', 'no_ar'], false) === 'no_ar');
+  checa('porta fora manda', situacaoGeral(['no_ar', 'fora'], false) === 'fora');
+  checa('alerta solto é problema', situacaoGeral(['no_ar'], true) === 'com_problema');
+  checa('só sem coleta é desconhecida', situacaoGeral(['desconhecida'], false) === 'desconhecida');
+  checa('nada é não encontrado', situacaoGeral([], false) === 'nao_encontrado');
+  checa('"AT&T" não procura "att" solto', !nomesDoLink('rede da AT&T').includes('att'), nomesDoLink('rede da AT&T'));
+
+  console.log('\n─── Etapa e rua ───');
+  const { completarBairro } = require(path.join(RAIZ, 'src', 'assistant', 'rota')) as typeof import('./src/assistant/rota');
+  checa('etapa volta para o bairro', completarBairro('Conjunto Ceará', 'como tá a luz da caixa da segunda etapa do Conjunto Ceará?') === 'Conjunto Ceará segunda etapa',
+    completarBairro('Conjunto Ceará', 'como tá a luz da caixa da segunda etapa do Conjunto Ceará?'));
+  checa('bairro que já tem número fica', completarBairro('Conjunto Ceará II', 'segunda etapa do Conjunto Ceará') === 'Conjunto Ceará II');
+  checa('sem etapa na pergunta, nada muda', completarBairro('Parangaba', 'como está a Parangaba?') === 'Parangaba');
+  checa('"2ª etapa" também', /2ª etapa/.test(completarBairro('Conjunto Ceará', 'a 2ª etapa do conjunto ceará')), completarBairro('Conjunto Ceará', 'a 2ª etapa do conjunto ceará'));
+  checa('rua com uma letra trocada casa', geo.ruaCasa('rua bias mendes', 'RUA BIAS MENDEZ'));
+  checa('mas rua diferente não', !geo.ruaCasa('rua bias mendes', 'RUA BRAS MOURA'));
+
   console.log('\n─── Planta: leitura de registros ───');
   checa('/list com records', gs.extrairRegistros({ total: 2, records: [{ fid: 1 }, { fid: 2 }] }).registros.length === 2);
   checa('o total vem do corpo', gs.extrairRegistros({ total: 150, records: [{ fid: 1 }] }).total === 150);
@@ -356,6 +375,16 @@ async function main(): Promise<void> {
   checa('caixa longe de toda CTO fica sem bairro, contada', ce.dados.sem_bairro_identificado === 1, ce.dados.sem_bairro_identificado);
   ce = await emenda({ bairro: 'Copacabana' });
   checa('bairro sem caixa identificada explica e oferece endereço', ce.vazio && /endereço|referência/.test(ce.dados.instrucao), ce.dados);
+  const raios: number[] = [];
+  const facOriginal = (gs.geosite as any).facilidades;
+  (gs.geosite as any).facilidades = async (p: { raio: number }) => {
+    raios.push(p.raio);
+    return p.raio < 1000 ? [] : [{ codigo: 'CEO-LONGE-700', distancia: 700, x: -38.45, y: -3.74, fidTipoCaixaEmenda: 1 }];
+  };
+  ce = await emenda({ endereco: 'Angola Cables, Praia do Futuro, Fortaleza' });
+  checa('nada a 500 m: amplia a busca e acha a de 700 m',
+    raios.join() === '500,2000' && ce.dados.caixas[0]?.codigo === 'CEO-LONGE-700' && /ampliada/.test(ce.dados.raio_ampliado), { raios, d: ce.dados });
+  (gs.geosite as any).facilidades = facOriginal;
   ce = await emenda({ endereco: 'Angola Cables, Praia do Futuro, Fortaleza' });
   checa('perto da Angola Cables: só caixas de emenda, da mais perto para a mais longe',
     ce.ok && ce.dados.caixas.map((x: any) => x.codigo).join() === 'CEO-PRAIA-1,CEO-PRAIA-2', ce.dados?.caixas);

@@ -345,22 +345,33 @@ const caixasEmenda: Ferramenta = {
       const ondeFica = await bairroPorPerto();
 
       if (endereco) {
-        const achadas = (await geosite.facilidades({ endereco, raio, tipos: ['caixaEmenda'] }))
-          .filter((r) => {
-            const tipo = Number(textoDe(r, 'fidTipoCaixaEmenda'));
+        const buscar = async (r: number) => (await geosite.facilidades({ endereco, raio: r, tipos: ['caixaEmenda'] }))
+          .filter((x) => {
+            const tipo = Number(textoDe(x, 'fidTipoCaixaEmenda'));
             return !Number.isFinite(tipo) || tipo === TIPO_CAIXA_EMENDA;
           })
           .sort((a, b) => Number(textoDe(a, 'distancia') ?? Infinity) - Number(textoDe(b, 'distancia') ?? Infinity));
+        let achadas = await buscar(raio);
+        // Nada no raio pedido: abre uma vez, até 3 km. "Em frente à Angola"
+        // é ponto aproximado, e a caixa a 700 m é a resposta que a pessoa quer.
+        let raioUsado = raio;
+        if (!achadas.length && raio < 3000) {
+          raioUsado = Math.min(3000, raio * 4);
+          achadas = await buscar(raioUsado);
+        }
         return {
           // Busca completa no raio: nenhuma caixa é resposta (sobre esse raio).
           vazio: false,
           dados: {
             referencia: endereco,
-            raio_m: raio,
+            raio_m: raioUsado,
+            raio_ampliado: raioUsado !== raio
+              ? `Nada a ${raio} m; a busca foi ampliada para ${raioUsado} m. Diga a distância de cada caixa.`
+              : undefined,
             encontradas: achadas.length,
             nenhuma: achadas.length === 0
-              ? `Nenhuma caixa de emenda na planta a até ${raio} m desse ponto. Se o ponto de referência não for ` +
-                'endereço conhecido pelo mapa, a localização pode ter falhado: peça a rua mais próxima ou aumente o raio.'
+              ? `Nenhuma caixa de emenda na planta a até ${raioUsado} m desse ponto. Se o ponto de referência não for ` +
+                'endereço conhecido pelo mapa, a localização pode ter falhado: peça a rua mais próxima.'
               : undefined,
             caixas: achadas.slice(0, limite).map((r) => {
               const p = coordenadaDe(r);

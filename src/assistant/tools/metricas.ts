@@ -103,6 +103,14 @@ const equipamentos: Ferramenta = {
           todos = (await zm.statusHosts()).filter((h) => (h.modelo ?? '').toLowerCase().replace(/\s+/g, '').includes(alvo));
           achadoPeloModelo = todos.length > 0;
         }
+        // Modelo que o Zabbix não registra ("6720" sem inventário): mostra os
+        // do fabricante/tipo pedido, dizendo que o modelo não dá para conferir,
+        // em vez de "não há dados".
+        let modeloNaoRegistrado = false;
+        if (filtro && !todos.length && /\d{3,}/.test(filtro) && (fabricante || tipo)) {
+          todos = await zm.statusHosts();
+          modeloNaoRegistrado = true;
+        }
         let hs = todos;
         if (fabricante) hs = hs.filter((h) => h.fabricante === fabricante);
         if (tipo) hs = hs.filter((h) => h.tipo === tipo);
@@ -119,6 +127,10 @@ const equipamentos: Ferramenta = {
           dados: {
             filtro: filtro ?? null,
             achado_pelo_modelo: achadoPeloModelo ? `"${filtro}" não está no nome; achado pelo modelo do equipamento` : undefined,
+            modelo_nao_registrado: modeloNaoRegistrado
+              ? `Nenhum equipamento tem "${filtro}" no nome nem no inventário do Zabbix. A lista abaixo é de todos os ` +
+                'equipamentos do fabricante/tipo pedido: diga isso e pergunte qual deles é, pelo nome.'
+              : undefined,
             fabricante: fabricante ?? null,
             fabricante_entendido: pedidoFab && fabricante && pedidoFab.toLowerCase() !== fabricante.toLowerCase()
               ? `"${pedidoFab}" entendido como ${fabricante}` : undefined,
@@ -258,7 +270,8 @@ const APELIDOS_DE_LINK: Array<{ casa: RegExp; nomes: string[] }> = [
   { casa: /etice|cinturao|cinturão/i, nomes: ['etice', 'cinturao'] },
   { casa: /angola|cable/i, nomes: ['angola'] },
   { casa: /ix-?ce|ix ?fortaleza|ptt/i, nomes: ['ix-ce', 'ixce', 'ix.br'] },
-  { casa: /\bat ?& ?t\b|\batt\b|\bat-t\b/i, nomes: ['at&t', 'att', 'at-t'] },
+  // "att" sozinho não: casa dentro de qualquer nome de item ("Battery", "attempts").
+  { casa: /\bat ?& ?t\b|\batt\b|\bat-t\b/i, nomes: ['at&t', 'at-t', 'at_t'] },
 ];
 
 export function nomesDoLink(termo: string): string[] {
@@ -266,6 +279,23 @@ export function nomesDoLink(termo: string): string[] {
   const nomes = [limpo];
   for (const a of APELIDOS_DE_LINK) if (a.casa.test(limpo)) nomes.push(...a.nomes);
   return [...new Set(nomes.map((n) => n.toLowerCase()))];
+}
+
+/**
+ * Situação do link como um todo. Porta fora ou com alerta manda; depois, uma
+ * porta no ar já põe o link no ar. Antes valia a PRIMEIRA porta da lista
+ * ordenada, e "desconhecida" vinha antes de "no_ar": uma subinterface sem
+ * coleta fazia a RNP, com 1,2 Gbps passando, sair como "situação desconhecida".
+ */
+export function situacaoGeral(
+  situacoes: Array<'fora' | 'com_problema' | 'no_ar' | 'desconhecida'>,
+  alertaSolto: boolean,
+): 'fora' | 'com_problema' | 'no_ar' | 'desconhecida' | 'nao_encontrado' {
+  if (situacoes.includes('fora')) return 'fora';
+  if (situacoes.includes('com_problema') || alertaSolto) return 'com_problema';
+  if (situacoes.includes('no_ar')) return 'no_ar';
+  if (situacoes.length) return 'desconhecida';
+  return 'nao_encontrado';
 }
 
 const link: Ferramenta = {
@@ -373,13 +403,20 @@ const link: Ferramenta = {
             .slice(0, 60);
         }
 
+        const geral = situacaoGeral(links.map((l) => l.situacao), soltos.length > 0);
+        const semColeta = links.filter((l) => l.situacao === 'desconhecida').length;
         return {
           vazio: nadaAchado,
           dados: {
             link: termo,
             nomes_procurados: nomes,
             achado_como: achadoComo !== termo ? achadoComo : undefined,
-            situacao_geral: links[0]?.situacao ?? (soltos.length ? 'com_problema' : 'nao_encontrado'),
+            situacao_geral: geral,
+            como_ler_a_situacao: geral === 'no_ar' && semColeta
+              ? `O link está NO AR: há porta com estado up ou tráfego e nenhum alerta. As ${semColeta} porta(s) sem ` +
+                'coleta não mudam isso: são subinterface ou item sem leitura, ponto para revisar no Zabbix, não queda. ' +
+                'Responda que está no ar, com o tráfego, e cite as sem coleta como observação.'
+              : undefined,
             links,
             outros_alertas_com_o_nome: soltos.map(problema),
             ...(nadaAchado ? {

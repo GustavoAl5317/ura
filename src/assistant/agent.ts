@@ -19,7 +19,7 @@ import { dispararWebhooks } from './webhooks';
 import { obter, fontesHabilitadas } from './config-dinamica';
 import { blocoParaPrompt, marcarUso } from './glossario';
 import { linhaDeContexto } from './contexto';
-import { rotasDaPergunta } from './rota';
+import { rotasDaPergunta, completarBairro } from './rota';
 
 const API = 'https://api.openai.com/v1/chat/completions';
 
@@ -217,6 +217,11 @@ export function respostaSocial(pergunta: string, agora: Date): string | null {
 
 export function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
   const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO|CONVERSA)\s*\n?/i);
+  // "VEREDITO: CRÍTICO": o modelo pôs o nível de saúde no lugar da certeza.
+  // Não é declaração válida: sai do texto (senão aparece para o leitor) e
+  // conta como sem declaração.
+  const invalido = !m && texto.match(/^\s*VEREDITO:[^\n]*\n?/i);
+  if (invalido) return { veredito: 'PROVAVEL', corpo: tirarSeloRepetido(texto.slice(invalido[0].length)) };
   if (!m) {
     // O modelo às vezes escreve o selo em vez da linha pedida ("🟢 CONFIRMADO"
     // no lugar de "VEREDITO: CONFIRMADO"). É a mesma declaração: aceita, e tira
@@ -246,9 +251,13 @@ export function tirarSeloRepetido(corpo: string): string {
   return linhas.join('\n').trim();
 }
 
+/** 'auto' deixa o modelo escolher; nome obriga uma ferramenta; 'none' obriga a responder. */
+type EscolhaFerramenta = 'auto' | 'none' | { type: 'function'; function: { name: string } };
+
 async function chamarModelo(
   messages: MsgOpenAi[],
   tools: unknown[],
+  escolha: EscolhaFerramenta = 'auto',
 ): Promise<{ msg: MsgOpenAi; entrada?: number; saida?: number }> {
   const res = await axios.post<{
     choices: Array<{ message: MsgOpenAi }>;
@@ -259,7 +268,7 @@ async function chamarModelo(
       model: obter<string>('ia.modelo'),
       messages,
       tools: tools.length ? tools : undefined,
-      tool_choice: tools.length ? 'auto' : undefined,
+      tool_choice: tools.length ? escolha : undefined,
       temperature: obter<number>('ia.temperatura'),
       max_tokens: obter<number>('ia.max_tokens'),
     },
@@ -387,9 +396,14 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   }
 
   // Assunto inequívoco: a ferramenta certa vai por escrito.
-  for (const r of rotasDaPergunta(pedido.pergunta)) {
+  const rotas = rotasDaPergunta(pedido.pergunta);
+  for (const r of rotas) {
     messages.push({ role: 'system', content: r.instrucao });
   }
+  // Instrução escrita não bastou: com o assunto inequívoco, a primeira rodada
+  // é OBRIGADA a chamar a ferramenta (o modelo ainda escolhe os argumentos).
+  const nomesDisponiveis = new Set((tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name));
+  const obrigatoria = rotas.find((r) => nomesDisponiveis.has(r.ferramenta))?.ferramenta ?? null;
 
   // Registro de linguagem: quem fala simples recebe resposta simples.
   const registro = obter<string>('ia.linguagem');
@@ -438,6 +452,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
       role: 'system',
       content:
         'Quem lê pode ser gestor. Depois dos números técnicos, acrescente um parágrafo curto "Leitura para gestão": ' +
+        'o nível de saúde vai DENTRO desse parágrafo, nunca na linha VEREDITO (que é só CONFIRMADO, PROVAVEL, ' +
+        'INCONCLUSIVO ou CONVERSA e diz o quanto a resposta está provada, não como está a rede). ' +
         'o nível (saudável, ponto de atenção, em degradação, crítico ou sem base para avaliar), o motivo, o impacto ' +
         'em clientes, desde quando e o que fazer. Para pergunta sobre COMO ESTÁ um lugar, chame saude_da_rede: o ' +
         'nível vem dela, calculado, e você não muda. Se não chamou saude_da_rede, NÃO declare nível nenhum — ' +
@@ -474,7 +490,12 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   for (let rodada = 0; rodada < maxRodadas; rodada++) {
     let resposta;
     try {
-      resposta = await chamarModelo(messages, tools);
+      // Primeira rodada: ferramenta obrigatória, se houver. Última: responder
+      // com o que tem, em vez de terminar em "não consegui concluir".
+      const escolha: EscolhaFerramenta = rodada === 0 && obrigatoria
+        ? { type: 'function', function: { name: obrigatoria } }
+        : rodada === maxRodadas - 1 && rodada > 0 ? 'none' : 'auto';
+      resposta = await chamarModelo(messages, tools, escolha);
     } catch (err) {
       const ax = err as AxiosError;
       erroFatal = `modelo indisponível: ${ax.response?.status ?? ''} ${ax.message}`.trim();
@@ -551,6 +572,10 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
             continue;
           }
           jaFeitas.add(assinatura);
+          // "Segunda etapa do Conjunto Ceará" não pode virar "Conjunto Ceará".
+          if (typeof args.bairro === 'string' && args.bairro.trim()) {
+            args = { ...args, bairro: completarBairro(args.bairro, pedido.pergunta) };
+          }
           novos = await f.executar(args, ctx);
         }
 
