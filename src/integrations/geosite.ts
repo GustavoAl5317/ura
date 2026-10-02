@@ -86,6 +86,50 @@ export function extrairCaixas(data: unknown): GeositeCaixa[] {
   return [];
 }
 
+/** Nomes das colunas de um /desc: `{ columns: [{ name }] }`. */
+export function extrairColunas(data: unknown): string[] {
+  const cols = (data as { columns?: unknown } | null)?.columns;
+  if (!Array.isArray(cols)) return [];
+  return cols.map((c) => (typeof c === 'string' ? c : String((c as { name?: unknown })?.name ?? ''))).filter(Boolean);
+}
+
+/**
+ * Registros de um /list (`{ total, records }`) ou de outra consulta que mande
+ * a lista em outro campo. Mesmo cuidado de extrairCaixas: aceitar as formas
+ * conhecidas em vez de devolver vazio calado.
+ */
+export function extrairRegistros(data: unknown): { total: number | null; registros: Array<Record<string, unknown>> } {
+  if (Array.isArray(data)) return { total: data.length, registros: data as Array<Record<string, unknown>> };
+  const corpo = data as Record<string, unknown> | null | undefined;
+  const total = typeof corpo?.total === 'number' ? corpo.total : Number.isFinite(Number(corpo?.total)) && corpo?.total !== undefined ? Number(corpo.total) : null;
+  for (const campo of ['records', 'caixas', 'facilidades', 'data', 'itens', 'lista']) {
+    const v = corpo?.[campo];
+    if (Array.isArray(v)) return { total: total ?? v.length, registros: v as Array<Record<string, unknown>> };
+  }
+  return { total, registros: [] };
+}
+
+/**
+ * Coordenada de um registro qualquer da planta: latitude/longitude, x/y
+ * (EPSG:4326, x = longitude) ou geometria em WKT.
+ */
+export function coordenadaDe(r: Record<string, unknown>): { latitude?: number; longitude?: number } {
+  const num = (v: unknown) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const lat = num(r.latitude ?? r.lat);
+  const lon = num(r.longitude ?? r.lon ?? r.long ?? r.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) return { latitude: lat, longitude: lon };
+  const x = num(r.x);
+  const y = num(r.y);
+  if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(y) <= 90 && Math.abs(x) <= 180) return { latitude: y, longitude: x };
+  for (const [k, v] of Object.entries(r)) {
+    if (typeof v === 'string' && /geom/i.test(k)) {
+      const p = pontoWkt(v);
+      if (p.latitude !== undefined) return p;
+    }
+  }
+  return {};
+}
+
 /** "POINT (-38.59606 -3.76439)" → { lat, long }. Ordem do WKT: long, lat. */
 export function pontoWkt(wkt: string | undefined): { latitude?: number; longitude?: number } {
   const m = /POINT\s*\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)/i.exec(wkt ?? '');
@@ -274,6 +318,74 @@ export class GeositeClient {
       logger.error('GeoSite viabilidade coordenadas erro', { err: err.message });
       return { temCobertura: false };
     }
+  }
+
+  // ─── Consulta genérica da planta (somente leitura) ─────────────────────────
+  //
+  // A API expõe cada feição (caixaEmenda, cto, poste...) com /desc e /list.
+  // Aqui só se usa LEITURA: save e delete existem na API e nunca são chamados.
+
+  private colunasCache = new Map<string, { em: number; nomes: string[] }>();
+
+  /** Colunas que a feição tem nesta instalação. Cache de 1 hora. */
+  async colunas(feicao: string): Promise<string[]> {
+    const c = this.colunasCache.get(feicao);
+    if (c && Date.now() - c.em < 3_600_000) return c.nomes;
+    const headers = await this.authHeaders();
+    if (!headers.Authorization) throw new Error('GeoSite: login recusado ou indisponível');
+    const res = await this.http.get(`/${feicao}/desc`, { headers });
+    const nomes = extrairColunas(res.data);
+    this.colunasCache.set(feicao, { em: Date.now(), nomes });
+    return nomes;
+  }
+
+  /** Uma página de registros da feição. */
+  async listar(feicao: string, p: { columns: string[]; filter?: string; limit?: number; start?: number; sorter?: string }):
+    Promise<{ total: number | null; registros: Array<Record<string, unknown>> }> {
+    const headers = await this.authHeaders();
+    if (!headers.Authorization) throw new Error('GeoSite: login recusado ou indisponível');
+    const res = await this.http.get(`/${feicao}/list`, {
+      headers,
+      params: {
+        columns: p.columns.join(','),
+        ...(p.filter ? { filter: p.filter } : {}),
+        ...(p.sorter ? { sorter: p.sorter } : {}),
+        limit: p.limit ?? 500,
+        start: p.start ?? 0,
+      },
+    });
+    return extrairRegistros(res.data);
+  }
+
+  /** Todas as páginas, até `maximo` registros. `completo` diz se coube tudo. */
+  async listarTudo(feicao: string, p: { columns: string[]; filter?: string }, maximo = 5000):
+    Promise<{ total: number | null; registros: Array<Record<string, unknown>>; completo: boolean }> {
+    const todos: Array<Record<string, unknown>> = [];
+    let total: number | null = null;
+    const pagina = 500;
+    for (let start = 0; start < maximo; start += pagina) {
+      const r = await this.listar(feicao, { ...p, limit: pagina, start });
+      total = r.total ?? total;
+      todos.push(...r.registros);
+      if (r.registros.length < pagina || (total !== null && todos.length >= total)) break;
+    }
+    return { total, registros: todos, completo: total === null ? todos.length < maximo : todos.length >= total };
+  }
+
+  /**
+   * Feições perto de um endereço, ponto de referência ou coordenada, filtradas
+   * por tipo (caixaEmenda, cto, estacao...). A planta geocodifica o endereço.
+   */
+  async facilidades(p: { endereco?: string; latitude?: number; longitude?: number; raio: number; tipos: string[] }):
+    Promise<Array<Record<string, unknown>>> {
+    const headers = await this.authHeaders();
+    if (!headers.Authorization) throw new Error('GeoSite: login recusado ou indisponível');
+    const params: Record<string, unknown> = { raio: p.raio };
+    if (p.endereco) params.endereco = p.endereco;
+    else { params.latitude = p.latitude; params.longitude = p.longitude; }
+    for (const t of p.tipos) params[t] = 1;
+    const res = await this.http.get('/viabilidade/facilidade', { headers, params });
+    return extrairRegistros(res.data).registros;
   }
 
   // Verifica existência de cabo óptico próximo a coordenadas

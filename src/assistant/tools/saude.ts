@@ -7,7 +7,7 @@
 
 import { config } from '../../config';
 import { lerSaude, lerSaudePorBairro, ROTULO_NIVEL } from '../saude-rede';
-import { resumoPorBairro } from '../geografia';
+import { resumoPorBairro, enderecoDaCto, enderecoEmTexto } from '../geografia';
 import { questdb } from '../../integrations/questdb';
 import { Ferramenta, medir, ferramentas } from './base';
 
@@ -90,6 +90,10 @@ const saude: Ferramenta = {
       const l = r.leitura;
       return {
         dados: {
+          bairro_interpretado: r.entendido ? {
+            ...r.entendido,
+            instrucao: `Diga na resposta que entendeu "${r.entendido.entendido}" (a pessoa disse "${r.entendido.pedido}").`,
+          } : undefined,
           leitura_para_gestao: {
             nivel: l.nivel,
             rotulo: l.rotulo,
@@ -107,6 +111,7 @@ const saude: Ferramenta = {
           contagem_por_nivel: Object.fromEntries(Object.entries(l.contagem).map(([k, v]) => [ROTULO_NIVEL[k as keyof typeof ROTULO_NIVEL], v])),
           pontos_de_atencao: l.pontos_de_atencao.map((c) => ({
             caixa: c.nome,
+            endereco_provavel: enderecoEmTexto(enderecoDaCto({ cto_id: c.cto_id, nome: c.nome })),
             pon: c.pon,
             nivel: c.rotulo,
             motivos: c.motivos,

@@ -11,7 +11,7 @@ import {
 import { ZabbixClient } from '../../integrations/zabbix';
 import { obter } from '../config-dinamica';
 import { Ferramenta, CtxFerramenta, medir, ferramentas } from './base';
-import { BairroDaCto, filtrarPorLugar, resolverBairro, resumoPorBairro } from '../geografia';
+import { BairroDaCto, filtrarPorLugar, resolverBairro, resumoPorBairro, enderecoDaCto, enderecoEmTexto, ctosDaRua, chaveCto } from '../geografia';
 import { lerSaude } from '../saude-rede';
 import { config } from '../../config';
 
@@ -74,6 +74,14 @@ export function resolverCtoAmplo(
   return direto;
 }
 
+function enderecoSeguro(c: CtoAtual): string | null {
+  try {
+    return enderecoEmTexto(enderecoDaCto(c));
+  } catch {
+    return null;
+  }
+}
+
 function resumoAtual(c: CtoAtual) {
   return {
     cto_id: c.cto_id,
@@ -85,6 +93,8 @@ function resumoAtual(c: CtoAtual) {
     portas: c.portas,
     portas_livres: c.portas !== null && c.clientes !== null ? Math.max(0, c.portas - c.clientes) : null,
     ocupacao_pct: c.ocupacao,
+    // Onde fica, em palavras: rua dos clientes dela. O link é a posição exata.
+    endereco_provavel: enderecoSeguro(c),
     mapa: linkMapa(c.lat, c.long),
     leitura_em: c.em,
     leitura_ha_min: c.idadeMin,
@@ -282,7 +292,10 @@ const ocupacao: Ferramenta = {
   descricao:
     'Ocupação das CTOs agora: lotadas, quase cheias ou com mais portas livres, com totais da rede e link ' +
     'do mapa. Use para "quais CTOs estão lotadas?", "tem porta livre na CTO X?", "quantas portas livres ' +
-    'temos?", "CTOs com vaga na PON 5", "CTOs vazias no bairro X" (bairro + max_ocupacao 0). ' +
+    'temos?", "CTOs com vaga na PON 5", "CTOs vazias no bairro X" (bairro + max_ocupacao 0), ' +
+    '"caixas com só um cliente na Granja Portugal" (bairro + min_clientes 1 + max_clientes 1), ' +
+    '"qual a caixa da Rua Bias Mendes?" (rua). Cada CTO sai com endereco_provavel (rua dos clientes ' +
+    'dela) e mapa: use isso para "onde fica", "qual o endereço", "em qual rua". ' +
     'Ocupação vem do cadastro (clientes ativos / portas). O bairro é deduzido de quem está ligado na CTO; ' +
     'CTO vazia não tem cliente para perguntar, então o bairro dela sai como provável, pela CTO mais ' +
     'próxima, com a distância — nesse caso diga que é aproximado.',
@@ -293,7 +306,10 @@ const ocupacao: Ferramenta = {
       min_ocupacao: { type: 'number', description: 'Só CTOs com ocupação ≥ este % (padrão 0)' },
       max_ocupacao: { type: 'number', description: 'Só CTOs com ocupação ≤ este % (padrão 100)' },
       pon: { type: 'string', description: 'Filtra por PON' },
-      busca: { type: 'string', description: 'Trecho do nome da CTO ou rua' },
+      busca: { type: 'string', description: 'Trecho do nome da CTO' },
+      rua: { type: 'string', description: 'Só CTOs que atendem clientes dessa rua ("rua bias mendes", "av. osorio de paiva")' },
+      min_clientes: { type: 'number', description: 'Só CTOs com pelo menos N clientes ligados' },
+      max_clientes: { type: 'number', description: 'Só CTOs com no máximo N clientes ligados ("só um cliente" = min 1 e max 1; "vazia" = max 0)' },
       bairro: { type: 'string', description: 'Só CTOs desse bairro (vem do cadastro dos clientes ligados nela)' },
       cidade: { type: 'string', description: 'Só CTOs dessa cidade' },
       limite: { type: 'number', description: 'Quantas listar (padrão 20, máx 100)' },
@@ -312,16 +328,42 @@ const ocupacao: Ferramenta = {
       const limite = Math.min(100, Math.max(1, Number(args.limite) || 20));
       const bairro = typeof args.bairro === 'string' && args.bairro.trim() ? args.bairro.trim() : undefined;
       const cidade = typeof args.cidade === 'string' && args.cidade.trim() ? args.cidade.trim() : undefined;
+      const minCli = args.min_clientes === undefined || args.min_clientes === null ? null : Number(args.min_clientes);
+      const maxCli = args.max_clientes === undefined || args.max_clientes === null ? null : Number(args.max_clientes);
       let filtradas = todas.filter((c) =>
         (c.ocupacao ?? 0) >= min && (c.ocupacao ?? 0) <= max &&
         (!pon || c.pon === pon) &&
-        (!busca || norm(c.nome).includes(busca)));
+        (!busca || norm(c.nome).includes(busca)) &&
+        (minCli === null || !Number.isFinite(minCli) || (c.clientes ?? 0) >= minCli) &&
+        (maxCli === null || !Number.isFinite(maxCli) || (c.clientes ?? 0) <= maxCli));
+
+      // Rua: vale a CTO que tem cliente morando nela.
+      const rua = typeof args.rua === 'string' && args.rua.trim() ? args.rua.trim() : null;
+      let daRua: ReturnType<typeof ctosDaRua> | null = null;
+      if (rua) {
+        daRua = ctosDaRua(rua);
+        if (!daRua.ruas.length) {
+          return {
+            vazio: true,
+            dados: {
+              filtro: { rua },
+              rua_encontrada: false,
+              instrucao:
+                'Nenhum cliente nosso mora numa rua com esse nome no cadastro. NÃO diga que a rua não tem ' +
+                'caixa: diga que não achou a rua no cadastro e peça o bairro ou um ponto de referência.',
+            },
+          };
+        }
+        const naRua = (c: CtoAtual) => chaveCto(c).map((k) => daRua!.porCto.get(k) ?? 0).reduce((a, b) => Math.max(a, b), 0);
+        filtradas = filtradas.filter((c) => naRua(c) > 0);
+      }
 
       // Bairro vem do cadastro dos clientes; CTO vazia herda o palpite da vizinha.
       let lugares = new Map<number, BairroDaCto>();
       let exatos = 0;
       let provaveis = 0;
       let noLugar: number | null = null;
+      let entendido: { pedido: string; entendido: string; como: string } | null = null;
       if (bairro || cidade) {
         // Primeiro: o lugar existe na nossa rede? Sem isso, "nenhuma CTO lotada
         // no bairro X" sai igual para bairro tranquilo e para bairro que nem
@@ -343,6 +385,7 @@ const ocupacao: Ferramenta = {
           };
         }
         const r = filtrarPorLugar(filtradas, { bairro, cidade }, todas);
+        entendido = r.entendido;
         filtradas = r.ctos;
         lugares = r.lugares;
         exatos = r.exatos;
@@ -378,13 +421,22 @@ const ocupacao: Ferramenta = {
           filtro: {
             ordem: cheias ? 'mais_cheias' : 'mais_livres', min_ocupacao: min, max_ocupacao: max,
             pon, busca: args.busca ?? null, bairro: bairro ?? null, cidade: cidade ?? null,
+            min_clientes: minCli, max_clientes: maxCli, rua,
           },
+          rua: daRua ? {
+            ruas_do_cadastro_que_casaram: daRua.ruas.slice(0, 10),
+            nota: 'CTO entra quando tem cliente morando nessa rua. clientes_na_rua conta só os dessa rua.',
+          } : undefined,
           encontradas: filtradas.length,
-          nenhuma_com_esse_filtro_na_rede: !(bairro || cidade) && filtradas.length === 0 && todas.length > 0
+          nenhuma_com_esse_filtro_na_rede: !(bairro || cidade || rua) && filtradas.length === 0 && todas.length > 0
             ? `Rede inteira varrida (${todas.length} caixas): nenhuma atende esse filtro. Isso é resposta, não falta de dado.`
             : undefined,
           lugar: (bairro || cidade) ? {
             lugar_encontrado: true,
+            bairro_interpretado: entendido ? {
+              ...entendido,
+              instrucao: `Diga na resposta que entendeu "${entendido.entendido}" (a pessoa disse "${entendido.pedido}").`,
+            } : undefined,
             ctos_nesse_lugar: noLugar,
             nenhuma_com_esse_filtro: filtradas.length === 0
               ? 'O lugar existe e foi varrido por inteiro: nenhuma CTO atende esse filtro. Isso é resposta, não falta de dado.'
@@ -399,6 +451,7 @@ const ocupacao: Ferramenta = {
             const l = lugares.get(c.cto_id);
             return {
               ...resumoAtual(c),
+              clientes_na_rua: daRua ? chaveCto(c).map((k) => daRua!.porCto.get(k) ?? 0).reduce((a, b) => Math.max(a, b), 0) : undefined,
               bairro: l?.bairro ?? null,
               bairro_qualidade: l?.qualidade ?? null,
               bairro_base: l?.base ?? null,

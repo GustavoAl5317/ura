@@ -373,7 +373,30 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
 
   // Registro de linguagem: quem fala simples recebe resposta simples.
   const registro = obter<string>('ia.linguagem');
-  const falaTecnico = /(cto|pon|olt|onu|ont|pppoe|sn|rx|tx|vlan|dbm|slot|uplink|backbone)/i.test(pedido.pergunta);
+  // "Como assim dBm?" cita sigla e é pergunta de leigo: quem pede explicação
+  // da sigla não fala técnico.
+  const pedeExplicacao = /como assim|o que (é|e|seria|significa|quer dizer)|me expli(ca|que)|n[aã]o entendi/i.test(pedido.pergunta);
+  const falaTecnico = !pedeExplicacao &&
+    /\b(cto|pon|olt|onu|ont|pppoe|sn|rx|tx|vlan|dbm|slot|uplink|backbone)\b/i.test(pedido.pergunta);
+
+  // Leigo, e muitas vezes por áudio transcrito: o nome chega trocado por som
+  // parecido. As ferramentas resolvem pelo som; o modelo não pode "corrigir"
+  // antes nem pedir para a pessoa reformular.
+  if (!falaTecnico || pedido.origemAudio) {
+    messages.push({
+      role: 'system',
+      content:
+        'Quem pergunta pode ser leigo e muitas vezes fala por áudio transcrito. Nome de lugar chega trocado por ' +
+        'som parecido ("Bolsa Fesso" = Bom Sucesso, "Grande Portugal" = Granja Portugal, "João 23" = João XXIII, ' +
+        '"Anetice" = a Etice) e palavra comum também ("vacina/vacinante" no lugar de "caixa/cliente"). ' +
+        'Passe nome de bairro, rua ou link para a ferramenta COMO FOI DITO: ela resolve pelo som. Se a ferramenta ' +
+        'devolver bairro_interpretado, comece dizendo o que entendeu ("Entendi Bom Sucesso."). Só peça para repetir ' +
+        'quando a ferramenta não achar nada parecido, e aí mostre as opções que ela devolveu. ' +
+        'Mensagem longa em que a pessoa explica algo ("caixa de emenda é onde emenda uma fibra na outra") é ' +
+        'CORREÇÃO do que você entendeu: aceite, diga em uma frase o que entendeu agora e responda a pergunta ' +
+        'anterior com esse sentido, sem repetir a resposta errada.',
+    });
+  }
   if (registro === 'simples' || (registro === 'auto' && !falaTecnico)) {
     messages.push({
       role: 'system',

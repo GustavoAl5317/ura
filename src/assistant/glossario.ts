@@ -105,18 +105,38 @@ export function remover(id: string, autor: string): void {
   registrarAuditoria(autor, 'glossario.remover', antes.termo, antes, undefined);
 }
 
-/** Palavra inteira, sem acento e sem diferenciar maiúscula. "caixinha" não casa em "caixinhas"? casa. */
-function aparece(texto: string, expressao: string): boolean {
+/**
+ * Trechos [início, fim) da pergunta normalizada onde a expressão aparece:
+ * palavra inteira, sem acento, sem diferenciar maiúscula, com plural.
+ */
+function trechos(texto: string, expressao: string): Array<[number, number]> {
   const alvo = normalizar(expressao).trim();
-  if (!alvo) return false;
+  if (!alvo) return [];
   const escapado = alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^a-z0-9])${escapado}(s|es)?([^a-z0-9]|$)`, 'i').test(normalizar(texto));
+  const re = new RegExp(`(^|[^a-z0-9])(${escapado}(?:s|es)?)(?=[^a-z0-9]|$)`, 'gi');
+  const t = normalizar(texto);
+  const saida: Array<[number, number]> = [];
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    const ini = m.index + m[1].length;
+    saida.push([ini, ini + m[2].length]);
+  }
+  return saida;
 }
 
-/** Termos do vocabulário que aparecem nesta pergunta. */
+/**
+ * Termos do vocabulário que aparecem nesta pergunta. Um termo que só aparece
+ * DENTRO de outro mais longo fica de fora: em "caixa de emenda", o "caixa" do
+ * termo caixinha (CTO) não conta, e o modelo não recebe as duas leituras.
+ */
 export function termosEncontrados(pergunta: string): Termo[] {
   if (!pergunta.trim()) return [];
-  return listar().filter((t) => t.ativo && (aparece(pergunta, t.termo) || t.sinonimos.some((s) => aparece(pergunta, s))));
+  const achados = listar()
+    .filter((t) => t.ativo)
+    .map((t) => ({ t, spans: [t.termo, ...t.sinonimos].flatMap((x) => trechos(pergunta, x)) }))
+    .filter((x) => x.spans.length > 0);
+  const dentroDeOutro = (sp: [number, number], dono: Termo) => achados.some((o) => o.t.id !== dono.id &&
+    o.spans.some((q) => q[0] <= sp[0] && q[1] >= sp[1] && q[1] - q[0] > sp[1] - sp[0]));
+  return achados.filter((x) => x.spans.some((sp) => !dentroDeOutro(sp, x.t))).map((x) => x.t);
 }
 
 export function marcarUso(ids: string[]): void {
@@ -201,17 +221,74 @@ export const SEMENTE: SementeTermo[] = [
     significado: 'Ordem de serviço no SGP, aberta para instalação, reparo ou retirada.',
     dica: 'Procure as O.S. do cliente ou da região antes de sugerir abrir outra.',
   },
+  {
+    termo: 'caixa de emenda', sinonimos: 'caixas de emenda, ceo, clo, caixa de fusao, caixa de fusão, emenda optica, emenda óptica, fusionamento, fusoes, fusões',
+    significado: 'Caixa onde um cabo de fibra é emendado (fundido) em outro, ao longo do trajeto. NÃO é CTO: não tem cliente nem porta, mesmo tendo "caixa" no nome. "AS 12 FO" é cabo de 12 fibras: 12 fusões de cada lado.',
+    dica: 'Use caixas_de_emenda (planta do GeoSite), por bairro ou por endereço/ponto de referência. Atenuação e estado das fusões não são medidos por sistema nenhum: diga isso, não invente.',
+  },
+  {
+    termo: 'RNP', sinonimos: 'rede da rnp, gigafor, giga for, rede nacional de ensino',
+    significado: 'Rede de terceiro (RNP, anel metropolitano GigaFOR) com que a casa troca tráfego ou por onde passa circuito. Não é rede de caixas de bairro.',
+    dica: 'Use zabbix_link com "rnp"; se não achar, tente "gigafor". Se nada no Zabbix tiver esse nome, diga isso e pergunte o nome da interface ou do circuito. Não troque por análise de bairro.',
+  },
+  {
+    termo: 'Etice', sinonimos: 'rede da etice, anetice, a etice, cinturao digital, cinturão digital',
+    significado: 'Rede de terceiro (ETICE, Cinturão Digital do Ceará) com que a casa tem link ou circuito. Não é rede de caixas de bairro. Transcrição de áudio costuma escrever "Anetice" ou "a Etice".',
+    dica: 'Use zabbix_link com "etice"; se não achar, tente "cinturao". Se nada no Zabbix tiver esse nome, diga isso e pergunte o nome da interface ou do circuito.',
+  },
+  {
+    termo: 'Angola Cables', sinonimos: 'angola cable, angola, hotel cable, cable hotel, hotel cables, cables',
+    significado: 'Data center da Angola Cables na Praia do Futuro (Fortaleza), ponto de chegada de cabos submarinos onde a casa interliga circuito.',
+    dica: 'Link: zabbix_link com "angola". Caixa de emenda perto dali: caixas_de_emenda com endereco "Angola Cables, Praia do Futuro, Fortaleza".',
+  },
+  {
+    termo: 'rede do bairro', sinonimos: 'rede do, rede da, projeto, projetos, a rede ali, rede la',
+    significado: 'Para quem não é técnico, "a rede do Bom Sucesso" são as caixas (CTOs) e os clientes daquele bairro, e "projeto" é um trecho de rede construído. Não é link de operadora, a não ser que cite RNP, Etice ou Angola.',
+    dica: 'Para "como está", use saude_da_rede com o bairro; para "quantas caixas/clientes", ctos_por_bairro. Passe o nome do bairro como a pessoa falou: a ferramenta resolve nome mal ouvido.',
+  },
+  {
+    termo: 'luz da caixa', sinonimos: 'luz alta, luz baixa, luz forte, luz fraca, luz ruim, a luz, sinal alto, sinal baixo, potencia',
+    significado: 'Sinal da fibra (potência óptica em dBm). Leigo diz "luz alta" tanto para sinal ruim quanto para sinal forte demais. "Faltou luz" é outra coisa: energia.',
+    dica: 'Use ctos_sinal_ruim ou cto_sinal. Se não der para saber o sentido, responda as caixas com sinal ruim (mais negativo que o corte) e diga o critério em palavras.',
+  },
+  {
+    termo: 'casos', sinonimos: 'caso, ocorrencia, ocorrência, ocorrencias, ocorrências, reclamacao, reclamação, reclamacoes, reclamações, problemas no bairro',
+    significado: 'Chamados abertos (O.S.) dos clientes de um lugar.',
+    dica: 'Use os_abertas_na_rede com o bairro.',
+  },
+  {
+    termo: 'cancelamento', sinonimos: 'cancelamentos, cancelou, cancelaram, pediu pra sair, pediram pra sair, desistiu, desistencia, desistência',
+    significado: 'Cliente que cancelou o contrato.',
+    dica: 'Use relatorio_cancelamentos; com bairro quando citar lugar, e so_hoje quando disser "hoje".',
+  },
+  {
+    termo: 'endereço da caixa', sinonimos: 'onde fica a caixa, onde fica essa caixa, em qual rua, qual rua, qual o endereco, qual o endereço, localizacao da caixa, localização da caixa',
+    significado: 'Em que rua está a CTO.',
+    dica: 'As ferramentas de CTO trazem endereco_provavel (rua dos clientes dela) e mapa. Use os dois; diga que a rua vem dos clientes e o link é a posição exata.',
+  },
 ];
 
-/** Semeia o vocabulário na primeira vez. Depois quem manda é o painel. */
+/**
+ * Semeia o vocabulário. Na primeira vez, tudo. Depois, só os termos novos da
+ * semente que ainda não existem e que ninguém removeu no painel: um termo
+ * apagado pela casa foi decisão dela, e não volta sozinho a cada deploy.
+ */
 export function semear(): number {
-  const existe = (db().prepare(`SELECT COUNT(*) n FROM glossario`).get() as { n: number }).n;
-  if (existe) return 0;
   const st = db().prepare(
     `INSERT INTO glossario (id, termo, sinonimos, significado, dica, ativo, usos, criado_em)
      VALUES (?,?,?,?,?,1,0,?)`,
   );
+  const existentes = new Set(listar().map((t) => normalizar(t.termo)));
+  const removidos = new Set((db().prepare(
+    `SELECT alvo FROM auditoria WHERE acao = 'glossario.remover' AND alvo IS NOT NULL`,
+  ).all() as Array<{ alvo: string }>).map((l) => normalizar(l.alvo)));
   const agora = new Date().toISOString();
-  for (const t of SEMENTE) st.run(randomUUID(), t.termo, t.sinonimos, t.significado, t.dica, agora);
-  return SEMENTE.length;
+  let n = 0;
+  for (const t of SEMENTE) {
+    const k = normalizar(t.termo);
+    if (existentes.has(k) || removidos.has(k)) continue;
+    st.run(randomUUID(), t.termo, t.sinonimos, t.significado, t.dica, agora);
+    n++;
+  }
+  return n;
 }

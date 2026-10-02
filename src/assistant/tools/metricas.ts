@@ -239,6 +239,25 @@ export function situacaoDoLink(p: {
   return { situacao: 'desconhecida', motivo: 'sem alerta aberto, mas sem estado da porta nem tráfego coletado' };
 }
 
+/**
+ * Outros nomes do mesmo link. Quem pergunta diz "rede da RNP" ou "Anetice"
+ * (áudio de "a Etice"); a porta no roteador pode estar como GIGAFOR ou
+ * CINTURAO. Sem isso, a busca por um nome só devolvia "não encontrado".
+ */
+const APELIDOS_DE_LINK: Array<{ casa: RegExp; nomes: string[] }> = [
+  { casa: /\brnp\b|giga ?for/i, nomes: ['rnp', 'gigafor', 'giga-for'] },
+  { casa: /etice|cinturao|cinturão/i, nomes: ['etice', 'cinturao'] },
+  { casa: /angola|cable/i, nomes: ['angola'] },
+  { casa: /ix-?ce|ix ?fortaleza|ptt/i, nomes: ['ix-ce', 'ixce', 'ix.br'] },
+];
+
+export function nomesDoLink(termo: string): string[] {
+  const limpo = termo.replace(/^(a\s+)?rede\s+d[aoe]\s+/i, '').replace(/^link\s+d[aoe]\s+/i, '').replace(/^an(?=etice)/i, '').trim() || termo;
+  const nomes = [limpo];
+  for (const a of APELIDOS_DE_LINK) if (a.casa.test(limpo)) nomes.push(...a.nomes);
+  return [...new Set(nomes.map((n) => n.toLowerCase()))];
+}
+
 const link: Ferramenta = {
   nome: 'zabbix_link',
   fonte: 'zabbix',
@@ -262,10 +281,15 @@ const link: Ferramenta = {
         exigirZabbix();
         if (termo.length < 2) throw new Error('informe o nome do link');
 
-        const [problemas, itens] = await Promise.all([
-          zabbix.problemasPorPadroes([termo]),
-          zm.buscarItens({ nome: termo, limite: 300 }),
-        ]);
+        // O mesmo link tem mais de um nome: "RNP" no falar, "GIGAFOR" na porta.
+        const nomes = nomesDoLink(termo);
+        const problemas = await zabbix.problemasPorPadroes(nomes);
+        let itens: ItemMetrica[] = [];
+        let achadoComo = termo;
+        for (const n of nomes) {
+          itens = await zm.buscarItens({ nome: n, limite: 300 });
+          if (itens.length) { achadoComo = n; break; }
+        }
 
         // Agrupa o que achou por equipamento + porta.
         type Grupo = { host: string; porta: string; nomes: Set<string>; oper: ItemMetrica | null; trafego: ItemMetrica[]; problemas: typeof problemas };
@@ -339,6 +363,8 @@ const link: Ferramenta = {
           vazio: nadaAchado,
           dados: {
             link: termo,
+            nomes_procurados: nomes,
+            achado_como: achadoComo !== termo ? achadoComo : undefined,
             situacao_geral: links[0]?.situacao ?? (soltos.length ? 'com_problema' : 'nao_encontrado'),
             links,
             outros_alertas_com_o_nome: soltos.map(problema),

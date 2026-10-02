@@ -12,7 +12,8 @@ import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { db } from '../store/db';
 import { statusIndice, idadeEspelho } from '../store/sgp-index';
 import { obter } from '../config-dinamica';
-import { diaLocal, instanteSgp, normalizar } from '../datas';
+import { diaLocal, instanteSgp, normalizar, localParaUtc } from '../datas';
+import { bairroPedido, bairroDosContratos, mesmoBairro } from '../geografia';
 import { Ferramenta, medir, ferramentas, podeFonte } from './base';
 
 // ─── Clientes online ────────────────────────────────────────────────────────
@@ -146,10 +147,55 @@ export function contarAtivos(): { servicos_ativos: number | null; contratos_ativ
 // ─── Instalações e cancelamentos ────────────────────────────────────────────
 
 function janelaDias(args: Record<string, unknown>, padrao: number) {
-  const dias = Math.min(90, Math.max(1, Number(args.dias) || padrao));
   const fim = new Date();
+  // "Hoje" é desde a meia-noite local, não as últimas 24 horas.
+  if (args.so_hoje === true) {
+    const [a, m, d] = diaLocal(fim).split('-').map(Number);
+    return { dias: 1, inicio: localParaUtc(a, m, d, 0, 0, 0), fim };
+  }
+  const dias = Math.min(90, Math.max(1, Number(args.dias) || padrao));
   const inicio = new Date(fim.getTime() - dias * 86_400_000);
   return { dias, inicio, fim };
+}
+
+const PARAMS_PERIODO = {
+  dias: { type: 'number', description: 'Período em dias até hoje (padrão 30, máx 90)' },
+  so_hoje: { type: 'boolean', description: 'Só hoje, desde a meia-noite ("hoje", "no dia de hoje")' },
+  bairro: { type: 'string', description: 'Só clientes desse bairro (o nome como a pessoa falou serve)' },
+};
+
+type FiltroBairro = {
+  bairro: string;
+  entendido: ReturnType<typeof bairroPedido>['entendido'];
+  doContrato: Map<number, string>;
+} | null;
+
+/** Resolve o bairro pedido. Lança quando o bairro não existe no cadastro: zero aí seria mentira. */
+function filtroBairro(args: Record<string, unknown>): FiltroBairro {
+  const termo = typeof args.bairro === 'string' && args.bairro.trim() ? args.bairro.trim() : null;
+  if (!termo) return null;
+  const r = bairroPedido(termo);
+  if (!r.bairro) {
+    const parecidos = r.candidatos.length ? `; parecidos: ${r.candidatos.join(', ')}` : '';
+    throw new Error(`bairro "${termo}" não encontrado no cadastro de clientes${parecidos}. Pergunte qual é.`);
+  }
+  return { bairro: r.bairro, entendido: r.entendido, doContrato: bairroDosContratos() };
+}
+
+function doBairro<T extends { contrato: number }>(xs: T[], f: FiltroBairro): T[] {
+  if (!f) return xs;
+  return xs.filter((o) => mesmoBairro(f.doContrato.get(Number(o.contrato)), f.bairro));
+}
+
+function rotuloBairro(f: FiltroBairro) {
+  if (!f) return {};
+  return {
+    bairro: f.bairro,
+    bairro_interpretado: f.entendido ? {
+      ...f.entendido,
+      instrucao: `Diga na resposta que entendeu "${f.entendido.entendido}" (a pessoa disse "${f.entendido.pedido}").`,
+    } : undefined,
+  };
 }
 
 export function casaMotivo(o: SgpOrdemServico, palavras: string[]): boolean {
@@ -211,22 +257,26 @@ const relatorioInstalacoes: Ferramenta = {
     'Relatório de instalações num período (padrão 30 dias, máx 90): O.S. de instalação abertas, concluídas, ' +
     'pendentes, por dia, por técnico e por POP, e tempo médio até concluir. A O.S. é classificada como ' +
     'instalação pelas palavras configuradas no painel (motivo/tipo); o relatório mostra o critério e os ' +
-    'motivos que ficaram de fora, para conferência.',
+    'motivos que ficaram de fora, para conferência. Aceita bairro e so_hoje.',
   parametros: {
     type: 'object',
-    properties: { dias: { type: 'number', description: 'Período em dias até hoje (padrão 30, máx 90)' } },
+    properties: PARAMS_PERIODO,
     required: [],
   },
   async executar(args, ctx) {
     return [await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.relatorio_instalacoes', args, async () => {
       const j = janelaDias(args, 30);
+      const fb = filtroBairro(args);
       const palavras = obter<string[]>('relatorios.motivos_instalacao');
       const os = await osDaJanela(j.inicio, j.fim, palavras);
+      const casadas = doBairro(os.casadas, fb);
       return {
-        vazio: os.casadas.length === 0,
+        // Janela varrida por inteiro: zero instalação é resposta.
+        vazio: casadas.length === 0 && !os.completa,
         dados: {
           periodo: { de: diaLocal(j.inicio), ate: diaLocal(j.fim), dias: j.dias },
-          instalacoes: resumoOs(os.casadas),
+          ...rotuloBairro(fb),
+          instalacoes: resumoOs(casadas),
           criterio: { palavras, os_examinadas: os.examinadas, motivos_nao_classificados: contar(os.outras, (o) => o.motivo, 6) },
           lista_completa: os.completa,
           ...(os.completa ? {} : { aviso: 'o SGP tinha mais O.S. do que o limite de consulta: os números são parciais (mínimo)' }),
@@ -243,23 +293,34 @@ const relatorioCancelamentos: Ferramenta = {
     'Relatório de cancelamentos num período (padrão 30 dias, máx 90), por duas fontes que se ' +
     'complementam: (1) O.S. de cancelamento/retirada no SGP, com data; (2) contratos que o espelho viu ' +
     'mudar para Cancelado entre um sync e outro (a API do SGP não informa a data do cancelamento, então ' +
-    'essa data é a do sync que percebeu). Traz também a foto atual de contratos por situação e motivo.',
+    'essa data é a do sync que percebeu). Traz também a foto atual de contratos por situação e motivo. ' +
+    'Aceita bairro ("quantos cancelamentos no Bom Sucesso hoje?") e so_hoje.',
   parametros: {
     type: 'object',
-    properties: { dias: { type: 'number', description: 'Período em dias até hoje (padrão 30, máx 90)' } },
+    properties: PARAMS_PERIODO,
     required: [],
   },
   async executar(args, ctx) {
     const j = janelaDias(args, 30);
     const palavras = obter<string[]>('relatorios.motivos_cancelamento');
+    let fb: FiltroBairro = null;
+    let erroBairro: string | null = null;
+    try {
+      fb = filtroBairro(args);
+    } catch (e) {
+      erroBairro = (e as Error).message;
+    }
 
     const porOs = await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.os_cancelamento', args, async () => {
+      if (erroBairro) throw new Error(erroBairro);
       const os = await osDaJanela(j.inicio, j.fim, palavras);
+      const casadas = doBairro(os.casadas, fb);
       return {
-        vazio: os.casadas.length === 0,
+        vazio: casadas.length === 0 && !os.completa,
         dados: {
           periodo: { de: diaLocal(j.inicio), ate: diaLocal(j.fim), dias: j.dias },
-          os_de_cancelamento_ou_retirada: resumoOs(os.casadas),
+          ...rotuloBairro(fb),
+          os_de_cancelamento_ou_retirada: resumoOs(casadas),
           criterio: { palavras, os_examinadas: os.examinadas, motivos_nao_classificados: contar(os.outras, (o) => o.motivo, 6) },
           lista_completa: os.completa,
         },
@@ -267,17 +328,19 @@ const relatorioCancelamentos: Ferramenta = {
     });
 
     const porEspelho = await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.cancelamentos_espelho', args, async () => {
+      if (erroBairro) throw new Error(erroBairro);
       const st = statusIndice();
       if (!st.disponivel) throw new Error('espelho do SGP ainda não sincronizado');
       const d = db();
       const desdeIso = j.inicio.toISOString();
       const primeiro = (d.prepare(`SELECT MIN(detectado_em) m FROM sgp_contrato_evento`).get() as { m: string | null }).m;
-      const eventos = d.prepare(
-        `SELECT e.contrato_id, e.de, e.para, e.motivo, e.detectado_em, c.nome
+      const eventos = (d.prepare(
+        `SELECT e.contrato_id, e.de, e.para, e.motivo, e.detectado_em, c.nome, c.bairro
          FROM sgp_contrato_evento e LEFT JOIN sgp_cliente c ON c.cliente_id = e.cliente_id
          WHERE e.detectado_em >= ? AND e.para LIKE 'Cancel%'
          ORDER BY e.detectado_em DESC`,
-      ).all(desdeIso) as Array<{ contrato_id: number; de: string | null; para: string; motivo: string | null; detectado_em: string; nome: string | null }>;
+      ).all(desdeIso) as Array<{ contrato_id: number; de: string | null; para: string; motivo: string | null; detectado_em: string; nome: string | null; bairro: string | null }>)
+        .filter((e) => !fb || mesmoBairro(e.bairro, fb.bairro));
       const situacao = d.prepare(
         `SELECT COALESCE(status,'sem_dado') situacao, COALESCE(motivo_status,'—') motivo, COUNT(*) n
          FROM sgp_contrato GROUP BY 1, 2 ORDER BY n DESC`,
@@ -291,6 +354,7 @@ const relatorioCancelamentos: Ferramenta = {
 
       return {
         dados: {
+          ...rotuloBairro(fb),
           cancelados_detectados_no_periodo: eventos.length,
           por_motivo: contar(eventos, (e) => e.motivo ?? undefined),
           lista: eventos.slice(0, 20).map((e) => ({ contrato: e.contrato_id, cliente: e.nome, antes: e.de, motivo: e.motivo, detectado_no_sync_de: e.detectado_em })),

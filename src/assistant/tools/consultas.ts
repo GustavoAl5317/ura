@@ -10,7 +10,7 @@ import { zabbix, ZabbixClient } from '../../integrations/zabbix';
 import { onuPorTermo } from '../../integrations/zabbix-metricas';
 import { db } from '../store/db';
 import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho, bairrosDoCadastro, clientesDoBairro } from '../store/sgp-index';
-import { resolverBairro } from '../geografia';
+import { resolverBairro, bairroPedido, bairroDosContratos, mesmoBairro } from '../geografia';
 import { Ferramenta, medir, ferramentas } from './base';
 import { Envelope } from '../types';
 
@@ -787,7 +787,8 @@ const osAbertasRede: Ferramenta = {
   descricao:
     'Ordens de Serviço EM ABERTO em toda a operação numa janela recente (padrão 90 dias), ' +
     'agrupáveis por motivo, POP e responsável. Use para "quantas O.S. estão abertas", ' +
-    '"o que está pendente hoje", carga por técnico. ' +
+    '"o que está pendente hoje", carga por técnico, e por BAIRRO: "quais os casos no Jardim Guanabara?", ' +
+    '"tem chamado aberto no Bom Jardim?" (leigo diz caso, chamado, ocorrência, problema, visita). ' +
     'ATENÇÃO: o SGP não filtra por status, então isto varre a janela por data de cadastro e ' +
     'separa aqui. Se janela_completa vier false, a lista foi cortada por limite de páginas — ' +
     'diga que a contagem é parcial em vez de apresentá-la como total.',
@@ -795,15 +796,43 @@ const osAbertasRede: Ferramenta = {
     type: 'object',
     properties: {
       dias: { type: 'number', description: 'Janela em dias a partir de hoje (padrão 90, máx 365)' },
+      bairro: { type: 'string', description: 'Só O.S. de clientes desse bairro (o nome como a pessoa falou serve)' },
     },
     required: [],
   },
   async executar(args, ctx) {
     const dias = Math.min(365, Number(args.dias) || 90);
+    const pedidoBairro = typeof args.bairro === 'string' && args.bairro.trim() ? args.bairro.trim() : null;
 
     return [
-      await medir(ctx, 'sgp', 'sgp.os_abertas_na_rede', { dias }, async () => {
-        const r = await sgp.ordensServicoAbertas(dias);
+      await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.os_abertas_na_rede', { dias, bairro: pedidoBairro }, async () => {
+        let bairro: ReturnType<typeof bairroPedido> | null = null;
+        if (pedidoBairro) {
+          bairro = bairroPedido(pedidoBairro);
+          if (!bairro.bairro) {
+            return {
+              vazio: true,
+              dados: {
+                bairro_pedido: pedidoBairro,
+                bairro_encontrado: false,
+                parecidos: bairro.candidatos,
+                instrucao: 'Nenhum cliente nosso nesse bairro no cadastro. Mostre os parecidos e pergunte qual é; não diga que não há O.S.',
+              },
+            };
+          }
+        }
+        const r0 = await sgp.ordensServicoAbertas(dias);
+        let foraDoEspelho = 0;
+        let r = r0;
+        if (bairro?.bairro) {
+          const doContrato = bairroDosContratos();
+          const abertas = r0.abertas.filter((o) => {
+            const b = doContrato.get(Number(o.contrato));
+            if (!b) { foraDoEspelho++; return false; }
+            return mesmoBairro(b, bairro!.bairro);
+          });
+          r = { ...r0, abertas };
+        }
         const conta = (campo: (o: SgpOrdemServico) => string | undefined) => {
           const m: Record<string, number> = {};
           for (const o of r.abertas) {
@@ -816,6 +845,15 @@ const osAbertasRede: Ferramenta = {
         return {
           dados: {
             janela_dias: dias,
+            bairro: bairro?.bairro ?? undefined,
+            bairro_interpretado: bairro?.entendido ? {
+              ...bairro.entendido,
+              instrucao: `Diga na resposta que entendeu "${bairro.entendido.entendido}" (a pessoa disse "${bairro.entendido.pedido}").`,
+            } : undefined,
+            os_sem_bairro_conhecido: bairro ? foraDoEspelho : undefined,
+            nenhuma_no_bairro: bairro && r.abertas.length === 0 && r.janelaCompleta
+              ? 'Janela inteira varrida: nenhuma O.S. aberta de cliente desse bairro. Isso é resposta, não falta de dado.'
+              : undefined,
             total_abertas: r.abertas.length,
             os_examinadas: r.examinadas,
             janela_completa: r.janelaCompleta,
@@ -835,7 +873,8 @@ const osAbertasRede: Ferramenta = {
               pop: o.pop,
             })),
           },
-          vazio: r.abertas.length === 0,
+          // Janela varrida por inteiro: zero O.S. aberta é resposta.
+          vazio: r.abertas.length === 0 && !r.janelaCompleta,
         };
       }),
     ];

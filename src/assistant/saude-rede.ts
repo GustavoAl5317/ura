@@ -449,13 +449,19 @@ async function classificarRede(): Promise<Base> {
   };
 }
 
-export async function lerSaude(f: FiltroSaude = {}): Promise<{ leitura: LeituraGerencial; filtro: FiltroSaude; lugar_encontrado: boolean }> {
+export async function lerSaude(f: FiltroSaude = {}): Promise<{
+  leitura: LeituraGerencial; filtro: FiltroSaude; lugar_encontrado: boolean;
+  entendido: { pedido: string; entendido: string; como: string } | null;
+}> {
   const base = await classificarRede();
   let escopo = base.todas;
   let alvo = 'Rede inteira';
+  let entendido: { pedido: string; entendido: string; como: string } | null = null;
   if (f.bairro || f.cidade) {
-    escopo = filtrarPorLugar(base.todas, { bairro: f.bairro, cidade: f.cidade }, base.todas).ctos;
-    alvo = [f.bairro, f.cidade].filter(Boolean).join(', ');
+    const r = filtrarPorLugar(base.todas, { bairro: f.bairro, cidade: f.cidade }, base.todas);
+    escopo = r.ctos;
+    entendido = r.entendido;
+    alvo = [entendido?.entendido ?? f.bairro, f.cidade].filter(Boolean).join(', ');
   }
   if (f.pon) {
     escopo = escopo.filter((c) => c.pon === f.pon);
@@ -467,7 +473,7 @@ export async function lerSaude(f: FiltroSaude = {}): Promise<{ leitura: LeituraG
     alvo = escopo.length === 1 ? escopo[0].nome : `CTO "${f.cto}"`;
   }
   const leitura = consolidar(alvo, escopo.map((c) => base.caixas.get(c.cto_id)!), base.opts);
-  return { leitura, filtro: f, lugar_encontrado: escopo.length > 0 };
+  return { leitura, filtro: f, lugar_encontrado: escopo.length > 0, entendido };
 }
 
 /**
