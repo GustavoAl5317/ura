@@ -39,6 +39,8 @@ PERGUNTAS = [
     'Poderia me informar sobre a rede da AT&T?',
     'Em quais bairros nós temos clientes? Quero todos.',
     'Como é que está a rede da ETIS?',
+    'Onde eu mando a equipe primeiro hoje?',
+    'Quanto dinheiro está em risco no Bom Sucesso? Quais ruas e quais clientes?',
     'Como é que está as interfaces e quantas interfaces estão conectadas no switch da Huawei 6720?',
 ]
 

@@ -251,7 +251,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   const cmd = comandoDeIncidente(pergunta);
   if (cmd) {
     const resposta = executarComandoIncidente(cmd, msg.nome || soNumero(msg.autorJid));
-    await evoTecnicos.enviarTexto(msg.jid, resposta);
+    await enviarComAudio(msg.jid, resposta);
     return;
   }
 
@@ -291,7 +291,15 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
     return;
   }
 
-  const querAudio = respostaEmAudio && obter<boolean>('audio.responder_em_audio');
+  // A casa pediu áudio em tudo: pergunta escrita também recebe áudio
+  // (audio.responder_sempre), e audio.responder_em_audio desliga tudo.
+  const querAudio = obter<boolean>('audio.responder_em_audio') &&
+    (respostaEmAudio || obter<boolean>('audio.responder_sempre'));
+  const textoJunto = obter<boolean>('audio.enviar_texto_junto');
+
+  // Com texto junto, o texto sai antes: gerar a voz leva segundos, e a resposta
+  // escrita não deve esperar por ela.
+  if (!querAudio || textoJunto) await evoTecnicos.enviarTexto(msg.jid, textoResposta);
   const ogg = querAudio ? await sintetizar(fala, 'opus') : null;
   if (querAudio && !ogg) logger.warn('Assistente: sem áudio de resposta, seguiu só o texto');
 
@@ -299,10 +307,19 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
 
   // O texto só deixa de ir se o áudio FOI gerado e o painel mandou não duplicar.
   // Áudio que falhou nunca deixa o técnico sem resposta.
-  if (!ogg || obter<boolean>('audio.enviar_texto_junto')) {
-    await evoTecnicos.enviarTexto(msg.jid, textoResposta);
-  }
+  if (querAudio && !textoJunto && !ogg) await evoTecnicos.enviarTexto(msg.jid, textoResposta);
   if (ogg) await evoTecnicos.enviarAudio(msg.jid, ogg);
 
   void evoTecnicos.presenca(msg.jid, 'paused');
+}
+
+/**
+ * Texto e, se o painel quiser áudio em tudo, o mesmo em voz logo depois.
+ * Para mensagem curta do próprio assistente (comando de incidente).
+ */
+export async function enviarComAudio(jid: string, texto: string): Promise<void> {
+  await evoTecnicos.enviarTexto(jid, texto);
+  if (!obter<boolean>('audio.responder_em_audio') || !obter<boolean>('audio.responder_sempre')) return;
+  const ogg = await sintetizar(texto.replace(/[*_]/g, ''), 'opus').catch(() => null);
+  if (ogg) await evoTecnicos.enviarAudio(jid, ogg);
 }

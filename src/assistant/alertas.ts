@@ -339,16 +339,26 @@ export async function escalarPendentes(quando = new Date()): Promise<number> {
       continue;
     }
     if (!evoTecnicos.disponivel) continue;
+    const alerta = db().prepare(
+      `SELECT alerta_id FROM incidente_alerta WHERE incidente_id = ? ORDER BY rowid DESC LIMIT 1`,
+    ).get(e.incidente.id) as { alerta_id: string } | undefined;
+    const receberam: string[] = [];
     for (const p of e.degrau.pessoas) {
       const r = await evoTecnicos.enviarTextoComId(p.numero, e.texto);
-      const alerta = db().prepare(
-        `SELECT alerta_id FROM incidente_alerta WHERE incidente_id = ? ORDER BY rowid DESC LIMIT 1`,
-      ).get(e.incidente.id) as { alerta_id: string } | undefined;
+      if (r.ok) receberam.push(p.numero);
       if (alerta) {
         registrarEnvio(alerta.alerta_id, `${p.nome} (${e.degrau.rotulo})`, r.ok,
           r.ok ? null : 'falha no WhatsApp (ver log do Evolution)',
           { mensagemId: r.id, motivo: 'escalonamento' });
       }
+    }
+    // Escalonamento é o aviso que mais precisa ser ouvido: ninguém assumiu.
+    if (receberam.length && obter<string>('alertas.audio') !== 'nunca') {
+      const original = alerta ? porId(alerta.alerta_id) : null;
+      const fala = `Atenção. Ninguém assumiu ainda o problema ${e.incidente.numero}, e o prazo passou. ` +
+        (original ? `${falaDoAlerta(original).replace(/^(Atenção|Aviso)\.\s*/, '')}` : 'Os detalhes estão na mensagem de texto.');
+      const voz = await sintetizar(fala, 'opus').catch(() => null);
+      if (voz) for (const numero of receberam) await evoTecnicos.enviarAudio(numero, voz);
     }
   }
   return subiram;

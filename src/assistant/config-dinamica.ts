@@ -89,6 +89,12 @@ export const DEFINICOES = {
     tipo: 'booleano', grupo: 'audio', padrao: () => true,
     descricao: 'Pergunta em áudio recebe resposta em áudio. Desligado, responde só texto.',
   },
+  'audio.responder_sempre': {
+    tipo: 'booleano', grupo: 'audio', padrao: () => true,
+    descricao:
+      'Toda resposta no WhatsApp vai também em áudio, mesmo quando a pergunta foi escrita. Desligado, só quem ' +
+      'pergunta em áudio recebe áudio.',
+  },
   'audio.enviar_texto_junto': {
     tipo: 'booleano', grupo: 'audio', padrao: () => true,
     descricao: 'Manda o texto junto com o áudio. Recomendado: SN e protocolo não se copiam de um áudio.',
@@ -124,10 +130,11 @@ export const DEFINICOES = {
     descricao: 'Grupo de WhatsApp que recebe os alertas (o identificador termina em @g.us). Vazio: alertas só no painel.',
   },
   'alertas.audio': {
-    tipo: 'texto', grupo: 'alertas', padrao: () => 'criticos', opcoes: ['nunca', 'criticos', 'todos'],
+    // A casa pediu: tudo chega também em áudio.
+    tipo: 'texto', grupo: 'alertas', padrao: () => 'todos', opcoes: ['nunca', 'criticos', 'todos'],
     descricao:
       'Aviso automático também em áudio curto, logo depois do texto: "Atenção. Uma caixinha no poste parou…". ' +
-      '"criticos" (padrão): só os críticos. "todos": todos os avisos. "nunca": só texto. O resumo tem ajuste próprio.',
+      '"todos" (padrão): todos os avisos. "criticos": só os críticos. "nunca": só texto. O resumo tem ajuste próprio.',
   },
   'alertas.explicar_simples': {
     tipo: 'booleano', grupo: 'alertas', padrao: () => true,
@@ -515,9 +522,11 @@ export const DEFINICOES = {
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',
-    padrao: () => ['saude', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
-    opcoes: ['saude', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
-    descricao: 'O que entra no resumo. "saude" abre a mensagem com o veredito da rede e os bairros que mais preocupam.',
+    padrao: () => ['saude', 'prioridades', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    opcoes: ['saude', 'prioridades', 'rede', 'ctos', 'trafego', 'os', 'clientes', 'ura', 'atendimento', 'assistente'],
+    descricao:
+      'O que entra no resumo. "saude" abre a mensagem com o veredito da rede; "prioridades" diz onde mandar equipe ' +
+      'primeiro (bairro, ruas, clientes e valor mensal em risco).',
   },
 
   // ── Relatórios do SGP ───────────────────────────────────────────────────

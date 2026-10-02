@@ -7,7 +7,8 @@
 
 import { config } from '../../config';
 import { lerSaude, lerSaudePorBairro, ROTULO_NIVEL } from '../saude-rede';
-import { resumoPorBairro, enderecoDaCto, enderecoEmTexto } from '../geografia';
+import { resumoPorBairro, enderecoDaCto, enderecoEmTexto, bairroPedido } from '../geografia';
+import { lerPrioridades, filtrarBairro, reais } from '../prioridade';
 import { questdb } from '../../integrations/questdb';
 import { Ferramenta, medir, ferramentas } from './base';
 
@@ -142,7 +143,116 @@ const saude: Ferramenta = {
   },
 };
 
+// ─── Prioridade de manutenção ───────────────────────────────────────────────
+
+const prioridade: Ferramenta = {
+  nome: 'prioridade_manutencao',
+  fonte: 'questdb',
+  dadoPessoal: true,
+  descricao:
+    'ONDE MANDAR EQUIPE PRIMEIRO: os bairros com clientes em risco (ligados em caixa crítica ou em ' +
+    'degradação), em ordem de prioridade, organizados Bairro > Rua > Cliente, com quantos clientes e o ' +
+    'VALOR MENSAL dos contratos em risco em cada bairro e rua. Responde "onde mando a equipe hoje?", ' +
+    '"quais bairros estão pior?", "quanto dinheiro está em risco?", "quais ruas do Bom Sucesso precisam de ' +
+    'técnico?", "quem são os clientes em risco na Granja Portugal?". Com bairro, traz as ruas e os clientes ' +
+    'daquele bairro. O valor é a mensalidade dos planos com o preço do SGP: é o que está em risco, não ' +
+    'prejuízo certo.',
+  parametros: {
+    type: 'object',
+    properties: {
+      bairro: { type: 'string', description: 'Só esse bairro, com ruas e clientes (o nome como a pessoa falou serve)' },
+      limite: { type: 'number', description: 'Quantos bairros listar (padrão 10, máx 50)' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    return [await medir<Record<string, unknown>>(ctx, 'questdb', 'prioridade.manutencao', args, async () => {
+      await questdb.exigirColetaViva();
+      const p = await lerPrioridades();
+      const limite = Math.min(50, Math.max(1, Number(args.limite) || 10));
+      const pedido = typeof args.bairro === 'string' && args.bairro.trim() ? args.bairro.trim() : null;
+
+      let bairros = p.bairros;
+      let entendido: string | null = null;
+      if (pedido) {
+        const f = filtrarBairro(p.bairros, pedido);
+        if (!f.bairros.length) {
+          // Não está na lista de risco: ou o bairro está bem, ou não existe.
+          const noCadastro = bairroPedido(pedido);
+          return {
+            vazio: !noCadastro.bairro,
+            dados: noCadastro.bairro
+              ? {
+                bairro: noCadastro.variantes.join(' / '),
+                clientes_em_risco: 0,
+                resposta: `Nenhum cliente do ${noCadastro.bairro} está em caixa crítica ou em degradação agora. ` +
+                  'Isso é resposta: não precisa mandar equipe lá por problema de sinal ou queda.',
+              }
+              : {
+                bairro_pedido: pedido,
+                parecidos: noCadastro.candidatos,
+                instrucao: 'Esse bairro não aparece no cadastro. Mostre os parecidos e pergunte qual é.',
+              },
+          };
+        }
+        bairros = f.bairros;
+        entendido = f.entendido;
+      }
+
+      const umBairro = !!pedido;
+      return {
+        // Rede inteira avaliada sem nenhum bairro em risco: isso é resposta.
+        vazio: p.caixas_avaliadas === 0,
+        dados: {
+          bairro_interpretado: entendido ? {
+            pedido, entendido,
+            instrucao: `Diga na resposta que entendeu "${entendido}" (a pessoa disse "${pedido}").`,
+          } : undefined,
+          total_na_rede: {
+            bairros_com_risco: p.total.bairros,
+            caixas_em_risco: p.total.caixas,
+            clientes_em_risco: p.total.clientes,
+            valor_mensal_em_risco: reais(p.total.valor_mensal),
+          },
+          nenhum_risco: p.total.bairros === 0
+            ? 'Nenhuma caixa crítica ou em degradação agora: não há bairro para priorizar por sinal ou queda.'
+            : undefined,
+          aviso_sobre_valor: p.aviso_valor ?? undefined,
+          bairros: bairros.slice(0, umBairro ? 5 : limite).map((b) => ({
+            prioridade: b.prioridade,
+            bairro: b.bairro,
+            nivel: b.rotulo,
+            motivo: b.motivo,
+            caixas_com_problema: b.caixas,
+            clientes_em_risco: b.clientes,
+            valor_mensal_em_risco: reais(b.valor_mensal),
+            ruas: b.ruas.slice(0, umBairro ? 30 : 3).map((r) => ({
+              rua: r.rua,
+              clientes: r.clientes,
+              valor_mensal: reais(r.valor_mensal),
+              caixas: r.caixas,
+              // Nome de cliente só quando a pergunta é sobre um bairro.
+              clientes_lista: umBairro
+                ? r.lista.slice(0, 40).map((c) => ({
+                  nome: c.nome, numero: c.numero, contrato: c.contrato, plano: c.plano,
+                  mensalidade: c.valor !== null ? reais(c.valor) : 'sem preço no SGP',
+                }))
+                : undefined,
+            })),
+          })),
+          bairros_fora_da_lista: !umBairro && bairros.length > limite ? bairros.length - limite : undefined,
+          como_responder:
+            'Comece pela prioridade 1: o bairro, quantos clientes e quanto por mês está em risco, e as ruas onde ' +
+            'a equipe deve ir. Depois as próximas, em uma linha cada. "Em risco" = cliente ligado em caixa crítica ' +
+            'ou piorando; o valor é a mensalidade dos planos, o que a casa perde se esses clientes saírem, não ' +
+            'prejuízo certo. Não some nem arredonde os valores por conta própria: use os que vieram.',
+        },
+      };
+    })];
+  },
+};
+
 export function registrarFerramentasSaude(): void {
   if (!config.questdb.enabled) return;
-  ferramentas.registrar(saude);
+  ferramentas.registrar(saude, prioridade);
 }

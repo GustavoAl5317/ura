@@ -392,7 +392,7 @@ export function incidenteDaCto(c: CtoAtual, i: Pick<Incidente, 'correlacao' | 'a
 
 export interface FiltroSaude { bairro?: string; cidade?: string; pon?: string; cto?: string }
 
-interface Base {
+export interface Base {
   todas: CtoAtual[];
   caixas: Map<number, SaudeCto>;
   opts: { degradacaoPct: number; clientesParaDegradacao: number; regua: LeituraGerencial['regua'] };
@@ -402,7 +402,7 @@ interface Base {
  * Classifica a rede inteira uma vez. Lugar, PON e bairro são recortes do
  * resultado — a saúde de uma caixa não depende de quem está perguntando por ela.
  */
-async function classificarRede(): Promise<Base> {
+export async function classificarRede(): Promise<Base> {
   const janela = obter<number>('monitor.ctos.janela_min');
   const dias = obter<number>('monitor.ctos.dias_referencia');
   const limiares: Limiares = {

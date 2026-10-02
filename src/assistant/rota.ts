@@ -56,6 +56,18 @@ export function rotasDaPergunta(pergunta: string): Rota[] {
     });
   }
 
+  // "Onde mando a equipe?", "quanto dinheiro está em risco?": a prioridade
+  // por bairro, com valor. Vem antes de problemas, que é a lista crua.
+  if (/(mand|envi)\w* (a |as |uma |o |os )?(equipe|tecnicos?|time)|prioridade|priorizar|dinheiro|valor (em risco|dos contratos)|clientes? em risco|perdendo (dinheiro|clientes?)|faturamento|receita/i.test(p)) {
+    rotas.unshift({
+      assunto: 'prioridade de manutenção',
+      ferramenta: 'prioridade_manutencao',
+      instrucao:
+        'A pergunta é sobre ONDE AGIR PRIMEIRO ou quanto está em risco. Chame prioridade_manutencao (com bairro ' +
+        'se a pessoa citou um). Ela já devolve os bairros em ordem, com ruas, clientes e valor mensal em risco.',
+    });
+  }
+
   if (/cancel|desist|pedi(u|ram) (pra|para) sair/i.test(p)) {
     rotas.push({
       assunto: 'cancelamentos',

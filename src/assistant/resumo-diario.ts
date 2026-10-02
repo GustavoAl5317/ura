@@ -26,6 +26,7 @@ import { netflow, formatarMbps, mbpsMedio, estimar } from '../integrations/netfl
 import { lerSessoesOnline, casaMotivo } from './tools/relatorios';
 import { questdb, avaliarSinal, SINAL_RUIM_DBM } from '../integrations/questdb';
 import { lerSaude, lerSaudePorBairro } from './saude-rede';
+import { lerPrioridades, reais } from './prioridade';
 import { redigir } from './agent';
 import { sintetizar } from './voice';
 
@@ -43,6 +44,13 @@ export interface ResumoSaude {
   rede: { rotulo: string; motivo: string; clientes_em_risco: number; caixas: number };
   piores_bairros: Array<{ bairro: string; rotulo: string; clientes_em_risco: number; motivo: string }>;
   o_que_fazer: string[];
+}
+
+export interface ResumoPrioridades {
+  disponivel: true;
+  total: { bairros: number; clientes: number; valor_mensal: number };
+  bairros: Array<{ prioridade: number; bairro: string; rotulo: string; clientes: number; valor_mensal: number; ruas: string[] }>;
+  aviso_valor: string | null;
 }
 
 export interface ResumoRede {
@@ -131,6 +139,7 @@ export interface Resumo {
   fim: string;
   secoes: Partial<{
     saude: ResumoSaude | Indisponivel;
+    prioridades: ResumoPrioridades | Indisponivel;
     rede: ResumoRede | Indisponivel;
     ctos: ResumoCtos | Indisponivel;
     trafego: ResumoTrafego | Indisponivel;
@@ -355,6 +364,25 @@ const NOME_ASN_CURTO: Record<number, string> = {
  * Veredito da rede e dos bairros que mais preocupam. Falha da série das CTOs
  * vira "indisponível" na seção, nunca derruba o resumo.
  */
+/** Onde mandar equipe primeiro: os 3 bairros de maior prioridade, com valor em risco. */
+export async function coletarPrioridades(): Promise<ResumoPrioridades | Indisponivel> {
+  if (!config.questdb.enabled) return { disponivel: false, motivo: 'série das CTOs desligada' };
+  try {
+    const p = await lerPrioridades();
+    return {
+      disponivel: true,
+      total: { bairros: p.total.bairros, clientes: p.total.clientes, valor_mensal: p.total.valor_mensal },
+      bairros: p.bairros.slice(0, 3).map((b) => ({
+        prioridade: b.prioridade, bairro: b.bairro, rotulo: b.rotulo, clientes: b.clientes, valor_mensal: b.valor_mensal,
+        ruas: b.ruas.slice(0, 3).map((r) => `${r.rua} (${r.clientes})`),
+      })),
+      aviso_valor: p.aviso_valor,
+    };
+  } catch (err) {
+    return { disponivel: false, motivo: `não foi possível calcular as prioridades (${erroTexto(err)})` };
+  }
+}
+
 export async function coletarSaude(): Promise<ResumoSaude | Indisponivel> {
   if (!config.questdb.enabled) return { disponivel: false, motivo: 'série das CTOs desligada' };
   try {
@@ -529,7 +557,7 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
   const fim = new Date(r.fim);
   const partes: string[] = [`📋 *${tituloResumo(inicio, fim)}*`, `${rotuloData(inicio)} → ${rotuloData(fim)}`];
 
-  const { saude, rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
+  const { saude, prioridades, rede, ctos, trafego, os, clientes, ura, atendimento, assistente } = r.secoes;
 
   // Primeiro o veredito: quem só lê o topo da mensagem já sabe como está.
   if (saude) {
@@ -542,6 +570,25 @@ export function formatarResumo(r: Omit<Resumo, 'texto'>): string {
         l.push(`• Onde olhar: ${saude.piores_bairros.map((b) => `${b.bairro} (${b.rotulo.toLowerCase()}${b.clientes_em_risco ? `, ${b.clientes_em_risco} em risco` : ''})`).join(' · ')}`);
       }
       for (const f of saude.o_que_fazer.slice(0, 3)) l.push(`• ${f[0].toUpperCase()}${f.slice(1)}`);
+    }
+    partes.push(...l);
+  }
+
+  // Logo depois do "como está": para onde a equipe vai, e quanto isso vale.
+  if (prioridades) {
+    const l = ['', '*Onde mandar equipe primeiro*'];
+    if (!prioridades.disponivel) l.push(naoDisponivel(prioridades));
+    else if (!prioridades.bairros.length) l.push('• Nenhuma caixinha crítica ou piorando: nenhum bairro para priorizar agora.');
+    else {
+      for (const b of prioridades.bairros) {
+        l.push(`${b.prioridade}. *${b.bairro}* (${b.rotulo.toLowerCase()}): ${plural(b.clientes, 'cliente', 'clientes')}, ` +
+          `${reais(b.valor_mensal)}/mês em risco${b.ruas.length ? ` · ${b.ruas.join(', ')}` : ''}`);
+      }
+      if (prioridades.total.bairros > prioridades.bairros.length) {
+        l.push(`• No total: ${plural(prioridades.total.bairros, 'bairro', 'bairros')}, ` +
+          `${plural(prioridades.total.clientes, 'cliente', 'clientes')}, ${reais(prioridades.total.valor_mensal)}/mês em risco`);
+      }
+      if (prioridades.aviso_valor) l.push(`• _${prioridades.aviso_valor}_`);
     }
     partes.push(...l);
   }
@@ -702,6 +749,7 @@ export async function montarResumo(
   };
 
   if (quer.has('saude')) base.secoes.saude = await coletarSaude();
+  if (quer.has('prioridades')) base.secoes.prioridades = await coletarPrioridades();
   if (quer.has('rede')) base.secoes.rede = seguro(() => coletarRede(inicio, fim));
   if (quer.has('ctos')) base.secoes.ctos = await coletarCtos(inicio, fim);
   if (quer.has('trafego')) base.secoes.trafego = await coletarTrafego(inicio, fim);
