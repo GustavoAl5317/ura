@@ -33,6 +33,11 @@ PERGUNTAS = [
     'Como é que tá a rede da RNP?',
     'Como é que se encontra a rede da Etice?',
     'Como é que tá a luz da caixa da segunda etapa do Conjunto Ceará?',
+    'A nossa OLT da Huawei, ela atende quais os bairros?',
+    'Tem como mapear a OLT1, ela tem quais são os bairros?',
+    'A rede da RNP, ela está em qual equipamento dentro do nosso datacenter?',
+    'Poderia me informar sobre a rede da AT&T?',
+    'Em quais bairros nós temos clientes? Quero todos.',
 ]
 
 

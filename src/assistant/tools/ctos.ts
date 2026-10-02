@@ -512,8 +512,10 @@ const porBairro: Ferramenta = {
         // "bom sucesso" → "BONSUCESSO": o nome falado contra os que existem.
         const r = resolverBairro(args.bairro, todosOsBairros.map((b) => b.bairro));
         if (r.bairro) {
-          lista = lista.filter((b) => b.bairro === r.bairro);
-          if (r.como !== 'exato') interpretado = { pedido: args.bairro, entendido: r.bairro, como: r.como ?? '' };
+          lista = lista.filter((b) => r.variantes.includes(b.bairro));
+          if (r.como !== 'exato' || r.variantes.length > 1) {
+            interpretado = { pedido: args.bairro, entendido: r.variantes.join(' / '), como: r.como ?? '' };
+          }
         } else {
           const alvo = normalizar(args.bairro);
           lista = lista.filter((b) => normalizar(b.bairro).includes(alvo) || alvo.includes(normalizar(b.bairro)));

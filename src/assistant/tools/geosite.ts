@@ -424,8 +424,8 @@ const caixasEmenda: Ferramenta = {
             },
           };
         }
-        if (res.como !== 'exato') interpretado = { pedido: bairro, entendido: res.bairro };
-        lista = caixas.filter((c) => c.bairro === res.bairro);
+        if (res.como !== 'exato' || res.variantes.length > 1) interpretado = { pedido: bairro, entendido: res.variantes.join(' / ') };
+        lista = caixas.filter((c) => !!c.bairro && res.variantes.includes(c.bairro));
       }
 
       const porBairro = new Map<string, number>();

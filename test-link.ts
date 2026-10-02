@@ -45,7 +45,8 @@ let cenario: Record<string, { problemas: any[]; itens: any[] }> = {};
 const buscasFeitas: string[] = [];
 (zabbix as any).problemasPorPadroes = async (p: string[]) => { buscasFeitas.push(`p:${p[0]}`); return cenario[p[0].toLowerCase()]?.problemas ?? []; };
 zm.buscarItens = async (o: { nome?: string; host?: string }) => {
-  if (o.host === 'BGP') {
+  // Sem nome nem host: a lista de todas as portas, para sugerir.
+  if (!o.nome && !o.host) {
     return [
       it('Interface XGigabitEthernet0/0/5 - OPER_ANGOLA: Bits received', 'a1', 0, 'bps'),
       it('Interface XGigabitEthernet0/0/7 - IX-CE V4: Bits received', 'a2', 0, 'bps'),
@@ -133,8 +134,8 @@ async function main() {
   e = await rodar('inexistente');
   d = e.dados;
   checa('nada achado: vazio, "nao_encontrado"', e.vazio && d.situacao_geral === 'nao_encontrado' && /Não afirme/.test(d.nao_encontrado), d);
-  checa('oferece portas com nome dos roteadores de borda (sem as genéricas)',
-    d.portas_dos_roteadores_de_borda.some((x: string) => /OPER_ANGOLA/.test(x)) && !d.portas_dos_roteadores_de_borda.some((x: string) => x === 'Eth-Trunk0'), d.portas_dos_roteadores_de_borda);
+  checa('oferece portas com descrição de todos os equipamentos (sem as genéricas)',
+    d.portas_com_descricao.some((x: string) => /OPER_ANGOLA/.test(x)) && !d.portas_com_descricao.some((x: string) => /Eth-Trunk0$/.test(x)), d.portas_com_descricao);
 
   e = await rodar('x');
   checa('nome curto demais: erro legível', !e.ok && /informe o nome/.test(e.erro), e);

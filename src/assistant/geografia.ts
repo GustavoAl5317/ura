@@ -144,13 +144,37 @@ export function chaveFalada(s: string): string {
  * "pelo_som" avisa que a transcrição do áudio provavelmente trocou palavras:
  * a resposta deve dizer o que foi entendido.
  */
+type ComoResolveu = 'exato' | 'contem' | 'aproximado' | 'pelo_som' | null;
+
 export function resolverBairro(termo: string, conhecidos: readonly string[]): {
-  bairro: string | null; candidatos: string[]; como: 'exato' | 'contem' | 'aproximado' | 'pelo_som' | null;
+  bairro: string | null; candidatos: string[]; como: ComoResolveu;
+  /**
+   * Todas as grafias do cadastro que soam como o bairro achado: "BOM SUCESSO",
+   * "BONSUCESSO" e "BOM SUCESO" são o mesmo lugar. Filtro tem que usar todas,
+   * senão parte dos clientes do bairro fica de fora.
+   */
+  variantes: string[];
+} {
+  const unicos = [...new Set(conhecidos.filter(Boolean).map((b) => b.trim()))];
+  const somDe = (b: string) => chaveFalada(b) || compacto(b);
+  const grupos = new Map<string, string[]>();
+  for (const b of unicos) grupos.set(somDe(b), [...(grupos.get(somDe(b)) ?? []), b]);
+  // Um representante por som: duas grafias do mesmo bairro não empatam entre si.
+  const representantes = [...grupos.values()].map((g) => g[0]);
+  const r = resolverEntre(termo, unicos, representantes);
+  return {
+    ...r,
+    variantes: r.bairro ? grupos.get(somDe(r.bairro)) ?? [r.bairro] : [],
+    candidatos: [...new Set(r.candidatos.map((c) => grupos.get(somDe(c))?.join(' / ') ?? c))],
+  };
+}
+
+function resolverEntre(termo: string, todos: string[], unicos: string[]): {
+  bairro: string | null; candidatos: string[]; como: ComoResolveu;
 } {
   const t = compacto(termo);
   if (!t) return { bairro: null, candidatos: [], como: null };
-  const unicos = [...new Set(conhecidos.filter(Boolean))];
-  const igual = unicos.filter((b) => compacto(b) === t);
+  const igual = todos.filter((b) => compacto(b) === t);
   if (igual.length) return { bairro: igual[0], candidatos: [], como: 'exato' };
 
   const som = chaveFalada(termo);
@@ -329,7 +353,8 @@ export function bairroDosContratos(): Map<number, string> {
  * O.S. e cancelamento: lá não há CTO, há contrato, e o contrato tem bairro.
  */
 export function bairroPedido(termo: string): {
-  bairro: string | null; candidatos: string[]; entendido: { pedido: string; entendido: string; como: string } | null;
+  bairro: string | null; candidatos: string[]; variantes: string[];
+  entendido: { pedido: string; entendido: string; como: string } | null;
 } {
   const conhecidos = (db().prepare(
     `SELECT DISTINCT TRIM(bairro) b FROM sgp_cliente WHERE bairro IS NOT NULL AND TRIM(bairro) <> ''`,
@@ -338,13 +363,19 @@ export function bairroPedido(termo: string): {
   return {
     bairro: r.bairro,
     candidatos: r.candidatos,
-    entendido: r.bairro && r.como !== 'exato' ? { pedido: termo, entendido: r.bairro, como: r.como ?? '' } : null,
+    variantes: r.variantes,
+    entendido: r.bairro && (r.como !== 'exato' || r.variantes.length > 1)
+      ? { pedido: termo, entendido: r.variantes.join(' / '), como: r.como ?? '' } : null,
   };
 }
 
 /** Mesmo bairro, ignorando acento, caixa e espaço. */
 export const mesmoBairro = (a: string | null | undefined, b: string | null | undefined): boolean =>
   !!a && !!b && compacto(a) === compacto(b);
+
+/** O bairro do cadastro é alguma das grafias aceitas? */
+export const bairroEntre = (a: string | null | undefined, variantes: readonly string[]): boolean =>
+  variantes.some((v) => mesmoBairro(a, v));
 
 export const chaveCto =(c: { cto_id: number; nome: string }): string[] => [`id:${c.cto_id}`, `nome:${norm(c.nome)}`];
 
@@ -429,17 +460,19 @@ export function filtrarPorLugar(
   if (!f.bairro && !f.cidade) return { ctos, lugares, exatos: 0, provaveis: 0, entendido: null };
 
   // Interpreta o nome falado ("bom sucesso") contra os bairros que existem.
-  let bairroPedido = f.bairro;
+  let alvos: string[] = f.bairro ? [norm(f.bairro)] : [];
   let entendido: { pedido: string; entendido: string; como: string } | null = null;
   if (f.bairro) {
     const conhecidos = [...lugares.values()].map((l) => l.bairro).filter((b): b is string => !!b);
     const r = resolverBairro(f.bairro, conhecidos);
     if (r.bairro) {
-      bairroPedido = r.bairro;
-      if (r.como !== 'exato') entendido = { pedido: f.bairro, entendido: r.bairro, como: r.como ?? '' };
+      alvos = r.variantes.map(norm);
+      if (r.como !== 'exato' || r.variantes.length > 1) {
+        entendido = { pedido: f.bairro, entendido: r.variantes.join(' / '), como: r.como ?? '' };
+      }
     }
   }
-  const alvoBairro = bairroPedido ? norm(bairroPedido) : null;
+  const alvoBairro = alvos.length ? alvos : null;
   const alvoCidade = f.cidade ? norm(f.cidade) : null;
   let exatos = 0;
   let provaveis = 0;
@@ -448,7 +481,7 @@ export function filtrarPorLugar(
     const b = lugares.get(c.cto_id);
     if (!b || b.qualidade === 'desconhecido') return false;
     if (b.qualidade === 'provavel' && f.aceitarProvavel === false) return false;
-    const casaBairro = !alvoBairro || (!!b.bairro && (norm(b.bairro).includes(alvoBairro) || alvoBairro.includes(norm(b.bairro))));
+    const casaBairro = !alvoBairro || (!!b.bairro && alvoBairro.some((a) => norm(b.bairro!).includes(a) || a.includes(norm(b.bairro!))));
     const casaCidade = !alvoCidade || (!!b.cidade && (norm(b.cidade).includes(alvoCidade) || alvoCidade.includes(norm(b.cidade))));
     if (!casaBairro || !casaCidade) return false;
     if (b.qualidade === 'exato') exatos++; else provaveis++;

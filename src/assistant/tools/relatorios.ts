@@ -13,7 +13,7 @@ import { db } from '../store/db';
 import { statusIndice, idadeEspelho } from '../store/sgp-index';
 import { obter } from '../config-dinamica';
 import { diaLocal, instanteSgp, normalizar, localParaUtc } from '../datas';
-import { bairroPedido, bairroDosContratos, mesmoBairro } from '../geografia';
+import { bairroPedido, bairroDosContratos, bairroEntre } from '../geografia';
 import { Ferramenta, medir, ferramentas, podeFonte } from './base';
 
 // ─── Clientes online ────────────────────────────────────────────────────────
@@ -166,6 +166,7 @@ const PARAMS_PERIODO = {
 
 type FiltroBairro = {
   bairro: string;
+  variantes: string[];
   entendido: ReturnType<typeof bairroPedido>['entendido'];
   doContrato: Map<number, string>;
 } | null;
@@ -179,12 +180,12 @@ function filtroBairro(args: Record<string, unknown>): FiltroBairro {
     const parecidos = r.candidatos.length ? `; parecidos: ${r.candidatos.join(', ')}` : '';
     throw new Error(`bairro "${termo}" não encontrado no cadastro de clientes${parecidos}. Pergunte qual é.`);
   }
-  return { bairro: r.bairro, entendido: r.entendido, doContrato: bairroDosContratos() };
+  return { bairro: r.bairro, variantes: r.variantes, entendido: r.entendido, doContrato: bairroDosContratos() };
 }
 
 function doBairro<T extends { contrato: number }>(xs: T[], f: FiltroBairro): T[] {
   if (!f) return xs;
-  return xs.filter((o) => mesmoBairro(f.doContrato.get(Number(o.contrato)), f.bairro));
+  return xs.filter((o) => bairroEntre(f.doContrato.get(Number(o.contrato)), f.variantes));
 }
 
 function rotuloBairro(f: FiltroBairro) {
@@ -340,7 +341,7 @@ const relatorioCancelamentos: Ferramenta = {
          WHERE e.detectado_em >= ? AND e.para LIKE 'Cancel%'
          ORDER BY e.detectado_em DESC`,
       ).all(desdeIso) as Array<{ contrato_id: number; de: string | null; para: string; motivo: string | null; detectado_em: string; nome: string | null; bairro: string | null }>)
-        .filter((e) => !fb || mesmoBairro(e.bairro, fb.bairro));
+        .filter((e) => !fb || bairroEntre(e.bairro, fb.variantes));
       const situacao = d.prepare(
         `SELECT COALESCE(status,'sem_dado') situacao, COALESCE(motivo_status,'—') motivo, COUNT(*) n
          FROM sgp_contrato GROUP BY 1, 2 ORDER BY n DESC`,

@@ -7,10 +7,11 @@
 import { config } from '../../config';
 import { sgp, osEstaAberta, SgpOrdemServico } from '../../integrations/sgp';
 import { zabbix, ZabbixClient } from '../../integrations/zabbix';
-import { onuPorTermo } from '../../integrations/zabbix-metricas';
+import { onuPorTermo, statusHosts } from '../../integrations/zabbix-metricas';
+import { fabricantePedido } from '../../integrations/fabricante';
 import { db } from '../store/db';
 import { buscar, statusIndice, servicosPorCto, ctosParecidas, idadeEspelho, bairrosDoCadastro, clientesDoBairro } from '../store/sgp-index';
-import { resolverBairro, bairroPedido, bairroDosContratos, mesmoBairro } from '../geografia';
+import { resolverBairro, bairroPedido, bairroDosContratos, bairroEntre } from '../geografia';
 import { Ferramenta, medir, ferramentas } from './base';
 import { Envelope } from '../types';
 
@@ -545,6 +546,141 @@ const clientesDaCto: Ferramenta = {
   },
 };
 
+/**
+ * Número da OLT falado: "OLT1", "olt 1", "a OLT-01" → 1. null quando a pessoa
+ * citou a OLT por fabricante ou nome ("a da Huawei").
+ */
+export function numeroDaOlt(termo: string): number | null {
+  const m = /olt\W*0*(\d{1,3})\b/i.exec(termo) ?? /^\s*0*(\d{1,3})\s*$/.exec(termo);
+  return m ? Number(m[1]) : null;
+}
+
+/** A OLT do cadastro ("OLT-1 HUAWEI MA5800") é a que a pessoa pediu? */
+export function oltCasa(termo: string, oltNome: string): boolean {
+  const n = numeroDaOlt(termo);
+  if (n !== null) {
+    const doNome = /olt\W*0*(\d{1,3})\b/i.exec(oltNome);
+    return !!doNome && Number(doNome[1]) === n;
+  }
+  const palavras = termo.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .split(/[^a-z0-9]+/).filter((p) => p.length >= 3 && !['olt', 'nossa', 'da', 'do'].includes(p));
+  const alvo = oltNome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return palavras.length > 0 && palavras.every((p) => alvo.includes(p));
+}
+
+/**
+ * Bairros atendidos, pelo cadastro: TODO bairro com cliente ligado, não só o
+ * bairro principal de cada CTO. A visão por CTO (ctos_por_bairro) dá um bairro
+ * por caixa, e o bairro que é minoria em todas as caixas some — foi assim que
+ * a operação ouviu "vocês sempre falam os mesmos bairros".
+ */
+const bairrosAtendidos: Ferramenta = {
+  nome: 'bairros_atendidos',
+  fonte: 'sgp',
+  descricao:
+    'TODOS os bairros onde temos cliente, pelo cadastro, com clientes, caixas (CTOs) e OLTs de cada um. ' +
+    'Responde "em quais bairros temos clientes?", "quais bairros a OLT 1 atende?", "a OLT da Huawei atende ' +
+    'quais bairros?", "quais bairros a PON 3 da OLT 2 atende?". Diferente de ctos_por_bairro (que dá um bairro ' +
+    'por caixa e esconde bairro pequeno): aqui entra todo bairro com pelo menos um cliente. A lista vem completa: ' +
+    'diga o total de bairros e, se resumir, diga quantos ficaram de fora.',
+  parametros: {
+    type: 'object',
+    properties: {
+      olt: { type: 'string', description: 'OLT como a pessoa falou: "OLT1", "olt 2", "a da Huawei"' },
+      pon: { type: 'number', description: 'Número da PON dentro da OLT' },
+      cidade: { type: 'string', description: 'Só essa cidade' },
+    },
+    required: [],
+  },
+  async executar(args, ctx) {
+    return [await medir<Record<string, unknown>>(ctx, 'sgp', 'sgp.bairros_atendidos', args, async () => {
+      const st = statusIndice();
+      if (!st.disponivel) throw new Error('espelho do SGP ainda não sincronizado');
+      const linhas = db().prepare(
+        `SELECT TRIM(c.bairro) bairro, TRIM(COALESCE(c.cidade,'')) cidade, s.olt_nome, s.pon, s.cto_nome
+           FROM sgp_servico s
+           JOIN sgp_contrato ct ON ct.contrato_id = s.contrato_id
+           JOIN sgp_cliente  c  ON c.cliente_id  = ct.cliente_id
+          WHERE c.bairro IS NOT NULL AND TRIM(c.bairro) <> ''
+            AND (ct.status IS NULL OR ct.status NOT LIKE 'Cancel%')`,
+      ).all() as Array<{ bairro: string; cidade: string; olt_nome: string | null; pon: number | null; cto_nome: string | null }>;
+
+      const olts = [...new Set(linhas.map((l) => l.olt_nome).filter((x): x is string => !!x))].sort();
+      const oltPedida = typeof args.olt === 'string' && args.olt.trim() ? args.olt.trim() : null;
+      let escolhidas: string[] | null = null;
+      let porFabricante: string | null = null;
+      if (oltPedida) {
+        escolhidas = olts.filter((o) => oltCasa(oltPedida, o));
+        // "A OLT da Huawei": o cadastro não guarda fabricante, o Zabbix sabe.
+        // Pega as OLTs desse fabricante lá e casa pelo número.
+        const fab = escolhidas.length ? null : oltPedida.split(/[^A-Za-zÀ-ú-]+/)
+          .filter((p) => p.length >= 3 && !['olt', 'olts', 'nossa', 'nosso', 'atende', 'qual', 'quais'].includes(p.toLowerCase()))
+          .map(fabricantePedido).find((f): f is string => !!f) ?? null;
+        if (fab && config.zabbix.enabled) {
+          const hosts = await statusHosts().catch(() => []);
+          const nums = hosts.filter((h) => h.tipo === 'olt' && h.fabricante === fab)
+            .map((h) => numeroDaOlt(h.nome)).filter((n): n is number => n !== null);
+          escolhidas = olts.filter((o) => nums.some((n) => oltCasa(`olt ${n}`, o)));
+          if (escolhidas.length) porFabricante = fab;
+        }
+        if (!escolhidas.length) {
+          return {
+            vazio: true,
+            dados: {
+              olt_pedida: oltPedida,
+              olts_no_cadastro: olts,
+              instrucao:
+                'Nenhuma OLT do cadastro casa com esse nome. Mostre as OLTs que existem e pergunte qual é. ' +
+                'Se a pessoa citou o fabricante e ele não aparece no nome, diga que o cadastro não guarda o fabricante.',
+            },
+          };
+        }
+      }
+      const pon = args.pon === undefined || args.pon === null ? null : Number(args.pon);
+      const cidade = typeof args.cidade === 'string' && args.cidade.trim()
+        ? args.cidade.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim() : null;
+
+      const filtradas = linhas.filter((l) =>
+        (!escolhidas || (!!l.olt_nome && escolhidas.includes(l.olt_nome))) &&
+        (pon === null || !Number.isFinite(pon) || l.pon === pon) &&
+        (!cidade || l.cidade.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(cidade)));
+
+      const porBairro = new Map<string, { bairro: string; cidade: string; clientes: number; ctos: Set<string>; olts: Set<string> }>();
+      for (const l of filtradas) {
+        const k = `${l.bairro.toUpperCase()}|${l.cidade.toUpperCase()}`;
+        const b = porBairro.get(k) ?? { bairro: l.bairro, cidade: l.cidade, clientes: 0, ctos: new Set(), olts: new Set() };
+        b.clientes++;
+        if (l.cto_nome) b.ctos.add(l.cto_nome);
+        if (l.olt_nome) b.olts.add(l.olt_nome);
+        porBairro.set(k, b);
+      }
+      const bairros = [...porBairro.values()].sort((a, b) => b.clientes - a.clientes);
+      return {
+        // Cadastro varrido por inteiro: zero bairro é resposta sobre o filtro.
+        vazio: linhas.length === 0,
+        dados: {
+          filtro: {
+            olt: oltPedida, olts_consideradas: escolhidas ?? undefined, pon, cidade: args.cidade ?? null,
+            fabricante_pelo_zabbix: porFabricante ?? undefined,
+          },
+          total_de_bairros: bairros.length,
+          total_de_clientes: filtradas.length,
+          bairros: bairros.slice(0, 200).map((b) => ({
+            bairro: b.bairro, cidade: b.cidade || null, clientes: b.clientes, ctos: b.ctos.size,
+            olts: escolhidas ? undefined : [...b.olts],
+          })),
+          lista_cortada_em_200: bairros.length > 200 ? bairros.length - 200 : undefined,
+          olts_no_cadastro: olts,
+          como_responder:
+            `São ${bairros.length} bairros. Se for listar só parte, diga "os N com mais clientes, de ${bairros.length}" ` +
+            'e ofereça a lista completa. Bairro com 1 ou 2 clientes costuma ser cadastro com bairro escrito diferente.',
+          origem: idadeEspelho(),
+        },
+      };
+    })];
+  },
+};
+
 const clientesBairro: Ferramenta = {
   nome: 'clientes_do_bairro',
   fonte: 'sgp',
@@ -581,7 +717,8 @@ const clientesBairro: Ferramenta = {
             },
           };
         }
-        const todos = clientesDoBairro(r.bairro, 1000);
+        // Todas as grafias do mesmo bairro no cadastro (BOM SUCESSO e BONSUCESSO).
+        const todos = r.variantes.flatMap((v) => clientesDoBairro(v, 1000)).slice(0, 1000);
         const porCto = new Map<string, number>();
         for (const c of todos) {
           const k = c.ctoNome ?? '(sem caixa no cadastro)';
@@ -592,7 +729,7 @@ const clientesBairro: Ferramenta = {
           dados: {
             bairro: r.bairro,
             bairro_procurado: pedido,
-            interpretado: r.como !== 'exato' ? `"${pedido}" entendido como ${r.bairro}` : undefined,
+            interpretado: r.como !== 'exato' || r.variantes.length > 1 ? `"${pedido}" entendido como ${r.variantes.join(' / ')}` : undefined,
             total: todos.length,
             por_caixa: [...porCto.entries()].sort((a, b) => b[1] - a[1]).map(([caixa, n]) => ({ caixa, clientes: n })),
             clientes: todos.slice(0, limite),
@@ -821,7 +958,9 @@ const osAbertasRede: Ferramenta = {
             };
           }
         }
-        const r0 = await sgp.ordensServicoAbertas(dias);
+        // Por bairro, o recorte é pequeno: vale ler mais páginas para a janela
+        // fechar inteira. Zero com janela cortada seria "não sei".
+        const r0 = await sgp.ordensServicoAbertas(dias, 500, bairro ? 20 : 6);
         let foraDoEspelho = 0;
         let r = r0;
         if (bairro?.bairro) {
@@ -829,7 +968,7 @@ const osAbertasRede: Ferramenta = {
           const abertas = r0.abertas.filter((o) => {
             const b = doContrato.get(Number(o.contrato));
             if (!b) { foraDoEspelho++; return false; }
-            return mesmoBairro(b, bairro!.bairro);
+            return bairroEntre(b, bairro!.variantes);
           });
           r = { ...r0, abertas };
         }
@@ -912,5 +1051,6 @@ export function registrarFerramentas(): void {
     osAbertasRede,
     osDoTecnico,
     clientesBairro,
+    bairrosAtendidos,
   );
 }

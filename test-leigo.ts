@@ -106,7 +106,14 @@ async function main(): Promise<void> {
   checa('"Montese" (não está na lista) não vira outro', r('Montese').bairro === null, r('Montese'));
   checa('"Praia do Futuro" com duas partes pergunta qual',
     r('Praia do Futuro').bairro === null && r('Praia do Futuro').candidatos.length === 2, r('Praia do Futuro'));
-  checa('chave do som junta ss, ç e c', geo.chaveFalada('Bonsucesso') === geo.chaveFalada('bom sucesso'));
+  const duas = geo.resolverBairro('Bolsa Fesso', [...BAIRROS, 'BOM SUCESSO', 'BOM SUCESO']);
+  checa('duas grafias do mesmo bairro no cadastro não empatam', duas.bairro !== null, duas);
+  checa('e o filtro usa todas as grafias', ['BONSUCESSO', 'BOM SUCESSO', 'BOM SUCESO'].every((v) => duas.variantes.includes(v)), duas.variantes);
+  checa('"bom sucesso" com as duas grafias acha as duas',
+    geo.resolverBairro('bom sucesso', ['BONSUCESSO', 'BOM SUCESSO', 'PARANGABA']).variantes.length === 2);
+  checa('candidatos ambíguos juntam as grafias', geo.resolverBairro('praia do futuro', ['PRAIA DO FUTURO I', 'PRAIA DO FUTURO II', 'PRAIA DO FUTURO 2']).candidatos.length === 2,
+    geo.resolverBairro('praia do futuro', ['PRAIA DO FUTURO I', 'PRAIA DO FUTURO II', 'PRAIA DO FUTURO 2']).candidatos);
+  checa('chave do som junta ss, ç e c',geo.chaveFalada('Bonsucesso') === geo.chaveFalada('bom sucesso'));
   checa('número romano e algarismo dão a mesma chave', geo.chaveFalada('JOAO XXIII') === geo.chaveFalada('joão 23'));
 
   console.log('\n─── Rua ───');
@@ -175,6 +182,20 @@ async function main(): Promise<void> {
     a.ok && a.dados.total_abertas === 1 && a.dados.amostra[0].id === 2, a.dados);
   checa('e diz o bairro entendido', a.dados.bairro_interpretado?.entendido === 'GRANJA PORTUGAL', a.dados.bairro_interpretado);
   checa('conta as O.S. de contrato sem bairro conhecido', a.dados.os_sem_bairro_conhecido === 1, a.dados.os_sem_bairro_conhecido);
+  // Mesmo bairro escrito de outro jeito no cadastro: a O.S. dele conta junto.
+  cliente(20, 'Zeca', 'BOM SUCESSO', 3, 'BSC-03', 'RUA ALFA', '50');
+  (sgp as any).ordensServicoAbertas = async () => ({
+    abertas: [
+      { id: 1, cliente: 'Ana', contrato: 1, status: 'Aberta', status_id: 0, data_cadastro: '2026-10-01', motivo: 'Sem acesso' },
+      { id: 4, cliente: 'Zeca', contrato: 20, status: 'Aberta', status_id: 0, data_cadastro: '2026-10-01', motivo: 'Sem acesso' },
+    ],
+    examinadas: 2, janelaCompleta: true,
+  });
+  a = await osAbertas({ bairro: 'Bolsa Fesso' });
+  checa('"casos no Bolsa Fesso" soma BONSUCESSO e BOM SUCESSO', a.ok && a.dados.total_abertas === 2, a.dados ?? a.erro);
+  db().prepare(`DELETE FROM sgp_servico WHERE servico_id = 20`).run();
+  db().prepare(`DELETE FROM sgp_contrato WHERE contrato_id = 20`).run();
+  db().prepare(`DELETE FROM sgp_cliente WHERE cliente_id = 20`).run();
   a = await osAbertas({ bairro: 'Parangaba' });
   checa('bairro sem O.S. aberta é "nenhuma", não "não sei"', a.ok && !a.vazio && a.dados.total_abertas === 0 && !!a.dados.nenhuma_no_bairro, a);
   a = await osAbertas({ bairro: 'Copacabana' });
@@ -201,6 +222,38 @@ async function main(): Promise<void> {
     c[0].ok && !c[0].vazio && c[0].dados.os_de_cancelamento_ou_retirada.total === 0, c[0]);
   c = await canc({ bairro: 'Copacabana' });
   checa('bairro que não existe não vira "zero cancelamentos"', !c[0].ok && /não encontrado/.test(c[0].erro ?? ''), c[0]);
+
+  console.log('\n─── Bairros atendidos, por OLT ───');
+  const { numeroDaOlt, oltCasa } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'consultas')) as typeof import('./src/assistant/tools/consultas');
+  checa('"OLT1" é a OLT 1', numeroDaOlt('OLT1') === 1);
+  checa('"a olt 02" é a OLT 2', numeroDaOlt('a olt 02') === 2);
+  checa('"a da Huawei" não tem número', numeroDaOlt('a da Huawei') === null);
+  checa('OLT 1 casa com "OLT-1 HUAWEI"', oltCasa('olt1', 'OLT-1 HUAWEI'));
+  checa('OLT 1 não casa com "OLT-10 ZTE"', !oltCasa('olt1', 'OLT-10 ZTE'));
+  checa('"huawei" casa pelo nome quando o nome tem o fabricante', oltCasa('huawei', 'OLT-1 HUAWEI'));
+  // Clientes 1-6 do Bom Sucesso na OLT-1; Gil (Granja Portugal) e Hugo
+  // (Parangaba) na OLT-2. Um cliente do Siqueira, minoria numa caixa do Bom
+  // Sucesso: some na visão por caixa, aparece aqui.
+  db().prepare(`UPDATE sgp_servico SET olt_nome = 'OLT-1 HUAWEI', pon = 3 WHERE servico_id <= 6`).run();
+  db().prepare(`UPDATE sgp_servico SET olt_nome = 'OLT-2 ZTE', pon = 1 WHERE servico_id IN (7, 8)`).run();
+  cliente(9, 'Ivo', 'SIQUEIRA', 3, 'BSC-03', 'RUA DELTA', '1');
+  db().prepare(`UPDATE sgp_servico SET olt_nome = 'OLT-1 HUAWEI', pon = 3 WHERE servico_id = 9`).run();
+  const atendidos = async (args: Record<string, unknown>) => (await ferramentas.get('bairros_atendidos')!.executar(args, ctx))[0] as any;
+  let ba = await atendidos({});
+  checa('lista todo bairro com cliente, inclusive o pequeno',
+    ba.ok && ba.dados.total_de_bairros === 4 && ba.dados.bairros.some((b: any) => b.bairro === 'SIQUEIRA'), ba.dados?.bairros);
+  checa('o maior primeiro, com clientes e caixas', ba.dados.bairros[0].bairro === 'BONSUCESSO' && ba.dados.bairros[0].clientes === 6 && ba.dados.bairros[0].ctos === 3, ba.dados.bairros[0]);
+  checa('manda dizer o total ao resumir', /São 4 bairros/.test(ba.dados.como_responder));
+  ba = await atendidos({ olt: 'OLT1' });
+  checa('"quais bairros a OLT1 atende" dá Bom Sucesso e Siqueira',
+    ba.dados.bairros.map((b: any) => b.bairro).sort().join() === 'BONSUCESSO,SIQUEIRA', ba.dados);
+  ba = await atendidos({ olt: 'olt 2', pon: 1 });
+  checa('OLT 2 PON 1 dá Granja Portugal e Parangaba', ba.dados.total_de_bairros === 2, ba.dados.bairros);
+  ba = await atendidos({ olt: 'a nossa OLT da Huawei' });
+  checa('"a OLT da Huawei" pelo nome do cadastro', ba.dados.bairros.length === 2 && ba.dados.filtro.olts_consideradas[0] === 'OLT-1 HUAWEI', ba.dados);
+  ba = await atendidos({ olt: 'OLT 7' });
+  checa('OLT que não existe mostra as que existem', ba.vazio && ba.dados.olts_no_cadastro.length === 2, ba.dados);
+  checa('"AT&T" procura at&t e att', ['at&t', 'att'].every((n) => nomesDoLink('rede da AT&T').includes(n)), nomesDoLink('rede da AT&T'));
 
   console.log('\n─── Vocabulário ───');
   checa('semente nova entra num banco vazio', glo.semear() === glo.SEMENTE.length);

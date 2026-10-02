@@ -249,6 +249,7 @@ const APELIDOS_DE_LINK: Array<{ casa: RegExp; nomes: string[] }> = [
   { casa: /etice|cinturao|cinturão/i, nomes: ['etice', 'cinturao'] },
   { casa: /angola|cable/i, nomes: ['angola'] },
   { casa: /ix-?ce|ix ?fortaleza|ptt/i, nomes: ['ix-ce', 'ixce', 'ix.br'] },
+  { casa: /\bat ?& ?t\b|\batt\b|\bat-t\b/i, nomes: ['at&t', 'att', 'at-t'] },
 ];
 
 export function nomesDoLink(termo: string): string[] {
@@ -351,12 +352,16 @@ const link: Ferramenta = {
         const nadaAchado = !links.length && !soltos.length;
         let sugestoes: string[] = [];
         if (nadaAchado) {
-          // Ajuda a perguntar de volta: nomes de porta dos roteadores de borda.
-          const borda = await zm.buscarItens({ host: 'BGP', unidade: 'bps', limite: 2000 }).catch(() => []);
-          sugestoes = [...new Set(borda.map((i) => i.nome.replace(/:\s.*$/, '').replace(/^interface\s+/i, '')))]
+          // Ajuda a perguntar de volta: portas com descrição em TODOS os
+          // equipamentos, com o equipamento junto. Só os roteadores de borda
+          // deixava de fora link que chega num switch ou no CORE.
+          const todas = await zm.buscarItens({ unidade: 'bps', limite: 10000 }).catch(() => []);
+          sugestoes = [...new Set(todas
+            .filter((i) => !/ONU GPON/i.test(i.nome))
+            .map((i) => `${i.host}: ${i.nome.replace(/:\s.*$/, '').replace(/^interface\s+/i, '')}`))]
             // Só porta com descrição ("... - OPER_ANGOLA", "...(IX-CE)"): nome cru de porta não ajuda a perguntar.
-            .filter((n) => /\s-\s\S|\(\S/.test(n))
-            .slice(0, 40);
+            .filter((n) => /\s-\s\S|\(\S/.test(n.replace(/^[^:]*:\s/, '')))
+            .slice(0, 60);
         }
 
         return {
@@ -370,8 +375,8 @@ const link: Ferramenta = {
             outros_alertas_com_o_nome: soltos.map(problema),
             ...(nadaAchado ? {
               nao_encontrado: `Nenhum alerta aberto, item ou interface no Zabbix com "${termo}" no nome. ` +
-                'Pode ser outro nome no cadastro: pergunte ao técnico ou ofereça as portas abaixo. Não afirme que o link está no ar.',
-              portas_dos_roteadores_de_borda: sugestoes,
+                'Pode ser outro nome no cadastro: mostre as portas com descrição abaixo (equipamento: porta) e pergunte qual é. Não afirme que o link está no ar.',
+              portas_com_descricao: sugestoes,
             } : {}),
           },
         };
