@@ -139,6 +139,9 @@ async function main(): Promise<void> {
   e = await ocupacao({ bairro: 'Henrique Jorge', max_ocupacao: 0 });
   checa('"CTOs vazias no bairro X" responde com a vazia',
     e.dados.encontradas === 1 && e.dados.ctos[0].nome === 'HJ-03-NOVA', e.dados.ctos);
+  e = await ocupacao({ min_ocupacao: 99, max_ocupacao: 99 });
+  checa('rede inteira sem caixa no filtro: zero e resposta, nao falta de dado',
+    e.ok && e.vazio === false && e.dados.encontradas === 0 && /Isso é resposta/.test(e.dados.nenhuma_com_esse_filtro_na_rede ?? ''), e.dados);
   e = await ocupacao({ bairro: 'Bairro Que Não Existe' });
   checa('bairro que não é nosso devolve vazio e os bairros conhecidos',
     e.vazio === true && e.dados.lugar_encontrado === false && e.dados.bairros_conhecidos.includes('Henrique Jorge'), e.dados);

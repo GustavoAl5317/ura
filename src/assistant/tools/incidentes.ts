@@ -82,7 +82,8 @@ const incidentes: Ferramenta = {
 
       const semDono = lista.filter((i) => !i.dono);
       return {
-        vazio: lista.length === 0,
+        // O registro de incidentes é completo: "nenhum aberto" é resposta.
+        vazio: false,
         dados: {
           filtro: { abertos, sem_dono: args.sem_dono === true, severidade: args.severidade ?? null },
           total: lista.length,

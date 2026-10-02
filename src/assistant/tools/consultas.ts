@@ -308,7 +308,10 @@ const zabbixProblemas: Ferramenta = {
                 'Zabbix se ainda faz sentido. Urgente é o que abriu hoje ou nos últimos dias.'
               : undefined,
           },
-          vazio: incidentes.length === 0,
+          // Zero é resposta quando a consulta cobriu o alvo certo: equipamento que
+          // existe, ou varredura da operação sem termo. Com termo livre (filtro),
+          // zero pode ser termo errado — aí continua sem dado.
+          vazio: incidentes.length === 0 && !!filtro,
         };
       }),
     ];

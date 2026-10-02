@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     };
   });
   let filtroRecebido: string | undefined;
-  zm.statusHosts = async (f?: string) => { filtroRecebido = f; return HOSTS; };
+  zm.statusHosts = async (f?: string) => { filtroRecebido = f; return f ? HOSTS.filter((h) => h.nome.toLowerCase().includes(f.toLowerCase())) : HOSTS; };
   registrarFerramentasMetricas();
   const ctx = { proximoId: (() => { let n = 0; return () => `evd_${++n}`; })(), usuario: 'teste', fontesPermitidas: null };
   const equip = async (args: Record<string, unknown>) => (await ferramentas.get('zabbix_equipamentos')!.executar(args, ctx))[0] as any;
@@ -114,6 +114,10 @@ async function main(): Promise<void> {
   checa('por tipo: as tres OLTs, de qualquer fabricante', e.dados.total === 3, e.dados.equipamentos?.map((x: any) => x.nome));
   e = await equip({ fabricante: 'huawei', tipo: 'olt' });
   checa('OLTs Huawei: so a MA5800', e.dados.total === 1 && e.dados.equipamentos[0].nome === 'OLT-MA5800-HENRIQUE');
+  e = await equip({ fabricante: 'juniper' });
+  checa('fabricante sem nenhum equipamento: "nenhum" e resposta', e.ok && e.vazio === false && e.dados.total === 0, e);
+  e = await equip({ filtro: 'NOME-QUE-NAO-EXISTE' });
+  checa('trecho de nome sem resultado continua sem dado (pode ser nome errado)', e.vazio === true);
   e = await equip({ fabricante: 'xptozz' });
   checa('fabricante desconhecido: pergunta, com a lista dos conhecidos', e.vazio === true && e.dados.fabricantes_conhecidos.includes('Huawei'));
 
@@ -139,6 +143,11 @@ async function main(): Promise<void> {
   const { idadeDoProblema } = require(path.join(RAIZ, 'src', 'assistant', 'tools', 'consultas'));
   checa('fronteiras da idade', idadeDoProblema(0) === 'novo' && idadeDoProblema(30) === 'recente' && idadeDoProblema(31) === 'cronico');
 
+  const antesProbs = (zabbix as any).problemasDosHosts;
+  (zabbix as any).problemasDosHosts = async () => [];
+  e = await probs({ host: 'NE8K' });
+  checa('equipamento que existe, sem problema: zero e resposta', e.ok && e.vazio === false && e.dados.total === 0, e);
+  (zabbix as any).problemasDosHosts = antesProbs;
   e = await probs({ host: 'NOME-ERRADO' });
   checa('host que nao existe: diz que nao encontrou, sem buscar na rede toda',
     e.vazio === true && e.dados.host_encontrado === false && usouPadroes === false, e.dados);

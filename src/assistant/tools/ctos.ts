@@ -243,9 +243,15 @@ const sinalPiorando: Ferramenta = {
         clientes: a.c.clientes, mapa: linkMapa(a.c.lat, a.c.long),
       });
 
+      // Varre a rede inteira: zero caixas piorando é RESPOSTA ("nenhuma"). Só é
+      // falta de dado quando não havia caixa nenhuma com leitura e histórico.
+      const semBase = avaliadas.every((a) => a.av.situacao === 'sem_leitura' || a.av.situacao === 'sem_referencia');
       return {
-        vazio: pioraram.length === 0 && ruins.length === 0,
+        vazio: atuais.length === 0 || semBase,
         dados: {
+          nenhuma_encontrada: !semBase && pioraram.length === 0 && ruins.length === 0
+            ? 'Rede inteira varrida: nenhuma caixa com sinal pior que o normal nem abaixo do aceitável. Isso é resposta, não falta de dado.'
+            : undefined,
           janela_recente_min: minutos,
           referencia_dias: dias,
           limiar_minimo_db: limiarDb,
@@ -354,7 +360,9 @@ const ocupacao: Ferramenta = {
         // Zero com o lugar conhecido é RESPOSTA ("não há nenhuma"), não falta de
         // dado: marcar vazio aqui rebaixaria o veredito para INCONCLUSIVO e a
         // operação leria "não sei" onde a varredura foi completa.
-        vazio: filtradas.length === 0 && noLugar === null,
+        // Filtro de número sobre a rede inteira (ex.: "só as vazias") varre tudo:
+        // zero é "nenhuma", não "não sei". Só falta dado se não veio rede nenhuma.
+        vazio: todas.length === 0,
         dados: {
           rede: {
             ctos: todas.length,
@@ -372,6 +380,9 @@ const ocupacao: Ferramenta = {
             pon, busca: args.busca ?? null, bairro: bairro ?? null, cidade: cidade ?? null,
           },
           encontradas: filtradas.length,
+          nenhuma_com_esse_filtro_na_rede: !(bairro || cidade) && filtradas.length === 0 && todas.length > 0
+            ? `Rede inteira varrida (${todas.length} caixas): nenhuma atende esse filtro. Isso é resposta, não falta de dado.`
+            : undefined,
           lugar: (bairro || cidade) ? {
             lugar_encontrado: true,
             ctos_nesse_lugar: noLugar,

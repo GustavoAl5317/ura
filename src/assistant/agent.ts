@@ -200,11 +200,20 @@ export function respostaSocial(pergunta: string, agora: Date): string | null {
   return `${saudacao}! Em que posso ajudar? Posso ver incidentes da rede, CTOs, sinal e histórico de clientes, O.S., tráfego e clientes online.`;
 }
 
-function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
+export function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
   const m = texto.match(/^\s*VEREDITO:\s*(CONFIRMADO|PROVAVEL|PROVÁVEL|INCONCLUSIVO|CONVERSA)\s*\n?/i);
   if (!m) {
+    // O modelo às vezes escreve o selo em vez da linha pedida ("🟢 CONFIRMADO"
+    // no lugar de "VEREDITO: CONFIRMADO"). É a mesma declaração: aceita, e tira
+    // a linha do texto para não sair selo duplicado e contraditório.
+    const primeira = texto.trim().split('\n')[0] ?? '';
+    const selo = primeira.match(/(CONFIRMADO|PROV[AÁ]VEL|INCONCLUSIVO|CONVERSA)/i);
+    if (selo && tirarSeloRepetido(primeira) === '') {
+      const v = selo[1].toUpperCase().replace('PROVÁVEL', 'PROVAVEL') as Veredito | 'CONVERSA';
+      return { veredito: v, corpo: tirarSeloRepetido(texto) };
+    }
     // Sem declaração explícita não se assume o melhor caso.
-    return { veredito: 'PROVAVEL', corpo: texto.trim() };
+    return { veredito: 'PROVAVEL', corpo: tirarSeloRepetido(texto) };
   }
   const bruto = m[1].toUpperCase().replace('PROVÁVEL', 'PROVAVEL') as Veredito | 'CONVERSA';
   return { veredito: bruto, corpo: tirarSeloRepetido(texto.slice(m[0].length)) };

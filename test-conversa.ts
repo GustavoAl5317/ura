@@ -216,6 +216,16 @@ async function main(): Promise<void> {
   checa('nao mexe em frase que cita a palavra', tirarSeloRepetido('O resultado foi inconclusivo porque faltou dado.') === 'O resultado foi inconclusivo porque faltou dado.');
   checa('nao mexe no selo no meio do texto', /INCONCLUSIVO/.test(tirarSeloRepetido('Linha 1\n🔴 INCONCLUSIVO')));
 
+  const { extrairVereditoProposto } = require(path.join(RAIZ, 'src', 'assistant', 'agent')) as typeof import('./src/assistant/agent');
+  let ev = extrairVereditoProposto('🟢 CONFIRMADO\n\nNenhuma caixa vazia.');
+  checa('selo no lugar da linha VEREDITO vale como declaracao', ev.veredito === 'CONFIRMADO' && ev.corpo === 'Nenhuma caixa vazia.', ev);
+  ev = extrairVereditoProposto('VEREDITO: INCONCLUSIVO\n🔴 INCONCLUSIVO\nFalta dado.');
+  checa('linha VEREDITO mais selo repetido: sai um so', ev.veredito === 'INCONCLUSIVO' && ev.corpo === 'Falta dado.', ev);
+  ev = extrairVereditoProposto('Texto sem declaracao nenhuma.');
+  checa('sem declaracao continua PROVAVEL', ev.veredito === 'PROVAVEL' && ev.corpo === 'Texto sem declaracao nenhuma.');
+  ev = extrairVereditoProposto('O resultado foi confirmado pela OLT.');
+  checa('frase que cita a palavra nao vira selo', ev.veredito === 'PROVAVEL', ev);
+
   servidor.close();
   fecharDb();
   console.log(`\n${passou} passaram, ${falhou} falharam\n`);

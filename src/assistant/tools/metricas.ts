@@ -147,7 +147,9 @@ const equipamentos: Ferramenta = {
               pelo_nome_do_modelo: hs.filter((h) => h.fabricantePor === 'nome').length,
             },
           },
-          vazio: hs.length === 0,
+          // Por fabricante ou tipo, a lista inteira foi olhada: "nenhum Juniper" é
+          // resposta. Por trecho de nome, zero pode ser nome errado.
+          vazio: hs.length === 0 && (!!filtro || todos.length === 0),
         };
       }),
     ];
