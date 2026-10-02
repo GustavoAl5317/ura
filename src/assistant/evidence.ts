@@ -139,6 +139,18 @@ function horaCurta(iso: string): string {
  * Monta a mensagem que vai ao técnico: conclusão, corpo e rastro.
  * O rastro não é enfeite — é o que permite conferir a resposta sem acreditar nela.
  */
+/** Nome da fonte como quem não é técnico reconhece. */
+const NOME_FONTE: Partial<Record<FonteId, string>> = {
+  sgp: 'cadastro (SGP)',
+  zabbix: 'monitoramento (Zabbix)',
+  questdb: 'leitura das caixas',
+  netflow: 'tráfego',
+  geosite: 'mapa da rede (GeoSite)',
+  ura: 'URA',
+  whatsapp: 'WhatsApp',
+  incidentes: 'incidentes',
+};
+
 export function formatarResposta(params: {
   veredito: Veredito | 'CONVERSA';
   ajuste?: string;
@@ -148,6 +160,12 @@ export function formatarResposta(params: {
   lacunas: string[];
   hipotese?: string;
   incluirRastro?: boolean;
+  /**
+   * Quem perguntou não fala técnico. O rodapé técnico (lista "evd_1 · sgp ·
+   * sgp.cadastro_espelho · 10:15", até 4 lacunas, nota de ajuste) dobrava o
+   * tamanho da mensagem e não dizia nada a quem lê. Vira uma linha.
+   */
+  simples?: boolean;
 }): string {
   // Conversa não tem o que atestar: selo e rodapé ali seriam ruído.
   if (params.veredito === 'CONVERSA') return params.texto.trim();
@@ -158,7 +176,27 @@ export function formatarResposta(params: {
 
   if (params.hipotese && params.veredito !== 'CONFIRMADO') {
     linhas.push('');
-    linhas.push(`🧩 *Hipótese (não confirmada):* ${params.hipotese}`);
+    linhas.push(params.simples
+      ? `🧩 *Possível causa (não confirmada):* ${params.hipotese}`
+      : `🧩 *Hipótese (não confirmada):* ${params.hipotese}`);
+  }
+
+  if (params.simples) {
+    if (params.fontesIndisponiveis.length) {
+      linhas.push('');
+      linhas.push(`⚠️ Não consegui consultar: ${params.fontesIndisponiveis.map((f) => NOME_FONTE[f] ?? f).join(', ')}`);
+    }
+    if (params.veredito !== 'CONFIRMADO' && params.lacunas.length) {
+      linhas.push('');
+      linhas.push(`_Falta para confirmar: ${params.lacunas[0]}_`);
+    }
+    const usadas = params.evidencias.filter(sustenta);
+    if (params.incluirRastro !== false && usadas.length) {
+      const fontes = [...new Set(usadas.map((e) => NOME_FONTE[e.fonte] ?? e.fonte))].join(', ');
+      linhas.push('');
+      linhas.push(`_Consultei: ${fontes} · ${horaCurta(usadas[usadas.length - 1].consultadoEm)}_`);
+    }
+    return linhas.join('\n');
   }
 
   if (params.fontesIndisponiveis.length) {

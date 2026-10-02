@@ -73,4 +73,6 @@ export interface RespostaAssistente {
   tokensEntrada?: number;
   tokensSaida?: number;
   duracaoMs: number;
+  /** Quem perguntou não fala técnico: o WhatsApp sai sem rastro técnico no rodapé. */
+  simples?: boolean;
 }

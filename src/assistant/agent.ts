@@ -251,6 +251,56 @@ export function tirarSeloRepetido(corpo: string): string {
   return linhas.join('\n').trim();
 }
 
+/**
+ * Como falar com quem não é técnico. Foi escrito a partir de respostas reais
+ * que o dono do ISP achou longas e difíceis: "Eth-Trunk4.1441 sem coleta de
+ * estado da porta", "-25 dBm", e um parágrafo de gestão repetindo os números.
+ */
+export function instrucaoLinguagemSimples(limite: number): string {
+  return [
+    'Quem perguntou NÃO é técnico. Escreva como quem explica para um vizinho, no WhatsApp.',
+    'A PRIMEIRA frase é a resposta, curta: "Sim, está funcionando.", "Hoje ninguém cancelou no Bom Sucesso.", ' +
+      '"São 24 caixas; 11 têm só dois clientes."',
+    limite > 0
+      ? `Depois, no máximo 3 frases curtas ou 5 itens de lista. A resposta inteira cabe em ${limite} caracteres.`
+      : 'Depois, no máximo 3 frases curtas ou 5 itens de lista.',
+    'Lista grande não vai inteira: mostre as 3 a 5 mais importantes, diga quantas são no total e ofereça o resto ' +
+      '("Quer que eu mande todas?").',
+    'Palavras: "caixa na rua" (não CTO), "aparelho do cliente" (não ONU), "equipamento central" (não OLT), ' +
+      '"sinal da fibra" (não potência óptica), "trecho" (não PON), "ligação com a operadora" (não link ou interface).',
+    'NUNCA escreva nome de porta ou interface (Eth-Trunk, XGigabitEthernet, GigabitEthernet), "subinterface", ' +
+      '"coleta", "item", "evidência", "série" nem "dBm" sem dizer o que é. Em vez de "-27 dBm", diga "sinal fraco" ' +
+      '(e o número entre parênteses só se ajudar). Em vez de "722 Mbps", diga "passando bastante tráfego" ou ' +
+      '"cerca de 700 megas".',
+    'O que não deu para saber vai numa frase só, no fim, se mudar alguma coisa para quem pergunta.',
+    'Não mude os números nem o veredito: muda só o jeito de dizer. Mantenha as citações (evd_N) no fim das frases.',
+  ].join(' ');
+}
+
+/**
+ * Reescreve uma resposta comprida para caber no limite. Só aceita o
+ * resultado se ele ficou menor e não perdeu número nem citação: encurtar não
+ * pode mudar o que foi provado.
+ */
+async function encurtar(texto: string, limite: number): Promise<{ texto: string | null; entrada: number; saida: number }> {
+  const r = await chamarModelo([
+    {
+      role: 'system',
+      content:
+        `Reescreva a resposta abaixo para um leigo, em até ${limite} caracteres. Primeira frase: a resposta direta. ` +
+        'Depois, só o que muda a decisão de quem perguntou. Mantenha todos os números que ficarem e as citações ' +
+        '(evd_N). Não acrescente nada. Sem título, sem "Leitura para gestão", sem nome de porta ou interface. ' +
+        'Devolva só o texto, sem linha de VEREDITO.',
+    },
+    { role: 'user', content: texto },
+  ], []);
+  const novo = tirarSeloRepetido((r.msg.content ?? '').replace(/^\s*VEREDITO:[^\n]*\n?/i, '')).trim();
+  const citacoes = (t: string) => new Set(t.match(/evd_\d+/gi) ?? []);
+  const perdeuCitacao = [...citacoes(texto)].some((c) => !citacoes(novo).has(c)) && citacoes(texto).size > 0 && citacoes(novo).size === 0;
+  const valido = novo.length > 0 && novo.length < texto.length && !perdeuCitacao;
+  return { texto: valido ? novo : null, entrada: r.entrada ?? 0, saida: r.saida ?? 0 };
+}
+
 /** 'auto' deixa o modelo escolher; nome obriga uma ferramenta; 'none' obriga a responder. */
 type EscolhaFerramenta = 'auto' | 'none' | { type: 'function'; function: { name: string } };
 
@@ -431,16 +481,10 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
         'anterior com esse sentido, sem repetir a resposta errada.',
     });
   }
-  if (registro === 'simples' || (registro === 'auto' && !falaTecnico)) {
-    messages.push({
-      role: 'system',
-      content:
-        'Quem perguntou NÃO usou termo técnico. Responda sem sigla e sem jargão: diga "a caixa na rua" ' +
-        'em vez de CTO, "o aparelho do cliente" em vez de ONU, "o equipamento central que alimenta as caixas" em vez de OLT ' +
-        '(nunca chame OLT de "aparelho": aparelho é o do cliente), "o sinal da fibra" em vez de potência ' +
-        'óptica, "a rua/o trecho" em vez de PON. Se precisar citar o termo técnico, ponha entre ' +
-        'parênteses depois da explicação. Não mude os números nem o veredito: muda só a palavra.',
-    });
+  const simples = registro === 'simples' || (registro === 'auto' && !falaTecnico);
+  const limiteCaracteres = simples ? obter<number>('ia.resposta_max_caracteres') : 0;
+  if (simples) {
+    messages.push({ role: 'system', content: instrucaoLinguagemSimples(limiteCaracteres) });
   }
 
   // Leitura para gestão: depois dos números, o que eles querem dizer.
@@ -451,8 +495,13 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     messages.push({
       role: 'system',
       content:
-        'Quem lê pode ser gestor. Depois dos números técnicos, acrescente um parágrafo curto "Leitura para gestão": ' +
-        'o nível de saúde vai DENTRO desse parágrafo, nunca na linha VEREDITO (que é só CONFIRMADO, PROVAVEL, ' +
+        (simples
+          // Para leigo, o parágrafo "Leitura para gestão" repetia os números
+          // que acabaram de ser ditos. Vira uma frase, sem título.
+          ? 'Termine com UMA frase que diga o que isso significa e o que fazer, sem título ("Leitura para gestão" ' +
+            'não aparece). Ex.: "Está funcionando; só vale olhar a caixa da Rua X." '
+          : 'Quem lê pode ser gestor. Depois dos números técnicos, acrescente um parágrafo curto "Leitura para gestão". ') +
+        'O nível de saúde vai nessa parte, nunca na linha VEREDITO (que é só CONFIRMADO, PROVAVEL, ' +
         'INCONCLUSIVO ou CONVERSA e diz o quanto a resposta está provada, não como está a rede). ' +
         'o nível (saudável, ponto de atenção, em degradação, crítico ou sem base para avaliar), o motivo, o impacto ' +
         'em clientes, desde quando e o que fazer. Para pergunta sobre COMO ESTÁ um lugar, chame saude_da_rede: o ' +
@@ -640,6 +689,20 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
   let pedidoDoModelo = extraido.veredito;
   let corpo = corpoModelo;
 
+  // Leigo e resposta comprida: uma reescrita curta, com os mesmos números.
+  // O prompt pede o tamanho; o modelo nem sempre obedece, e a queixa da
+  // operação foi exatamente "as respostas estão muito longas".
+  if (limiteCaracteres > 0 && pedidoDoModelo !== 'CONVERSA' && corpo.length > limiteCaracteres * 1.25) {
+    try {
+      const curta = await encurtar(corpo, limiteCaracteres);
+      tokensEntrada += curta.entrada;
+      tokensSaida += curta.saida;
+      if (curta.texto) corpo = curta.texto;
+    } catch (err) {
+      logger.warn('Assistente: não consegui encurtar a resposta', { err: (err as Error).message });
+    }
+  }
+
   // Só a linha do veredito, sem texto e sem consulta: o modelo não entendeu o
   // pedido. Mostrar "INCONCLUSIVO" vazio não ajuda ninguém; perguntar, sim.
   if (!corpo.trim() && !evidencias.length) {
@@ -678,6 +741,7 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
     lacunas: decisao.lacunas,
     // Hipótese só faz sentido sem confirmação. Em CONFIRMADO, a causa já é fato.
     hipotese: decisao.veredito === 'CONFIRMADO' ? undefined : hipotese,
+    simples: limiteCaracteres > 0 || undefined,
     modelo: obter<string>('ia.modelo'),
     tokensEntrada,
     tokensSaida,
@@ -772,5 +836,6 @@ export function paraWhatsApp(r: RespostaAssistente): string {
     fontesIndisponiveis: r.fontesIndisponiveis,
     lacunas: r.lacunas,
     hipotese: r.hipotese,
+    simples: r.simples,
   });
 }

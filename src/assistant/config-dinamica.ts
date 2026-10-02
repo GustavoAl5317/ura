@@ -61,6 +61,12 @@ export const DEFINICOES = {
       '("a caixa na rua", "o aparelho do cliente"). "auto": espelha quem perguntou — quem fala técnico ' +
       'recebe técnico, quem fala simples recebe simples.',
   },
+  'ia.resposta_max_caracteres': {
+    tipo: 'inteiro', grupo: 'ia', padrao: () => 600, min: 0, max: 4000,
+    descricao:
+      'Tamanho máximo da resposta para quem não fala técnico (WhatsApp de leigo). Resposta maior é reescrita ' +
+      'mais curta antes de sair, com os mesmos números. 0 = sem limite.',
+  },
   'ia.glossario_ativo': {
     tipo: 'booleano', grupo: 'ia', padrao: () => true,
     descricao: 'Usa o vocabulário da casa para entender gíria e jeito de falar. Só os termos que aparecem na pergunta entram, então não encarece as outras consultas.',

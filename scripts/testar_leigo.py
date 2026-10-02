@@ -94,7 +94,7 @@ def item1():
         contagem[v] = contagem.get(v, 0) + 1
         consultas = ['%s%s%s' % (e.get('consulta'), ' ' + json.dumps(e.get('args'), ensure_ascii=False)[:80] if e.get('args') else '', '' if e.get('ok', True) else ' (FALHOU)') for e in r.get('evidencias', [])]
         print('\n> %s' % p)
-        print('  veredito: %s | consultou: %s' % (v, ', '.join(consultas) or 'nada'))
+        print('  veredito: %s | %d caracteres | consultou: %s' % (v, len(r.get('texto') or ''), ', '.join(consultas) or 'nada'))
         print('  ' + (r.get('texto') or r.get('error') or '(sem resposta)').replace('\n', '\n  ')[:700])
     print('\nResumo: ' + ', '.join('%s %d' % kv for kv in sorted(contagem.items())))
 

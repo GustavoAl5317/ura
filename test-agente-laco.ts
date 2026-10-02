@@ -161,6 +161,35 @@ async function main(): Promise<void> {
   const v = agente.extrairVereditoProposto('VEREDITO: CRÍTICO\nEntendi BONSUCESSO.');
   checa('"VEREDITO: CRÍTICO" não é declaração e sai do texto', v.veredito === 'PROVAVEL' && !/CR[IÍ]TICO/.test(v.corpo) && /BONSUCESSO/.test(v.corpo), v);
 
+  console.log('\n─── Resposta curta para leigo ───');
+  const longa = 'VEREDITO: CONFIRMADO\n' + 'A rede do Bom Sucesso tem 24 caixas, e a interface Eth-Trunk4.1441 está sem coleta de estado da porta. '.repeat(10) + '(evd_1)';
+  pedidos = [];
+  roteiro = [chamada('l1', {}), texto(longa), texto('Está funcionando: são 24 caixas, nenhuma parada (evd_1).')];
+  r = await agente.responder({ pergunta: 'como está a rede lá do bom sucesso?', usuario: 'teste-laco', canal: 'whatsapp' });
+  checa('resposta longa para leigo é reescrita curta', r.texto === 'Está funcionando: são 24 caixas, nenhuma parada (evd_1).', r.texto.slice(0, 120));
+  checa('a reescrita é chamada sem ferramenta nenhuma', pedidos[2] && pedidos[2].tool_choice === undefined, pedidos[2]?.tool_choice);
+  checa('o pedido de linguagem simples proíbe nome de porta',
+    pedidos[0].messages.some((m) => m.role === 'system' && /NUNCA escreva nome de porta/.test(m.content ?? '')));
+  checa('e a resposta sai marcada como simples', r.simples === true);
+
+  pedidos = [];
+  roteiro = [chamada('l2', { x: 1 }), texto(longa), texto('Está tudo bem.')];
+  r = await agente.responder({ pergunta: 'como está a rede lá do bom sucesso agora?', usuario: 'teste-laco', canal: 'whatsapp' });
+  checa('reescrita que perde a citação é descartada (fica a original)', /Eth-Trunk/.test(r.texto) && r.texto.includes('(evd_1)'), r.texto.slice(0, 80));
+
+  pedidos = [];
+  roteiro = [chamada('l3', { y: 1 }), texto(longa)];
+  r = await agente.responder({ pergunta: 'qual o rx da onu e o estado da pon 3 da olt 1?', usuario: 'teste-laco', canal: 'chat' });
+  checa('pergunta técnica não é encurtada', pedidos.length === 2 && r.texto.length > 600 && !r.simples, { n: pedidos.length, len: r.texto.length });
+
+  const { formatarResposta } = require(path.join(RAIZ, 'src', 'assistant', 'evidence')) as typeof import('./src/assistant/evidence');
+  const ev = [{ id: 'evd_1', fonte: 'sgp', consulta: 'sgp.cadastro_espelho', args: {}, consultadoEm: new Date().toISOString(), duracaoMs: 1, ok: true, vazio: false, dados: {} }] as any;
+  const leigo = formatarResposta({ veredito: 'PROVAVEL', texto: 'Está funcionando.', evidencias: ev, fontesIndisponiveis: [], lacunas: ['a', 'b', 'c'], simples: true, ajuste: 'nota técnica' });
+  checa('rodapé de leigo: uma linha de fonte, sem "evd_1 · sgp ·"', /Consultei: cadastro \(SGP\)/.test(leigo) && !/evd_1 ·/.test(leigo), leigo);
+  checa('rodapé de leigo: só a primeira lacuna, sem nota técnica', /Falta para confirmar: a/.test(leigo) && !/• b/.test(leigo) && !/nota técnica/.test(leigo), leigo);
+  const tecnico = formatarResposta({ veredito: 'PROVAVEL', texto: 'ok', evidencias: ev, fontesIndisponiveis: [], lacunas: ['a', 'b'] });
+  checa('rodapé técnico continua completo', /evd_1 · sgp · sgp.cadastro_espelho/.test(tecnico) && /• b/.test(tecnico), tecnico);
+
   fecharDb();
   console.log(`\n${passou} ok, ${falhou} falha(s)`);
   process.exit(falhou ? 1 : 0);
