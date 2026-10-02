@@ -123,6 +123,12 @@ export const DEFINICOES = {
     tipo: 'texto', grupo: 'alertas', padrao: () => config.evolutionTecnicos.grupoAlertas,
     descricao: 'Grupo de WhatsApp que recebe os alertas (o identificador termina em @g.us). Vazio: alertas só no painel.',
   },
+  'alertas.audio': {
+    tipo: 'texto', grupo: 'alertas', padrao: () => 'criticos', opcoes: ['nunca', 'criticos', 'todos'],
+    descricao:
+      'Aviso automático também em áudio curto, logo depois do texto: "Atenção. Uma caixinha no poste parou…". ' +
+      '"criticos" (padrão): só os críticos. "todos": todos os avisos. "nunca": só texto. O resumo tem ajuste próprio.',
+  },
   'alertas.explicar_simples': {
     tipo: 'booleano', grupo: 'alertas', padrao: () => true,
     descricao:

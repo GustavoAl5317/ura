@@ -19,7 +19,8 @@ import { alertaResolvido, correlacionar } from './incidentes';
 import { avisoDePlantao } from './plantao';
 import { Decisao, decidir, esperaVencida, limparEspera, registrarDecisao } from './regras';
 import { Alvo, alvosDoAlerta, marcarEscalada, paraEscalar } from './roteamento';
-import { comExplicacao } from './em-palavras-simples';
+import { comExplicacao, falaDoAlerta } from './em-palavras-simples';
+import { sintetizar } from './voice';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -230,15 +231,29 @@ async function despachar(a: Alerta, prioritario = false, audio: Buffer | null = 
   }
 
   const falhas: string[] = [];
+  const receberam: Alvo[] = [];
   for (const alvo of alvos) {
     const r = await evoTecnicos.enviarTextoComId(alvo.jid, a.texto);
     registrarEnvio(a.id, alvo.rotulo, r.ok, r.ok ? null : 'falha no WhatsApp (ver log do Evolution)',
       { mensagemId: r.id, motivo: alvo.origem });
-    if (!r.ok) falhas.push(alvo.rotulo);
-    // Áudio só para quem recebeu o texto; falha no áudio não é falha do alerta.
-    if (r.ok && audio) {
-      const foi = await evoTecnicos.enviarAudio(alvo.jid, audio);
-      if (!foi) logger.warn('Alerta: áudio não foi entregue', { para: alvo.rotulo, chave: a.chave });
+    if (r.ok) receberam.push(alvo);
+    else falhas.push(alvo.rotulo);
+  }
+
+  // Áudio DEPOIS de todos os textos: gerar a voz leva segundos, e o texto de
+  // um alerta crítico não pode esperar por ela. Só para quem recebeu o texto;
+  // falha no áudio não é falha do alerta.
+  if (receberam.length) {
+    let voz = audio;
+    if (!voz && deveFalar(a)) {
+      voz = await sintetizar(falaDoAlerta(a), 'opus').catch(() => null);
+      if (!voz) logger.warn('Alerta: sem áudio, foi só o texto', { chave: a.chave });
+    }
+    if (voz) {
+      for (const alvo of receberam) {
+        const foi = await evoTecnicos.enviarAudio(alvo.jid, voz);
+        if (!foi) logger.warn('Alerta: áudio não foi entregue', { para: alvo.rotulo, chave: a.chave });
+      }
     }
   }
   if (falhas.length === alvos.length) {
@@ -252,6 +267,15 @@ async function despachar(a: Alerta, prioritario = false, audio: Buffer | null = 
   a.enviado_em = agora;
   a.envio_erro = parcial;
   logger.info(`Alerta enviado: ${a.titulo}`, { para: alvos.length, falhas: falhas.length });
+}
+
+/** O aviso vai também em áudio? Painel: alertas.audio (nunca, criticos, todos). */
+export function deveFalar(a: Pick<Alerta, 'severidade' | 'chave' | 'origem'>): boolean {
+  if (a.chave.startsWith('resumo:') || a.origem === 'bot') return false;   // resumo traz o próprio áudio
+  const modo = obter<string>('alertas.audio');
+  if (modo === 'todos') return true;
+  if (modo === 'criticos') return a.severidade === 'critico' && !a.chave.endsWith(':resolvido');
+  return false;
 }
 
 /**

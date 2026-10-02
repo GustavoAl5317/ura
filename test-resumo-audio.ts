@@ -99,9 +99,30 @@ async function main(): Promise<void> {
   await R.enviarResumo({ chave: 'resumo:teste:4', fim });
   checa('desligado no painel: sem áudio', textos.length === 1 && audios.length === 0);
 
+  console.log('\n─── Áudio nos avisos ───');
   textos.length = 0; audios.length = 0;
-  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO off', texto: 'CTO 3 off', chave: 'teste:alerta:1' });
-  checa('alerta comum continua sem áudio', audios.length === 0 && textos.length === 1, { textos, audios });
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: 'CTO 3 off', chave: 'zabbix:900', dados: { tipo: 'cto_off', nome: 'CTO 3 - R. ARACA OFF' } });
+  checa('padrão: aviso crítico vai com áudio, depois do texto', textos.length === 1 && audios.length === 1, { textos: textos.length, audios });
+  textos.length = 0; audios.length = 0;
+  await alertas.emitir({ origem: 'ctos', severidade: 'aviso', titulo: 'Sinal fraco', texto: 'sinal', chave: 'ctos:sinal:3:1' });
+  checa('padrão: aviso não crítico vai só em texto', textos.length === 1 && audios.length === 0, { textos: textos.length, audios });
+  textos.length = 0; audios.length = 0;
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: 'voltou', chave: 'zabbix:900:resolvido', evento: true });
+  checa('"voltou ao normal" não ganha áudio no modo só críticos', audios.length === 0, audios);
+  cfg.definir('alertas.audio', 'todos', 'teste');
+  textos.length = 0; audios.length = 0;
+  await alertas.emitir({ origem: 'ctos', severidade: 'aviso', titulo: 'Sinal fraco', texto: 'sinal', chave: 'ctos:sinal:3:2' });
+  checa('modo todos: aviso comum também vai com áudio', audios.length === 1, audios);
+  cfg.definir('alertas.audio', 'nunca', 'teste');
+  textos.length = 0; audios.length = 0;
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: 'CTO 4 off', chave: 'zabbix:901', dados: { tipo: 'cto_off' } });
+  checa('modo nunca: só texto', textos.length === 1 && audios.length === 0, audios);
+  cfg.definir('alertas.audio', 'criticos', 'teste');
+  textos.length = 0; audios.length = 0;
+  vozFalha = true;
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: 'CTO 5 off', chave: 'zabbix:902', dados: { tipo: 'cto_off' } });
+  checa('voz fora: o alerta crítico chega em texto mesmo assim', textos.length === 1 && audios.length === 0, { textos, audios });
+  vozFalha = false;
 
   console.log('\n─── Aviso em palavras simples ───');
   /* eslint-disable-next-line @typescript-eslint/no-var-requires */
@@ -114,6 +135,9 @@ async function main(): Promise<void> {
   checa('sinal fraco explicado', /força da luz/.test(S.explicacaoSimples({ origem: 'ctos', chave: 'ctos:sinal:5:123' }) ?? ''));
   checa('sem medição não é "caiu"', /Não quer dizer que ela caiu/.test(S.explicacaoSimples({ origem: 'ctos', chave: 'ctos:sem_coleta:5:1' }) ?? ''));
   checa('resolvido: "Voltou ao normal."', S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:9:resolvido' }) === 'Voltou ao normal.');
+  const fala = S.falaDoAlerta({ origem: 'zabbix', chave: 'zabbix:9', severidade: 'critico', titulo: 'CTO offline', dados: { tipo: 'cto_off', impacto: { clientes: 3 }, nome: 'CTO 3 - R. ARACA OFF' } });
+  checa('fala do alerta: atenção, o que houve e onde, sem o "OFF"',
+    fala === 'Atenção. Uma caixinha no poste parou. As 3 casas ligadas nela estão sem internet agora. Onde: CTO 3 - R. ARACA. Os detalhes estão na mensagem de texto.', fala);
   checa('resumo não ganha linha (já abre simples)', S.explicacaoSimples({ origem: 'sistema', chave: 'resumo:2026-10-02:1400' }) === null);
   textos.length = 0;
   await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: '🚨 *CTO offline*', chave: 'zabbix:777', dados: { tipo: 'cto_off', impacto: { clientes: 8 } } });

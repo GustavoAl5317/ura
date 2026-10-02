@@ -5,7 +5,8 @@ import axios from 'axios';
 import { config } from '../config';
 import { Rota, json, lerJson, ator, ErroHttp } from './http-util';
 import { db, registrarAuditoria } from './store/db';
-import { listar, definir, restaurar, DEFINICOES, ChaveConfig } from './config-dinamica';
+import { listar, definir, restaurar, obter, DEFINICOES, ChaveConfig } from './config-dinamica';
+import { sintetizar } from './voice';
 import { paraJid } from '../integrations/evolution';
 import { FONTES, FonteId } from './types';
 import {
@@ -437,9 +438,18 @@ export const rotasAdmin: Rota = async (req, res, url, p) => {
       }
       const ok = await evoTecnicos.enviarTexto(antes.numero,
         `✅ *Teste de alerta*\nOlá, ${antes.nome}! Você vai receber por aqui: ${antes.tipos.map((t) => TIPOS_ALERTA[t]).join(', ')}.`);
-      registrarAuditoria(ator(req), 'alerta_destino.teste', antes.numero, undefined, { ok });
+      // Áudio junto: quem recebe confere na hora que também ouve, e não só no
+      // primeiro alerta crítico de verdade.
+      let audio = false;
+      if (ok && obter<string>('alertas.audio') !== 'nunca') {
+        const voz = await sintetizar(
+          `Olá, ${antes.nome}. Este é um teste do assistente. Quando chegar um problema importante, você recebe ` +
+          'a mensagem de texto e um áudio como este.', 'opus').catch(() => null);
+        audio = !!voz && await evoTecnicos.enviarAudio(antes.numero, voz);
+      }
+      registrarAuditoria(ator(req), 'alerta_destino.teste', antes.numero, undefined, { ok, audio });
       if (!ok) throw new ErroHttp(502, 'o WhatsApp não aceitou o envio — confira o número e se o assistente está conectado');
-      json(res, 200, { ok: true });
+      json(res, 200, { ok: true, audio });
       return true;
     }
 

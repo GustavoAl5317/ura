@@ -74,3 +74,22 @@ export function comExplicacao(texto: string, a: AvisoParaExplicar): string {
   const e = explicacaoSimples(a);
   return e ? `${texto}\n\n💬 ${e}` : texto;
 }
+
+/** Nome do lugar ou equipamento do aviso, sem o "OFF/down" do fim. */
+function alvoDoAviso(dados: unknown): string | null {
+  const d = (dados ?? {}) as { nome?: unknown; cto?: unknown; host?: unknown };
+  const bruto = [d.nome, d.cto].find((x) => typeof x === 'string' && x.trim()) as string | undefined;
+  if (!bruto) return null;
+  return bruto.replace(/\s*(is\s+)?(off(line)?|down|unavailable|fora|inativ[oa])\s*$/i, '').trim() || null;
+}
+
+/**
+ * O que o áudio do aviso fala: abre pela gravidade, a frase simples e onde.
+ * O detalhe técnico fica no texto, que chega antes.
+ */
+export function falaDoAlerta(a: AvisoParaExplicar & { severidade: string; titulo: string }): string {
+  const abre = a.severidade === 'critico' ? 'Atenção.' : 'Aviso.';
+  const explicacao = explicacaoSimples(a) ?? a.titulo;
+  const onde = alvoDoAviso(a.dados);
+  return `${abre} ${explicacao}${onde ? ` Onde: ${onde}.` : ''} Os detalhes estão na mensagem de texto.`;
+}
