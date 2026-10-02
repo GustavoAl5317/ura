@@ -89,8 +89,30 @@ const saude: Ferramenta = {
       }
 
       const l = r.leitura;
+      // O dinheiro em risco vai junto, sem a pessoa pedir: mesma conta da
+      // prioridade (cliente em caixa crítica ou piorando, mensalidade do plano).
+      let financeiro: Record<string, unknown> | undefined;
+      if (!f.pon && !f.cto) {
+        try {
+          const p = await lerPrioridades();
+          const bs = f.bairro ? filtrarBairro(p.bairros, f.bairro).bairros : p.bairros;
+          const clientes = bs.reduce((a, b) => a + b.clientes, 0);
+          const valor = Math.round(bs.reduce((a, b) => a + b.valor_mensal, 0) * 100) / 100;
+          financeiro = {
+            clientes_em_risco: clientes,
+            valor_mensal_em_risco: reais(valor),
+            ruas_mais_afetadas: f.bairro ? bs.flatMap((b) => b.ruas.slice(0, 3).map((x) => `${x.rua} (${x.clientes})`)) : undefined,
+            regra: clientes
+              ? 'Diga SEMPRE esse valor junto do nível, sem a pessoa pedir: "isso representa R$ X por mês em mensalidades".'
+              : 'Nenhum cliente em caixa crítica ou piorando: não há valor em risco agora.',
+          };
+        } catch {
+          financeiro = undefined;
+        }
+      }
       return {
         dados: {
+          impacto_financeiro: financeiro,
           bairro_interpretado: r.entendido ? {
             ...r.entendido,
             instrucao: `Diga na resposta que entendeu "${r.entendido.entendido}" (a pessoa disse "${r.entendido.pedido}").`,

@@ -129,6 +129,25 @@ export const DEFINICOES = {
     tipo: 'texto', grupo: 'alertas', padrao: () => config.evolutionTecnicos.grupoAlertas,
     descricao: 'Grupo de WhatsApp que recebe os alertas (o identificador termina em @g.us). Vazio: alertas só no painel.',
   },
+  'prioridade.avisar': {
+    tipo: 'booleano', grupo: 'alertas', padrao: () => true,
+    descricao:
+      'Avisa sozinho, sem ninguém perguntar, quando um bairro passa a precisar de equipe (cliente em caixa crítica ' +
+      'ou piorando), quando piora ou quando os clientes afetados aumentam: bairro, ruas, clientes e valor mensal ' +
+      'em risco. Vai para quem recebe o resumo.',
+  },
+  'prioridade.intervalo_min': {
+    tipo: 'inteiro', grupo: 'alertas', padrao: () => 10, min: 5, max: 120,
+    descricao: 'De quantos em quantos minutos a lista de prioridade é recalculada.',
+  },
+  'prioridade.confirmacoes': {
+    tipo: 'inteiro', grupo: 'alertas', padrao: () => 2, min: 1, max: 6,
+    descricao: 'Quantas leituras seguidas confirmam que o bairro entrou ou saiu da lista. Evita aviso que vai e volta.',
+  },
+  'prioridade.aumento_clientes': {
+    tipo: 'inteiro', grupo: 'alertas', padrao: () => 10, min: 1, max: 500,
+    descricao: 'Novo aviso do mesmo bairro quando os clientes afetados crescem pelo menos isso.',
+  },
   'alertas.audio': {
     // A casa pediu: tudo chega também em áudio.
     tipo: 'texto', grupo: 'alertas', padrao: () => 'todos', opcoes: ['nunca', 'criticos', 'todos'],

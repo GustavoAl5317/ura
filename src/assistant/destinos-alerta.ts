@@ -17,7 +17,7 @@ export const TIPOS_ALERTA = {
   atendimento: 'Atendimento parado (WhatsApp)',
   ura: 'Chamadas da URA',
   bots: 'Sistemas internos (bots)',
-  resumo: 'Resumo diário',
+  resumo: 'Resumo e prioridades (onde mandar equipe)',
   sistema: 'Avisos do sistema',
 } as const;
 
@@ -45,7 +45,8 @@ export function tipoDoAlerta(a: Pick<Alerta, 'origem' | 'chave'>): TipoAlerta {
     case 'sla': return 'atendimento';
     case 'ura': return 'ura';
     case 'bot': return 'bots';
-    default: return a.chave.startsWith('resumo:') ? 'resumo' : 'sistema';
+    // Prioridade vai para quem recebe o resumo: é a mesma gestão.
+    default: return a.chave.startsWith('resumo:') || a.chave.startsWith('prioridade:') ? 'resumo' : 'sistema';
   }
 }
 

@@ -539,6 +539,8 @@ export async function responder(pedido: PedidoAssistente): Promise<RespostaAssis
           ? 'Termine com UMA frase que diga o que isso significa e o que fazer, sem título ("Leitura para gestão" ' +
             'não aparece). Ex.: "Está funcionando; só vale olhar a caixa da Rua X." '
           : 'Quem lê pode ser gestor. Depois dos números técnicos, acrescente um parágrafo curto "Leitura para gestão". ') +
+        'Quando houver cliente em risco, diga também o VALOR MENSAL em risco que a ferramenta trouxer ' +
+        '(impacto_financeiro ou valor_mensal_em_risco), sem esperar a pessoa pedir. ' +
         'O nível de saúde vai nessa parte, nunca na linha VEREDITO (que é só CONFIRMADO, PROVAVEL, ' +
         'INCONCLUSIVO ou CONVERSA e diz o quanto a resposta está provada, não como está a rede). ' +
         'o nível (saudável, ponto de atenção, em degradação, crítico ou sem base para avaliar), o motivo, o impacto ' +

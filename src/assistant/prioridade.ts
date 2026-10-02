@@ -115,6 +115,40 @@ export function clientesDaCaixa(c: { cto_id: number; nome: string }): LinhaClien
   return linhas.filter((l) => !vistos.has(l.contrato) && vistos.add(l.contrato));
 }
 
+export interface ImpactoFinanceiro {
+  clientes: number;
+  valor_mensal: number;
+  sem_valor: number;
+}
+
+/**
+ * Quanto vale, por mês, o que está ligado nessas caixas. O alerta e a resposta
+ * já saem com o número: a gestão não precisa perguntar quanto está em risco.
+ */
+export async function impactoFinanceiro(caixas: Array<{ cto_id: number; nome: string }>): Promise<ImpactoFinanceiro> {
+  const { mapa } = await precosDosPlanos();
+  const vistos = new Set<number>();
+  let valor = 0;
+  let semValor = 0;
+  for (const c of caixas) {
+    for (const l of clientesDaCaixa(c)) {
+      if (vistos.has(l.contrato)) continue;
+      vistos.add(l.contrato);
+      const preco = l.plano_id !== null ? mapa.get(Number(l.plano_id)) : undefined;
+      if (preco === undefined) semValor++;
+      else valor += preco;
+    }
+  }
+  return { clientes: vistos.size, valor_mensal: Math.round(valor * 100) / 100, sem_valor: semValor };
+}
+
+/** "💰 Em risco: 12 clientes, R$ 1.078,80/mês em mensalidades". null sem cliente. */
+export function linhaFinanceira(i: ImpactoFinanceiro | null): string | null {
+  if (!i || !i.clientes) return null;
+  return `💰 Em risco: ${i.clientes} ${i.clientes === 1 ? 'cliente' : 'clientes'}, ${reais(i.valor_mensal)}/mês em mensalidades` +
+    (i.sem_valor ? ` (${i.sem_valor} sem preço no SGP, valor por baixo)` : '');
+}
+
 /**
  * Monta a lista de prioridade. Função pura: recebe as caixas em risco, como
  * achar os clientes de cada uma e os preços, e devolve os bairros na ordem em

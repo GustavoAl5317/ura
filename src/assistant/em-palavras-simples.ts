@@ -26,6 +26,14 @@ const POR_TIPO_ZABBIX: Record<string, string> = {
   outro: 'O sistema que vigia a rede apontou um problema num equipamento.',
 };
 
+/** "Isso representa R$ 1.078,80 por mês em mensalidades." quando o aviso traz valor. */
+function frasePreco(dados: unknown): string {
+  const v = (dados as { impacto?: { valor_mensal?: unknown } } | null)?.impacto?.valor_mensal;
+  if (typeof v !== 'number' || v <= 0) return '';
+  const r = `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return ` Isso representa ${r} por mês em mensalidades.`;
+}
+
 function clientesNoAviso(dados: unknown): number | null {
   const n = (dados as { impacto?: { clientes?: unknown } } | null)?.impacto?.clientes;
   return typeof n === 'number' && n > 0 ? n : null;
@@ -42,13 +50,18 @@ export function explicacaoSimples(a: AvisoParaExplicar): string | null {
     const tipo = String((a.dados as { tipo?: unknown } | null)?.tipo ?? 'outro');
     const base = POR_TIPO_ZABBIX[tipo] ?? POR_TIPO_ZABBIX.outro;
     const n = clientesNoAviso(a.dados);
-    return tipo === 'cto_off' && n
+    return (tipo === 'cto_off' && n
       ? `Uma caixinha no poste parou. As ${n} casas ligadas nela estão sem internet agora.`
-      : base;
+      : base) + frasePreco(a.dados);
   }
   if (c.startsWith('ctos:sinal:')) {
     return 'A força da luz que leva a internet até uma caixinha ficou mais fraca que o normal. ' +
-      'Ainda funciona, mas pode começar a falhar.';
+      'Ainda funciona, mas pode começar a falhar.' + frasePreco(a.dados);
+  }
+  if (c.startsWith('prioridade:')) {
+    const d = (a.dados ?? {}) as { bairro?: string; clientes?: number };
+    return `${d.bairro ? `O bairro ${d.bairro}` : 'Um bairro'} precisa de técnico: ${d.clientes ?? 'várias'} casas ligadas ` +
+      'em caixinhas com problema.' + frasePreco({ impacto: { valor_mensal: (a.dados as { valor_mensal?: number } | null)?.valor_mensal } });
   }
   if (c.startsWith('ctos:sem_coleta:')) {
     return 'Paramos de receber a medição de uma caixinha. Não quer dizer que ela caiu: só não estamos conseguindo ver.';

@@ -19,6 +19,19 @@ process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'aq-prioridade-')));
 const { db, fecharDb } = require(path.join(RAIZ, 'src', 'assistant', 'store', 'db')) as typeof import('./src/assistant/store/db');
 const P = require(path.join(RAIZ, 'src', 'assistant', 'prioridade')) as typeof import('./src/assistant/prioridade');
 const R = require(path.join(RAIZ, 'src', 'assistant', 'resumo-diario')) as typeof import('./src/assistant/resumo-diario');
+const M = require(path.join(RAIZ, 'src', 'assistant', 'monitors', 'prioridade')) as typeof import('./src/assistant/monitors/prioridade');
+const S = require(path.join(RAIZ, 'src', 'assistant', 'em-palavras-simples')) as typeof import('./src/assistant/em-palavras-simples');
+const cfg = require(path.join(RAIZ, 'src', 'assistant', 'config-dinamica')) as typeof import('./src/assistant/config-dinamica');
+const { sgp } = require(path.join(RAIZ, 'src', 'integrations', 'sgp')) as typeof import('./src/integrations/sgp');
+const { evoTecnicos } = require(path.join(RAIZ, 'src', 'assistant', 'channels', 'whatsapp-tecnicos')) as typeof import('./src/assistant/channels/whatsapp-tecnicos');
+const axios = require('axios');
+// Voz simulada: o aviso também vai em áudio, e o teste não chama a OpenAI.
+axios.post = async () => ({ data: Buffer.from('OGG') });
+const enviados: string[] = [];
+const audios: string[] = [];
+Object.defineProperty(evoTecnicos, 'disponivel', { get: () => true });
+(evoTecnicos as any).enviarTextoComId = async (_p: string, t: string) => { enviados.push(t); return { ok: true, id: 'x' }; };
+(evoTecnicos as any).enviarAudio = async (p: string) => { audios.push(p); return true; };
 const { rotasDaPergunta } = require(path.join(RAIZ, 'src', 'assistant', 'rota')) as typeof import('./src/assistant/rota');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
@@ -126,6 +139,54 @@ async function main(): Promise<void> {
   checa('"quanto dinheiro está em risco?" vai para a prioridade', assuntos('quanto dinheiro está em risco?')[0] === 'prioridade de manutenção');
   checa('"quais bairros precisam de técnico primeiro? prioridade" vai', assuntos('qual a prioridade dos bairros?')[0] === 'prioridade de manutenção');
   checa('"o link da Angola caiu?" não vai', !assuntos('o link da Angola caiu?').includes('prioridade de manutenção'));
+
+  console.log('\n─── Valor junto, sem perguntar ───');
+  (sgp as any).planos = async () => [{ id: 79, descricao: 'BASIC', preco: '79,90', qtd_servicos: 1 }];
+  const fin = await P.impactoFinanceiro([{ cto_id: 7, nome: 'CTO 7' }]);
+  checa('impacto da caixa: clientes não cancelados e soma das mensalidades', fin.clientes === 2 && fin.valor_mensal === 159.8, fin);
+  checa('linha do alerta', P.linhaFinanceira(fin) === '💰 Em risco: 2 clientes, R$ 159,80/mês em mensalidades', P.linhaFinanceira(fin));
+  checa('sem cliente, sem linha', P.linhaFinanceira({ clientes: 0, valor_mensal: 0, sem_valor: 0 }) === null);
+  checa('caixa parada fala do dinheiro em palavras simples',
+    /Isso representa R\$ 159,80 por mês em mensalidades\./.test(S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:1', dados: { tipo: 'cto_off', impacto: { clientes: 2, valor_mensal: 159.8 } } }) ?? ''));
+
+  console.log('\n─── Aviso de prioridade sem perguntar ───');
+  cfg.definir('alertas.destino_grupo', '999@g.us', 'teste');
+  const lista = (bs: ReturnType<typeof P.montarPrioridades>) => ({
+    bairros: bs, caixas_avaliadas: 10, aviso_valor: null,
+    total: { bairros: bs.length, caixas: 1, clientes: bs.reduce((a, x) => a + x.clientes, 0), valor_mensal: bs.reduce((a, x) => a + x.valor_mensal, 0), sem_valor: 0 },
+  });
+  const so = (nivel: 'critico' | 'degradacao', n: number, bairro = 'BONSUCESSO') => P.montarPrioridades(
+    [caixa(1, 'CTO 1', nivel)],
+    () => Array.from({ length: n }, (_, i) => cli(`C${i}`, 100 + i, 'RUA ALFA', String(i), bairro, 79)),
+    new Map([[79, 79.9]]),
+  );
+  let r = await M.cicloPrioridade(lista(so('degradacao', 3, 'JA ESTAVA')));
+  checa('primeira vez: grava o que já existe sem avisar', r.alertas === 0 && enviados.length === 0 && r.detalhe.semeado === true, r);
+  r = await M.cicloPrioridade(lista([...so('degradacao', 3, 'JA ESTAVA'), ...so('degradacao', 4)]));
+  checa('bairro novo: espera confirmar na leitura seguinte', r.alertas === 0, r);
+  r = await M.cicloPrioridade(lista([...so('degradacao', 3, 'JA ESTAVA'), ...so('degradacao', 4)]));
+  checa('confirmado: avisa sozinho', r.alertas === 1 && /Mandar equipe: BONSUCESSO/.test(enviados[0] ?? ''), enviados);
+  checa('o aviso traz o dinheiro e as ruas', /💰 Em risco: 4 clientes, R\$ 319,60\/mês/.test(enviados[0] ?? '') && /RUA ALFA: 4 clientes/.test(enviados[0] ?? ''), enviados[0]);
+  checa('e vai em áudio também', audios.length >= 1, audios);
+  checa('e em palavras simples', /💬 O bairro BONSUCESSO precisa de técnico/.test(enviados[0] ?? ''), enviados[0]);
+  r = await M.cicloPrioridade(lista([...so('degradacao', 3, 'JA ESTAVA'), ...so('degradacao', 4)]));
+  checa('mesma situação: não repete', r.alertas === 0);
+  enviados.length = 0;
+  r = await M.cicloPrioridade(lista([...so('degradacao', 3, 'JA ESTAVA'), ...so('critico', 4)]));
+  checa('piorou para crítico: avisa de novo', r.alertas === 1 && /Piorou/.test(enviados[0] ?? '') && /🔴/.test(enviados[0] ?? ''), enviados);
+  enviados.length = 0;
+  r = await M.cicloPrioridade(lista([...so('degradacao', 3, 'JA ESTAVA'), ...so('critico', 15)]));
+  checa('cresceu muito em clientes: avisa', r.alertas === 1 && /Mais clientes afetados \(antes 4\)/.test(enviados[0] ?? ''), enviados);
+  enviados.length = 0;
+  r = await M.cicloPrioridade(lista(so('degradacao', 3, 'JA ESTAVA')));
+  checa('saiu da lista uma vez: espera confirmar', r.alertas === 0);
+  r = await M.cicloPrioridade(lista(so('degradacao', 3, 'JA ESTAVA')));
+  checa('saiu de vez: avisa que normalizou', r.alertas === 1 && /BONSUCESSO normalizou/.test(enviados[0] ?? ''), enviados);
+  enviados.length = 0;
+  r = await M.cicloPrioridade(lista([]));
+  r = await M.cicloPrioridade(lista([]));
+  // Quem já estava na lista no primeiro ciclo saiu no resumo: avisar que normalizou é informação útil.
+  checa('bairro que já estava na lista também avisa quando normaliza', enviados.some((t) => /JA ESTAVA normalizou/.test(t)), enviados);
 
   fecharDb();
   console.log(`\n${passou} ok, ${falhou} falha(s)`);

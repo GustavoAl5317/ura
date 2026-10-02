@@ -11,6 +11,7 @@
 // Muitas CTOs piorando no mesmo ciclo viram UMA mensagem agrupada por PON:
 // vinte mensagens seguidas no grupo escondem o que importa, que é o tronco.
 
+import { impactoFinanceiro, linhaFinanceira } from '../prioridade';
 import { config } from '../../config';
 import { questdb, avaliarSinal, linkMapa, Avaliacao, CtoAtual } from '../../integrations/questdb';
 import { obter } from '../config-dinamica';
@@ -148,6 +149,7 @@ export async function cicloCtos(): Promise<{ alertas: number; detalhe: Record<st
     for (const { c } of novos) porPon.set(c.pon ?? '?', (porPon.get(c.pon ?? '?') ?? 0) + 1);
     const pons = [...porPon.entries()].sort((a, b) => b[1] - a[1]);
     const ordenados = [...novos].sort((a, b) => (b.av.variacao_db ?? 0) - (a.av.variacao_db ?? 0));
+    const finGrupo = await impactoFinanceiro(novos.map((x) => x.c)).catch(() => null);
     const a = await emitir({
       origem: 'ctos',
       severidade: ordenados.some((x) => sev(x.av) === 'critico') ? 'critico' : 'aviso',
@@ -157,17 +159,19 @@ export async function cicloCtos(): Promise<{ alertas: number; detalhe: Record<st
         `📉 *${novos.length} CTOs com sinal pior que o normal*`,
         `Por PON: ${pons.map(([p, n]) => `PON ${p} (${n})`).join(' · ')}`,
         pons[0][1] >= 2 ? 'Várias CTOs da mesma PON: suspeitar do tronco/PON antes das CTOs.' : null,
+        linhaFinanceira(finGrupo),
         '',
         ...ordenados.slice(0, 10).map((x) => `• ${linhaCto(x.c, x.av)}`),
         ordenados.length > 10 ? `… e mais ${ordenados.length - 10}` : null,
       ].filter((x) => x !== null).join('\n'),
       chave: `${PREFIXO_SINAL}grupo:${Date.now()}`,
-      dados: { ctos: novos.map((x) => dadosDe(x.c, x.av)) },
+      dados: { ctos: novos.map((x) => dadosDe(x.c, x.av)), impacto: finGrupo ? { clientes: finGrupo.clientes, valor_mensal: finGrupo.valor_mensal } : undefined },
     });
     if (a) alertas++;
   } else {
     for (const { c, av } of novos) {
       const mapa = linkMapa(c.lat, c.long);
+      const fin = await impactoFinanceiro([c]).catch(() => null);
       const a = await emitir({
         origem: 'ctos',
         severidade: sev(av),
@@ -177,11 +181,12 @@ export async function cicloCtos(): Promise<{ alertas: number; detalhe: Record<st
           `Agora: ${av.atual} dBm (média dos últimos ${minutos} min)`,
           `Normal: ${av.referencia} dBm (últimos ${dias} dias) · piora de ${av.variacao_db} dB`,
           [c.pon ? `PON ${c.pon}` : null, c.clientes !== null ? `${c.clientes} clientes` : null].filter(Boolean).join(' · ') || null,
+          linhaFinanceira(fin),
           mapa,
           'Possíveis causas: fibra dobrada/rompendo, conector, splitter. Conferir antes que caia.',
         ].filter(Boolean).join('\n'),
         chave: `${chaveSinal(c.cto_id)}${Date.now()}`,
-        dados: dadosDe(c, av),
+        dados: { ...dadosDe(c, av), impacto: fin ? { clientes: fin.clientes, valor_mensal: fin.valor_mensal } : undefined },
       });
       if (a) alertas++;
     }

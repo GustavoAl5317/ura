@@ -7,6 +7,7 @@
 // gravados sem envio. Sem isso, a primeira vez que o serviço sobe despeja no
 // grupo todos os incidentes antigos de uma vez — e ninguém mais lê o grupo.
 
+import { impactoFinanceiro, linhaFinanceira } from '../prioridade';
 import { config } from '../../config';
 import { zabbix, ZabbixClient, ZabbixEventoTipo } from '../../integrations/zabbix';
 import { obter } from '../config-dinamica';
@@ -84,14 +85,23 @@ export function iniciarMonitorZabbix(): () => void {
 
         const inicio = parseInt(p.clock, 10) * 1000;
         const antigo = primeiroCiclo && inicio < inicioProcesso - TOLERANCIA_BOOT_MS;
-        const impacto = tipo === 'cto_off' ? impactoCto(p.name) : null;
+        const cto = tipo === 'cto_off' ? impactoCto(p.name) : null;
+        // O dinheiro vai junto do alerta: ninguém precisa perguntar quanto vale.
+        // Alerta antigo (semeado sem envio) não paga a consulta de preço.
+        const fin = cto && !antigo
+          ? await impactoFinanceiro([{ cto_id: -1, nome: cto.cto }]).catch(() => null)
+          : null;
+        const impacto = cto
+          ? { ...cto, valor_mensal: fin?.valor_mensal ?? null, sem_valor: fin?.sem_valor ?? null }
+          : null;
 
         const linhas = [
           `🚨 *${ROTULO_TIPO[tipo]}*`,
           p.name,
           host ? `Equipamento: ${host}` : null,
           `Desde: ${horaCurta(new Date(inicio))} · severidade ${ROTULO_SEV[sev] ?? sev}`,
-          impacto ? `Clientes na CTO: ${impacto.clientes} (cadastro SGP)` : null,
+          cto ? `Clientes na CTO: ${cto.clientes} (cadastro SGP)` : null,
+          linhaFinanceira(fin),
         ].filter(Boolean);
 
         const a = await emitir({
