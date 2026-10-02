@@ -41,6 +41,21 @@ export function rotasDaPergunta(pergunta: string): Rota[] {
     });
   }
 
+  // "Quais são esses 5 problemas?" depois da contagem: é a lista da rede, não
+  // a última caixa citada. O fio da conversa puxava para a caixa.
+  if (/problemas?|alarmes?|alertas?/i.test(p) && /\b(quais|lista|liste|mostra|mostre|esses|estes|temos|tem)\b/i.test(p) &&
+      // Lugar ou equipamento citado é outra pergunta (saúde do bairro, um equipamento).
+      !/\bcaixa|\bcto\b|cliente|contrato|bairro|\brua\b|rede d[aoe]\b|\bonu\b|\bolt\b|\bpon\b|equipamento|switch|roteador|link/i.test(p)) {
+    rotas.push({
+      assunto: 'problemas da rede',
+      ferramenta: 'zabbix_problemas',
+      instrucao:
+        'A pergunta é sobre os PROBLEMAS ABERTOS da rede (a lista), não sobre uma caixa. Chame zabbix_problemas ' +
+        'SEM filtro; para "antigos"/"mais de 30 dias" use idade=cronico, para "de hoje" idade=novo. Liste os ' +
+        'problemas que a ferramenta devolver, com há quantos dias cada um está aberto.',
+    });
+  }
+
   if (/cancel|desist|pedi(u|ram) (pra|para) sair/i.test(p)) {
     rotas.push({
       assunto: 'cancelamentos',

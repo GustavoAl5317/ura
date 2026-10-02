@@ -18,12 +18,12 @@ import { zabbix, ZabbixClient } from '../../integrations/zabbix';
 import * as zm from '../../integrations/zabbix-metricas';
 import type { Onu } from '../../integrations/zabbix-metricas';
 import {
-  servicosPorSns, servicosPorPon, servicosPorCto, listarCtos, idadeEspelho, statusIndice,
+  servicosPorSns, servicosPorPon, servicosPorCto, listarCtos, idadeEspelho, statusIndice, ctosParecidas,
   type ResultadoBusca,
 } from '../store/sgp-index';
 import { Ferramenta, medir, ferramentas, CtxFerramenta } from './base';
 import { questdb } from '../../integrations/questdb';
-import { resolverCto, sinalDaCto } from './ctos';
+import { resolverCtoAmplo, sinalDaCto } from './ctos';
 import { Envelope } from '../types';
 
 // ─── Utilitários ────────────────────────────────────────────────────────────
@@ -533,6 +533,27 @@ const analisarCto: Ferramenta = {
           .sort((a, b) => b.semelhanca - a.semelhanca || b.servicos - a.servicos);
 
         if (!ranking.length) {
+          // Por palavras: "a caixa da rua Araçá" acha "CTO 3 - R. ARACA, 194".
+          const parecidas = ctosParecidas(termo);
+          if (parecidas.length === 1) {
+            ctoNome = parecidas[0];
+            clientes = servicosPorCto(parecidas[0]);
+            return {
+              dados: {
+                termo, cto: ctoNome, resolvida_por: 'palavras do nome', clientes: clientes.length,
+                contratos_ativos: clientes.filter((c) => /ativo/i.test(c.contratoStatus ?? '')).length,
+                olts: [...new Set(clientes.map((c) => c.oltNome).filter(Boolean))],
+                origem_cadastro: idadeEspelho(),
+              },
+              vazio: clientes.length === 0,
+            };
+          }
+          if (parecidas.length > 1) {
+            return {
+              dados: { termo, resolvida: null, ambiguo: true, candidatas: parecidas, instrucao: 'Mostre as opções e pergunte qual é.' },
+              vazio: true,
+            };
+          }
           return { dados: { termo, resolvida: null, candidatas: [] }, vazio: true };
         }
         const empatadas = ranking.filter((r) => r.semelhanca === ranking[0].semelhanca);
@@ -642,7 +663,7 @@ const analisarCto: Ferramenta = {
     if (questdb.disponivel) {
       envs.push(await medir<Record<string, unknown>>(ctx, 'questdb', 'questdb.sinal_da_cto', { cto: nomeCto, horas }, async () => {
         await questdb.exigirColetaViva();
-        const res = resolverCto(nomeCto, await questdb.ctosAtuais());
+        const res = resolverCtoAmplo(nomeCto, await questdb.ctosAtuais());
         if (!res.cto) {
           return { vazio: true, dados: { cto: nomeCto, na_serie: false, candidatas: res.candidatas } };
         }

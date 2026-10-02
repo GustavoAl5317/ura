@@ -232,21 +232,39 @@ const zabbixProblemas: Ferramenta = {
     'Não traz histórico: para "quantas vezes caiu" use zabbix_historico_quedas. ' +
     'Sem filtro nem host, usa os padrões de trigger da operação (varredura da rede). Com host, traz ' +
     'TODOS os problemas daquele equipamento (CPU, temperatura, ventoinha, BGP inclusos). Para problemas ' +
-    'de um FABRICANTE (ex.: Huawei), liste os equipamentos dele com zabbix_equipamentos e consulte cada um.',
+    'de um FABRICANTE (ex.: Huawei), liste os equipamentos dele com zabbix_equipamentos e consulte cada um. ' +
+    'Para "quais são esses problemas antigos?", "os de mais de 30 dias", "os novos de hoje": SEM filtro, com ' +
+    'idade (cronico, recente, novo). Idade nunca vai no filtro.',
   parametros: {
     type: 'object',
     properties: {
       filtro: {
         type: 'string',
-        description: 'Texto no nome do trigger, ex.: "CTO", "PPPoE", "POP". Opcional.',
+        description: 'Texto no NOME do alerta, ex.: "CTO", "PPPoE", "POP", "Araça". Não use para idade nem quantidade.',
       },
       host: { type: 'string', description: 'Restringe a um host/equipamento. Opcional.' },
+      idade: {
+        type: 'string', enum: ['novo', 'recente', 'cronico'],
+        description: 'Só os abertos hoje (novo), nos últimos 30 dias (recente) ou há mais de 30 dias (cronico).',
+      },
     },
     required: [],
   },
   async executar(args, ctx) {
-    const filtro = args.filtro ? String(args.filtro) : null;
+    let filtro = args.filtro ? String(args.filtro).trim() : null;
     const host = args.host ? String(args.host) : null;
+    let idadePedida = typeof args.idade === 'string' && ['novo', 'recente', 'cronico'].includes(args.idade)
+      ? args.idade as 'novo' | 'recente' | 'cronico' : null;
+    // O modelo pôs idade no filtro de texto ("mais de 30 dias", "antigos"):
+    // nenhum alerta tem isso no nome, e a resposta saiu "não há nenhum",
+    // contradizendo a anterior. Vira o parâmetro de idade.
+    if (filtro && /\b(dias?|antig|velh|cr[oô]nic|hoje|semana|m[eê]s|novos?|recentes?|abertos?|problemas?)\b/i.test(filtro)) {
+      if (!idadePedida) {
+        idadePedida = /antig|velh|cr[oô]nic|\d+\s*dias|m[eê]s/i.test(filtro) ? 'cronico'
+          : /hoje|novos?/i.test(filtro) ? 'novo' : /semana|recentes?/i.test(filtro) ? 'recente' : null;
+      }
+      filtro = null;
+    }
 
     return [
       await medir<Record<string, unknown>>(ctx, 'zabbix', 'zabbix.problemas', { filtro, host }, async () => {
@@ -293,15 +311,30 @@ const zabbixProblemas: Ferramenta = {
           };
         });
         const cronicos = incidentes.filter((i) => i.idade === 'cronico');
+        // Filtro de texto que não casou nada: diz quantos há sem ele, para a
+        // resposta não virar "não há problema" logo depois de listar nove.
+        let semEsseFiltro: Record<string, unknown> | undefined;
+        if (filtro && !host && !incidentes.length) {
+          const todos = await zabbix.problemasPorPadroes(config.zabbix.searchPatterns).catch(() => []);
+          semEsseFiltro = {
+            total_sem_o_filtro: todos.length,
+            instrucao: `Nenhum alerta tem "${filtro}" no nome, mas há ${todos.length} problema(s) aberto(s) na rede. ` +
+              'NÃO diga que não há problema: diga que nenhum tem esse nome e ofereça a lista.',
+          };
+        }
+        const listados = idadePedida ? incidentes.filter((i) => i.idade === idadePedida) : incidentes;
         return {
           dados: {
+            sem_esse_filtro: semEsseFiltro,
+            idade_pedida: idadePedida ?? undefined,
             total: incidentes.length,
             por_idade: {
               novos_hoje: incidentes.filter((i) => i.idade === 'novo').length,
               desta_semana_ou_mes: incidentes.filter((i) => i.idade === 'recente').length,
               cronicos_mais_de_30_dias: cronicos.length,
             },
-            incidentes,
+            incidentes: listados,
+            listados: idadePedida ? `${listados.length} de ${incidentes.length} (só idade ${idadePedida})` : undefined,
             como_ler_a_idade: cronicos.length
               ? `${cronicos.length} problema(s) aberto(s) há mais de ${DIAS_CRONICO} dias. Problema que está aberto há meses ` +
                 'sem mudança costuma ser alarme velho (porta desativada de propósito, parceiro BGP que já saiu, ' +

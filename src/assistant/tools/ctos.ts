@@ -11,7 +11,7 @@ import {
 import { ZabbixClient } from '../../integrations/zabbix';
 import { obter } from '../config-dinamica';
 import { Ferramenta, CtxFerramenta, medir, ferramentas } from './base';
-import { BairroDaCto, filtrarPorLugar, resolverBairro, resumoPorBairro, enderecoDaCto, enderecoEmTexto, ctosDaRua, chaveCto } from '../geografia';
+import { BairroDaCto, filtrarPorLugar, resolverBairro, resumoPorBairro, enderecoDaCto, enderecoEmTexto, ctosDaRua, chaveCto, chaveFalada } from '../geografia';
 import { lerSaude } from '../saude-rede';
 import { config } from '../../config';
 
@@ -53,6 +53,12 @@ export function resolverCto(
  * candidata. Aqui o termo é quebrado em palavras e todas precisam aparecer no
  * nome da CTO — "cyber vivo 148" acha, "cyber 999" não.
  */
+/** Palavras de fala que não fazem parte do nome de uma caixa. */
+export const PALAVRAS_DE_FALA_CTO = new Set([
+  'cto', 'caixa', 'caixinha', 'caixas', 'rua', 'r', 'av', 'avenida', 'tv', 'travessa', 'trav',
+  'da', 'do', 'de', 'dos', 'das', 'na', 'no', 'a', 'o', 'n', 'numero', 'num',
+]);
+
 export function resolverCtoAmplo(
   termo: string,
   lista: CtoAtual[],
@@ -62,12 +68,18 @@ export function resolverCtoAmplo(
 
   const limpar = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const palavras = limpar(termo).split(' ').filter((p) => p.length >= 2 && p !== 'cto');
+  // "caixa", "rua", "da" não distinguem caixa nenhuma: "a caixa da rua Araçá"
+  // procurava "caixa" e "rua" no nome "CTO 3 - R. ARACA, 194" e não achava.
+  const palavras = limpar(termo).split(' ').filter((p) => p && !PALAVRAS_DE_FALA_CTO.has(p) && (p.length >= 2 || /^\d+$/.test(p)));
   if (!palavras.length) return direto;
 
   const casam = lista.filter((c) => {
-    const nome = limpar(c.nome);
-    return palavras.every((p) => nome.split(' ').includes(p) || nome.includes(p));
+    const doNome = limpar(c.nome).split(' ');
+    // Número casa só número inteiro: "3" não pode achar a CTO 13.
+    return palavras.every((p) => /^\d+$/.test(p)
+      ? doNome.includes(p)
+      : doNome.includes(p) || doNome.some((w) => p.length >= 4 && w.startsWith(p)) ||
+        doNome.some((w) => w.length >= 4 && chaveFalada(w) === chaveFalada(p)));
   });
   if (casam.length === 1) return { cto: casam[0], candidatas: [], por: 'palavras do nome' };
   if (casam.length > 1) return { cto: null, candidatas: casam.slice(0, 8).map((c) => c.nome), por: null };
@@ -185,7 +197,7 @@ const sinalCto: Ferramenta = {
     const horas = Math.min(2160, Math.max(1, Number(args.horas) || 24));
     return [await medir<Record<string, unknown>>(ctx, 'questdb', 'questdb.cto_sinal', { cto: termo, horas }, async () => {
       await questdb.exigirColetaViva();
-      const res = resolverCto(termo, await questdb.ctosAtuais());
+      const res = resolverCtoAmplo(termo, await questdb.ctosAtuais());
       if (!res.cto) {
         return {
           vazio: true,

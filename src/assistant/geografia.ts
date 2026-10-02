@@ -201,6 +201,14 @@ function resolverEntre(termo: string, todos: string[], unicos: string[]): {
     return { bairro: null, candidatos: melhores.slice(0, 8).map((x) => x.b), como: null };
   }
 
+  // Nome curto (3 ou 4 letras): "PCI" é Pici. Só uma letra de diferença, e
+  // só se um bairro só fica a essa distância.
+  if (t.length >= 3 && t.length < 5) {
+    const perto = unicos.filter((b) => compacto(b).length <= t.length + 1 && edicao(compacto(b), t) <= 1);
+    if (perto.length === 1) return { bairro: perto[0], candidatos: [], como: 'pelo_som' };
+    if (perto.length > 1) return { bairro: null, candidatos: perto.slice(0, 8), como: null };
+  }
+
   if (t.length >= 5) {
     // Distância contada no SOM, com limite proporcional ao tamanho: "bolsa
     // fesso" fica a 3 trocas de "bom sucesso", e em nome de 9 letras isso

@@ -740,7 +740,8 @@ const palavrasDe = (x: string) => semAcento(x).replace(/[^a-z0-9]+/g, ' ').trim(
  * como palavra: estão em quase todo nome e não distinguem nada.
  */
 export function ctosParecidas(termo: string, limite = 10): string[] {
-  const procura = palavrasDe(termo).filter((p) => p.length >= 2 && !['cto', 'rua', 'r', 'av', 'da', 'do', 'de'].includes(p));
+  const procura = palavrasDe(termo).filter((p) => (p.length >= 2 || /^\d+$/.test(p)) &&
+    !['cto', 'caixa', 'caixinha', 'rua', 'r', 'av', 'avenida', 'tv', 'travessa', 'da', 'do', 'de', 'dos', 'das', 'na', 'no', 'a', 'o'].includes(p));
   if (!procura.length) return [];
   const nomes = db().prepare(
     `SELECT DISTINCT cto_nome FROM sgp_servico WHERE cto_nome IS NOT NULL AND TRIM(cto_nome) <> ''`,
@@ -749,7 +750,8 @@ export function ctosParecidas(termo: string, limite = 10): string[] {
     .map((n) => n.cto_nome)
     .filter((nome) => {
       const doNome = palavrasDe(nome);
-      return procura.every((p) => doNome.includes(p) || doNome.some((w) => w.startsWith(p) && p.length >= 4));
+      // Número casa só número inteiro: "3" não pode achar a CTO 13.
+      return procura.every((p) => doNome.includes(p) || (!/^\d+$/.test(p) && doNome.some((w) => w.startsWith(p) && p.length >= 4)));
     })
     .sort()
     .slice(0, limite);
