@@ -55,11 +55,12 @@ export const DEFINICOES = {
   },
 
   'ia.linguagem': {
-    tipo: 'texto', grupo: 'ia', padrao: () => 'auto', opcoes: ['auto', 'tecnica', 'simples'],
+    // A casa pediu: tudo explicado para quem não sabe nada, técnico ou não.
+    tipo: 'texto', grupo: 'ia', padrao: () => 'simples', opcoes: ['auto', 'tecnica', 'simples'],
     descricao:
-      'Como a IA escreve. "tecnica": usa CTO, PON, ONU normalmente. "simples": explica sem sigla ' +
-      '("a caixa na rua", "o aparelho do cliente"). "auto": espelha quem perguntou — quem fala técnico ' +
-      'recebe técnico, quem fala simples recebe simples.',
+      'Como a IA escreve. "simples" (padrão): tudo explicado para quem não sabe nada, com palavras do dia a dia ' +
+      '("a caixinha no poste", "o aparelhinho da internet"), resposta curta. "tecnica": usa CTO, PON, ONU ' +
+      'normalmente. "auto": espelha quem perguntou — quem fala técnico recebe técnico.',
   },
   'ia.mostrar_veredito': {
     tipo: 'texto', grupo: 'ia', padrao: () => 'nunca', opcoes: ['nunca', 'so_tecnico', 'sempre'],
@@ -98,7 +99,7 @@ export const DEFINICOES = {
     descricao: 'Voz da síntese. coral, sage, marin, ash, ballad, verse e cedar só existem no gpt-4o-mini-tts; no tts-1 elas viram nova.',
   },
   'audio.modelo': {
-    tipo: 'texto', grupo: 'audio', padrao: () => config.tts.openaiSpeechModel || 'gpt-4o-mini-tts',
+    tipo: 'texto', grupo: 'audio', padrao: () => config.tts.openaiSpeechModel || 'tts-1',
     opcoes: ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'],
     descricao: 'Modelo de voz. O gpt-4o-mini-tts segue o estilo abaixo e soa mais natural; se a conta recusar, cai sozinho para o tts-1.',
   },
@@ -121,6 +122,12 @@ export const DEFINICOES = {
   'alertas.destino_grupo': {
     tipo: 'texto', grupo: 'alertas', padrao: () => config.evolutionTecnicos.grupoAlertas,
     descricao: 'Grupo de WhatsApp que recebe os alertas (o identificador termina em @g.us). Vazio: alertas só no painel.',
+  },
+  'alertas.explicar_simples': {
+    tipo: 'booleano', grupo: 'alertas', padrao: () => true,
+    descricao:
+      'Cada aviso automático termina com uma linha "em palavras simples" ("Uma caixinha no poste parou. ' +
+      'As 12 casas ligadas nela estão sem internet agora."). O texto técnico continua acima.',
   },
   'alertas.silencio_inicio': {
     tipo: 'hora', grupo: 'alertas', padrao: () => '',
@@ -493,6 +500,12 @@ export const DEFINICOES = {
     descricao:
       'Cada resumo vai também em áudio curto (30 a 40 segundos), com o principal em linguagem simples. ' +
       'O texto completo continua indo. Se o áudio falhar, vai só o texto.',
+  },
+  'resumo.em_poucas_palavras': {
+    tipo: 'booleano', grupo: 'resumo', padrao: () => true,
+    descricao:
+      'O texto do resumo começa com "Em poucas palavras", explicado para quem não sabe nada de rede. ' +
+      'Os números de cada seção continuam embaixo.',
   },
   'resumo.secoes': {
     tipo: 'lista', grupo: 'resumo',

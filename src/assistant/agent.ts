@@ -212,7 +212,8 @@ export function respostaSocial(pergunta: string, agora: Date): string | null {
   if (tipo === DESPEDIDA) return 'Até mais! Qualquer coisa, é só chamar.';
   const hora = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Fortaleza', hour: '2-digit', hour12: false }).format(agora)) % 24;
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
-  return `${saudacao}! Em que posso ajudar? Posso ver incidentes da rede, CTOs, sinal e histórico de clientes, O.S., tráfego e clientes online.`;
+  return `${saudacao}! Em que posso ajudar? Posso te contar como está a internet nos bairros, se alguma caixinha no poste ` +
+    'parou, como está a internet de um cliente, os pedidos de visita do técnico e quem cancelou.';
 }
 
 export function extrairVereditoProposto(texto: string): { veredito: Veredito | 'CONVERSA'; corpo: string } {
@@ -258,20 +259,29 @@ export function tirarSeloRepetido(corpo: string): string {
  */
 export function instrucaoLinguagemSimples(limite: number): string {
   return [
-    'Quem perguntou NÃO é técnico. Escreva como quem explica para um vizinho, no WhatsApp.',
+    'Escreva como quem explica para alguém que NÃO SABE NADA de internet nem de rede: frases curtas, palavras ' +
+      'do dia a dia, como se explicasse para uma criança, sem ser infantil nem bobo.',
     'A PRIMEIRA frase é a resposta, curta: "Sim, está funcionando.", "Hoje ninguém cancelou no Bom Sucesso.", ' +
-      '"São 24 caixas; 11 têm só dois clientes."',
+      '"São 24 caixinhas; 11 têm só duas casas ligadas."',
+    'Toda coisa técnica vira coisa do dia a dia, explicada na primeira vez que aparece, em poucas palavras: ' +
+      'CTO = "a caixinha no poste de onde sai o fio da internet de cada casa"; ' +
+      'OLT = "a máquina central que manda internet para as caixinhas"; ' +
+      'ONU = "o aparelhinho da internet dentro da casa do cliente"; ' +
+      'sinal da fibra = "a força da luz que leva a internet pelo fio" (fraco é como celular com um tracinho só); ' +
+      'link ou operadora = "o cano grande por onde a internet chega até nós"; ' +
+      'tráfego = "quanto de internet está passando"; queda = "ficou sem internet"; ' +
+      'incidente ou alarme aberto = "problema que ainda não foi resolvido"; O.S. = "pedido de visita do técnico"; ' +
+      'PON = "o fio que liga a máquina central a várias caixinhas"; cancelamento = "cliente que saiu".',
     limite > 0
-      ? `Depois, no máximo 3 frases curtas ou 5 itens de lista. A resposta inteira cabe em ${limite} caracteres.`
-      : 'Depois, no máximo 3 frases curtas ou 5 itens de lista.',
+      ? `Depois da primeira frase, no máximo 3 frases curtas ou 5 itens de lista. Tudo cabe em ${limite} caracteres.`
+      : 'Depois da primeira frase, no máximo 3 frases curtas ou 5 itens de lista.',
     'Lista grande não vai inteira: mostre as 3 a 5 mais importantes, diga quantas são no total e ofereça o resto ' +
       '("Quer que eu mande todas?").',
-    'Palavras: "caixa na rua" (não CTO), "aparelho do cliente" (não ONU), "equipamento central" (não OLT), ' +
-      '"sinal da fibra" (não potência óptica), "trecho" (não PON), "ligação com a operadora" (não link ou interface).',
+    'Diga o que o número QUER DIZER, não só o número: "sinal fraco" em vez de "-27 dBm"; "passando bastante ' +
+      'internet, umas 700 megas" em vez de "722 Mbps"; "faz 3 meses" em vez de uma data cheia.',
     'NUNCA escreva nome de porta ou interface (Eth-Trunk, XGigabitEthernet, GigabitEthernet), "subinterface", ' +
-      '"coleta", "item", "evidência", "série" nem "dBm" sem dizer o que é. Em vez de "-27 dBm", diga "sinal fraco" ' +
-      '(e o número entre parênteses só se ajudar). Em vez de "722 Mbps", diga "passando bastante tráfego" ou ' +
-      '"cerca de 700 megas".',
+      '"coleta", "item", "evidência", "série", "trigger", "host", "PPPoE" nem sigla sem explicar.',
+    'Se houver algo a fazer, diga o que fazer em uma frase simples ("vale mandar um técnico olhar a caixinha da Rua X").',
     'O que não deu para saber vai numa frase só, no fim, se mudar alguma coisa para quem pergunta.',
     'Não mude os números nem o veredito: muda só o jeito de dizer. Mantenha as citações (evd_N) no fim das frases.',
   ].join(' ');
@@ -287,7 +297,8 @@ async function encurtar(texto: string, limite: number): Promise<{ texto: string 
     {
       role: 'system',
       content:
-        `Reescreva a resposta abaixo para um leigo, em até ${limite} caracteres. Primeira frase: a resposta direta. ` +
+        `Reescreva a resposta abaixo para alguém que não sabe nada de internet, como se explicasse para uma criança, ` +
+        `em até ${limite} caracteres. Primeira frase: a resposta direta. Coisa técnica vira coisa do dia a dia. ` +
         'Depois, só o que muda a decisão de quem perguntou. Mantenha todos os números que ficarem e as citações ' +
         '(evd_N). Não acrescente nada. Sem título, sem "Leitura para gestão", sem nome de porta ou interface. ' +
         'Não use "confirmado", "não confirmado", "inconclusivo", "provável" nem "hipótese". ' +

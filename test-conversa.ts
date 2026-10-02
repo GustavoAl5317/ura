@@ -180,7 +180,7 @@ async function main(): Promise<void> {
   cfg.definir('whatsapp.janela_conversa_min', 240, 'teste');
 
   console.log('\n─── Registro de linguagem ───');
-  checa('o padrão é espelhar quem perguntou', cfg.obter<string>('ia.linguagem') === 'auto');
+  checa('o padrão é explicar para quem não sabe nada', cfg.obter<string>('ia.linguagem') === 'simples');
   checa('só aceita os modos previstos',
     (() => { try { cfg.definir('ia.linguagem', 'poetica', 'teste'); return false; } catch { return true; } })());
   cfg.definir('ia.linguagem', 'simples', 'teste');

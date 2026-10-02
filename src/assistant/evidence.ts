@@ -141,14 +141,14 @@ function horaCurta(iso: string): string {
  */
 /** Nome da fonte como quem não é técnico reconhece. */
 const NOME_FONTE: Partial<Record<FonteId, string>> = {
-  sgp: 'cadastro (SGP)',
-  zabbix: 'monitoramento (Zabbix)',
-  questdb: 'leitura das caixas',
-  netflow: 'tráfego',
-  geosite: 'mapa da rede (GeoSite)',
-  ura: 'URA',
-  whatsapp: 'WhatsApp',
-  incidentes: 'incidentes',
+  sgp: 'cadastro dos clientes',
+  zabbix: 'sistema que vigia a rede',
+  questdb: 'medição das caixinhas',
+  netflow: 'medição do uso da internet',
+  geosite: 'mapa da rede',
+  ura: 'central telefônica',
+  whatsapp: 'atendimento do WhatsApp',
+  incidentes: 'registro de problemas',
 };
 
 export function formatarResposta(params: {

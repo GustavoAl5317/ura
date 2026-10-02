@@ -19,6 +19,7 @@ import { alertaResolvido, correlacionar } from './incidentes';
 import { avisoDePlantao } from './plantao';
 import { Decisao, decidir, esperaVencida, limparEspera, registrarDecisao } from './regras';
 import { Alvo, alvosDoAlerta, marcarEscalada, paraEscalar } from './roteamento';
+import { comExplicacao } from './em-palavras-simples';
 
 export type Origem = 'zabbix' | 'ura' | 'sla' | 'netflow' | 'ctos' | 'bot' | 'sistema';
 export type Severidade = 'info' | 'aviso' | 'critico';
@@ -88,7 +89,11 @@ export async function emitir(p: {
     origem: p.origem,
     severidade: p.severidade,
     titulo: p.titulo,
-    texto: p.texto,
+    // Linha "em palavras simples" no fim: o aviso técnico fica, e quem não
+    // sabe nada de rede entende o que aconteceu.
+    texto: obter<boolean>('alertas.explicar_simples')
+      ? comExplicacao(p.texto, { origem: p.origem, chave: p.chave, dados: p.dados })
+      : p.texto,
     dados: p.dados ?? null,
     chave: p.chave,
     criado_em: new Date().toISOString(),

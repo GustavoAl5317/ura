@@ -71,8 +71,11 @@ export const config = {
 
   tts: {
     provider: opt('TTS_PROVIDER', 'openai') as 'openai' | 'elevenlabs',
-    /** Modelo HTTP para fallback (só se OPENAI_SPEECH_FALLBACK=1) */
-    openaiSpeechModel: opt('OPENAI_SPEECH_MODEL', 'gpt-4o-mini-tts'),
+    /**
+     * Modelo HTTP para fallback (só se OPENAI_SPEECH_FALLBACK=1). Padrão tts-1:
+     * o projeto OpenAI da casa recusa o gpt-4o-mini-tts (403 em 02/10/2026).
+     */
+    openaiSpeechModel: opt('OPENAI_SPEECH_MODEL', 'tts-1'),
     /**
      * 1 = tenta /v1/audio/speech antes do áudio nativo Realtime.
      * 0 (padrão) = ElevenLabs cai → vai direto para voz nativa (evita 403 em muitas contas).

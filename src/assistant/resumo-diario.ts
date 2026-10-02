@@ -727,7 +727,9 @@ export function instrucaoResumoFalado(hora: string): string {
     'Comece com a saudação da hora (bom dia até 11h59, boa tarde até 17h59, boa noite depois) e "resumo das últimas horas".',
     'Diga primeiro como está a rede, em uma frase. Depois só os 2 ou 3 pontos que pedem atenção, com o lugar.',
     'Use SÓ fatos e números que estão no resumo. Não invente, não arredonde para mais nem para menos.',
-    'Sem sigla (diga "caixa na rua", não CTO), sem nome de porta, sem lista, sem emoji, sem asterisco.',
+    'Explique como para alguém que não sabe nada de internet: "a caixinha no poste" (não CTO), "a máquina central" ' +
+      '(não OLT), "o cano grande por onde a internet chega" (não link), "problema ainda não resolvido" (não alarme). ' +
+      'Sem sigla, sem nome de porta, sem lista, sem emoji, sem asterisco.',
     `No máximo ${MAX_FALA_RESUMO} caracteres. Termine com "O detalhe está no texto."`,
   ].join(' ');
 }
@@ -750,22 +752,31 @@ export async function resumoFalado(texto: string, fim: Date): Promise<string | n
 
 export async function enviarResumo(p: { chave: string; fim?: Date }): Promise<Alerta | null> {
   const r = await montarResumo(p.fim);
-  // Áudio curto para todos que recebem. Falhou o modelo ou a voz: vai só o texto.
+  // A versão simples serve aos dois: abre o texto ("Em poucas palavras") e
+  // vira o áudio. Falhou o modelo ou a voz: vai o texto de sempre.
+  const querAudio = obter<boolean>('resumo.enviar_audio');
+  const querSimples = obter<boolean>('resumo.em_poucas_palavras');
+  let falado: string | null = null;
+  if (querAudio || querSimples) {
+    falado = await resumoFalado(r.texto, new Date(r.fim)).catch(() => null);
+  }
   let audio: Buffer | null = null;
-  if (obter<boolean>('resumo.enviar_audio')) {
+  if (querAudio && falado) {
     try {
-      const falado = await resumoFalado(r.texto, new Date(r.fim));
-      audio = falado ? await sintetizar(falado, 'opus') : null;
-      if (!audio) logger.warn('Resumo: sem áudio, segue só o texto');
+      audio = await sintetizar(falado, 'opus');
     } catch (err) {
       logger.warn('Resumo: áudio falhou, segue só o texto', { err: erroTexto(err) });
     }
   }
+  if (querAudio && !audio) logger.warn('Resumo: sem áudio, segue só o texto');
+  const texto = querSimples && falado
+    ? `*Em poucas palavras:* ${falado.replace(/\s*O detalhe está no texto\.?\s*$/i, '').trim()}\n\n${r.texto}`
+    : r.texto;
   return emitir({
     origem: 'sistema',
     severidade: 'info',
     titulo: tituloResumo(new Date(r.inicio), new Date(r.fim)),
-    texto: r.texto,
+    texto,
     chave: p.chave,
     dados: { inicio: r.inicio, fim: r.fim, secoes: r.secoes },
     evento: true,

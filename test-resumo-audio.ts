@@ -77,6 +77,8 @@ async function main(): Promise<void> {
   textos.length = 0; audios.length = 0;
   let a = await R.enviarResumo({ chave: 'resumo:teste:1', fim });
   checa('o texto completo vai', textos.length === 1 && /12345@g\.us/.test(textos[0]), textos);
+  checa('o texto abre com "Em poucas palavras", sem o "detalhe no texto"',
+    /\|\*Em poucas palavras:\* Boa tarde\. A rede está funcionando\.\n\n/.test(textos[0] ?? '') && !/detalhe está no texto/.test(textos[0] ?? ''), textos[0]?.slice(0, 160));
   checa('e o áudio vai junto para o mesmo destino', audios.length === 1 && audios[0].para === '12345@g.us', audios);
   checa('o resumo fica registrado como enviado', !!a?.enviado_em, a?.envio_erro);
 
@@ -100,6 +102,26 @@ async function main(): Promise<void> {
   textos.length = 0; audios.length = 0;
   await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO off', texto: 'CTO 3 off', chave: 'teste:alerta:1' });
   checa('alerta comum continua sem áudio', audios.length === 0 && textos.length === 1, { textos, audios });
+
+  console.log('\n─── Aviso em palavras simples ───');
+  /* eslint-disable-next-line @typescript-eslint/no-var-requires */
+  const S = require(path.join(RAIZ, 'src', 'assistant', 'em-palavras-simples')) as typeof import('./src/assistant/em-palavras-simples');
+  checa('caixa parada, com quantas casas',
+    S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:9', dados: { tipo: 'cto_off', impacto: { clientes: 12 } } }) ===
+      'Uma caixinha no poste parou. As 12 casas ligadas nela estão sem internet agora.');
+  checa('link vira "o cano grande"', /cano grande/.test(S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:10', dados: { tipo: 'link' } }) ?? ''));
+  checa('tipo desconhecido tem frase genérica', /sistema que vigia a rede/.test(S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:11', dados: {} }) ?? ''));
+  checa('sinal fraco explicado', /força da luz/.test(S.explicacaoSimples({ origem: 'ctos', chave: 'ctos:sinal:5:123' }) ?? ''));
+  checa('sem medição não é "caiu"', /Não quer dizer que ela caiu/.test(S.explicacaoSimples({ origem: 'ctos', chave: 'ctos:sem_coleta:5:1' }) ?? ''));
+  checa('resolvido: "Voltou ao normal."', S.explicacaoSimples({ origem: 'zabbix', chave: 'zabbix:9:resolvido' }) === 'Voltou ao normal.');
+  checa('resumo não ganha linha (já abre simples)', S.explicacaoSimples({ origem: 'sistema', chave: 'resumo:2026-10-02:1400' }) === null);
+  textos.length = 0;
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: '🚨 *CTO offline*', chave: 'zabbix:777', dados: { tipo: 'cto_off', impacto: { clientes: 8 } } });
+  checa('o alerta enviado leva a linha simples', /💬 Uma caixinha no poste parou\. As 8 casas/.test(textos[0] ?? ''), textos[0]);
+  cfg.definir('alertas.explicar_simples', false, 'teste');
+  textos.length = 0;
+  await alertas.emitir({ origem: 'zabbix', severidade: 'critico', titulo: 'CTO offline', texto: '🚨 *CTO offline*', chave: 'zabbix:778', dados: { tipo: 'cto_off' } });
+  checa('desligado no painel: sem a linha', !/💬/.test(textos[0] ?? ''), textos[0]);
 
   fecharDb();
   console.log(`\n${passou} ok, ${falhou} falha(s)`);

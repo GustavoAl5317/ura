@@ -177,22 +177,34 @@ async function main(): Promise<void> {
   r = await agente.responder({ pergunta: 'como está a rede lá do bom sucesso agora?', usuario: 'teste-laco', canal: 'whatsapp' });
   checa('reescrita que perde a citação é descartada (fica a original)', /Eth-Trunk/.test(r.texto) && r.texto.includes('(evd_1)'), r.texto.slice(0, 80));
 
+  // Padrão da casa: tudo explicado para quem não sabe nada, técnico ou não.
   pedidos = [];
-  roteiro = [chamada('l3', { y: 1 }), texto(longa)];
+  roteiro = [chamada('l3', { y: 1 }), texto(longa), texto('A força da luz chega fraca na caixinha (evd_1).')];
   r = await agente.responder({ pergunta: 'qual o rx da onu e o estado da pon 3 da olt 1?', usuario: 'teste-laco', canal: 'chat' });
-  checa('pergunta técnica não é encurtada', pedidos.length === 2 && r.texto.length > 600 && !r.simples, { n: pedidos.length, len: r.texto.length });
+  checa('padrão simples: até pergunta técnica sai curta e explicada', r.simples === true && /caixinha/.test(r.texto), { len: r.texto.length, t: r.texto.slice(0, 80) });
+  checa('o pedido explica sigla com coisa do dia a dia',
+    pedidos[0].messages.some((m) => m.role === 'system' && /a caixinha no poste de onde sai o fio da internet/.test(m.content ?? '')));
+
+  // Quem escolher "auto" no painel volta a ter resposta técnica para técnico.
+  const cfgLaco = require(path.join(RAIZ, 'src', 'assistant', 'config-dinamica')) as typeof import('./src/assistant/config-dinamica');
+  cfgLaco.definir('ia.linguagem', 'auto', 'teste');
+  pedidos = [];
+  roteiro = [chamada('l4', { y: 2 }), texto(longa)];
+  r = await agente.responder({ pergunta: 'qual o rx da onu e o estado da pon 3 da olt 2?', usuario: 'teste-laco', canal: 'chat' });
+  checa('modo auto: pergunta técnica não é encurtada', pedidos.length === 2 && r.texto.length > 600 && !r.simples, { n: pedidos.length, len: r.texto.length });
+  cfgLaco.definir('ia.linguagem', 'simples', 'teste');
 
   const { formatarResposta } = require(path.join(RAIZ, 'src', 'assistant', 'evidence')) as typeof import('./src/assistant/evidence');
   const ev = [{ id: 'evd_1', fonte: 'sgp', consulta: 'sgp.cadastro_espelho', args: {}, consultadoEm: new Date().toISOString(), duracaoMs: 1, ok: true, vazio: false, dados: {} }] as any;
   const leigo = formatarResposta({ veredito: 'PROVAVEL', texto: 'Está funcionando.', evidencias: ev, fontesIndisponiveis: [], lacunas: ['a', 'b', 'c'], simples: true, ajuste: 'nota técnica' });
-  checa('rodapé de leigo: uma linha de fonte, sem "evd_1 · sgp ·"', /Consultei: cadastro \(SGP\)/.test(leigo) && !/evd_1 ·/.test(leigo), leigo);
+  checa('rodapé de leigo: uma linha de fonte, sem "evd_1 · sgp ·"', /Consultei: cadastro dos clientes/.test(leigo) && !/evd_1 ·/.test(leigo), leigo);
   checa('rodapé de leigo: só a primeira lacuna, sem nota técnica', /Falta para confirmar: a/.test(leigo) && !/• b/.test(leigo) && !/nota técnica/.test(leigo), leigo);
   for (const v of ['PROVAVEL', 'INCONCLUSIVO'] as const) {
     const msg = formatarResposta({ veredito: v, texto: 'Não consegui ver o sinal da caixa 5 agora.', evidencias: ev, fontesIndisponiveis: ['zabbix'], lacunas: ['falta X'], hipotese: 'rompimento', semSelo: true, ajuste: 'rebaixado' });
     checa(`sem selo (${v}): nada de selo, "confirm", "hipótese" nem lacuna técnica`,
       !/confirm|inconclusiv|prov[aá]vel|hip[oó]tese|falta X|rebaixado/i.test(msg) && msg.startsWith('Não consegui ver'), msg);
     checa(`sem selo (${v}): mantém causa possível, fonte fora e fonte usada`,
-      /Pode ser: rompimento/.test(msg) && /Não consegui consultar: monitoramento/.test(msg) && /Consultei: cadastro/.test(msg), msg);
+      /Pode ser: rompimento/.test(msg) && /Não consegui consultar: sistema que vigia a rede/.test(msg) && /Consultei: cadastro/.test(msg), msg);
   }
   checa('o padrão é nunca mostrar o selo', agente.semSelo(false) && agente.semSelo(true));
   pedidos = [];
