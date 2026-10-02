@@ -92,7 +92,7 @@ def item1():
         conversa = r.get('conversaId', conversa)
         v = r.get('veredito', '?')
         contagem[v] = contagem.get(v, 0) + 1
-        consultas = ['%s%s' % (e.get('consulta'), '' if e.get('ok', True) else ' (FALHOU)') for e in r.get('evidencias', [])]
+        consultas = ['%s%s%s' % (e.get('consulta'), ' ' + json.dumps(e.get('args'), ensure_ascii=False)[:80] if e.get('args') else '', '' if e.get('ok', True) else ' (FALHOU)') for e in r.get('evidencias', [])]
         print('\n> %s' % p)
         print('  veredito: %s | consultou: %s' % (v, ', '.join(consultas) or 'nada'))
         print('  ' + (r.get('texto') or r.get('error') or '(sem resposta)').replace('\n', '\n  ')[:700])
